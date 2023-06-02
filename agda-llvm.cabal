@@ -27,9 +27,10 @@ executable agda-llvm
         DeriveGeneric
 
     build-depends:    
-      , base    >= 4.12.0.0  && < 4.19
-      , deepseq >= 1.4.4.0   && < 1.5            
-      , Agda    >= 2.6.3
+      , Agda       >= 2.6.4
+      , base       >= 4.12.0.0 && < 4.19
+      , containers >= 0.6.0.1  && < 0.7
+      , deepseq    >= 1.4.4.0  && < 1.5            
 
     hs-source-dirs:   src
     default-language: GHC2021
