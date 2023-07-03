@@ -14,5 +14,6 @@ stdenv.mkDerivation {
   name = "testing";
   buildInputs = [ 
     zlib 
+    graphviz
   ];
 }

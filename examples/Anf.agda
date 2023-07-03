@@ -1,5 +1,5 @@
 
-module anf where
+module Anf where
 
 data ℕ : Set where
     zero : ℕ

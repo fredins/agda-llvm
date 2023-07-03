@@ -20,6 +20,8 @@ executable agda-llvm
     main-is:          Main.hs
     other-modules:
         Agda.Llvm.Compiler
+        Agda.Llvm.Grin
+        Agda.Llvm.Llvm
          
     default-extensions:
         LambdaCase
@@ -31,6 +33,7 @@ executable agda-llvm
       , base       >= 4.12.0.0 && < 4.19
       , containers >= 0.6.0.1  && < 0.7
       , deepseq    >= 1.4.4.0  && < 1.5            
+      , mtl
 
     hs-source-dirs:   src
     default-language: GHC2021

@@ -1,0 +1,18 @@
+digraph "Call graph: test-4.ll" {
+	label="Call graph: test-4.ll";
+
+	Node0x1be9e70 [shape=record,label="{printf}"];
+	Node0x1be9f50 [shape=record,label="{malloc}"];
+	Node0x1be9fd0 [shape=record,label="{eval}"];
+	Node0x1be9fd0 -> Node0x1bea100;
+	Node0x1be9fd0 -> Node0x1bed810;
+	Node0x1bea100 [shape=record,label="{DownFrom.downFrom}"];
+	Node0x1bea100 -> Node0x1be9fd0;
+	Node0x1bea100 -> Node0x1be9f50;
+	Node0x1bed810 [shape=record,label="{DownFrom.sum}"];
+	Node0x1bed810 -> Node0x1be9fd0;
+	Node0x1bed810 -> Node0x1bed810;
+	Node0x1bedb40 [shape=record,label="{main}"];
+	Node0x1bedb40 -> Node0x1be9f50;
+	Node0x1bedb40 -> Node0x1be9fd0;
+}

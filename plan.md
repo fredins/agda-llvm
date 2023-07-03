@@ -1,3 +1,86 @@
+Ideas:
+• Functional but in place (FBIP)
+• Strictness analysis enables passing unboxed values [1, 5].
+• Deforestation and specialiation via supercompilation [2].
+• Join points extension to ANF [3]?
+• Destination-Passing style [4]?
+• Tail recursion?
+• Unsure what evaluation model i should use; either cell model 
+  or self-updating model [5]
+• Don't allocate when forcing x in:
+
+    case x of 
+      nil → ...
+      cons y ys → ...
+
+  only put the arguments of, for instance, `cons` in the registers [5].
+
+
+Plan: 
+• Use heap-allocated closures/thunks.
+• Use llvm's `tailcc` to limit the stack.
+• Use reference counting to allow reuse.
+
+
+[1] Unboxed values as first class citizens in a non-strict functional language
+[2] Supercompilation by Evaluation
+[3] Compiling without Continuations
+[4] Destination-Passing Style for Efficient Memory Management
+[5] Implementing lazy functional languages on stock hardware: 
+    the Spineless Tagless G-machine
+
+
+
+     main = 
+       let xs = 1 :: 2 :: [] in
+       map (_+_ 10) xs
+
+     map f xs = case xs of
+       []      → Nil
+       x :: xs → f x :: map f xs
+
+    %info = 
+      { i1   ; evaluated?
+      , i8   ; reference count
+      , i8   ; next_position
+      , i32  ; size
+      , ptr  ; function
+      }
+
+    %add_thunk = { ptr, ptr, ptr }
+    
+    define i32 @add(ptr %cxt){
+      %x = extractvalue i32 %vars, 0
+      %x = extractvalue i32 %vars, 1
+      %1 = add i32 %x, %y
+      ret %1
+    }
+
+    add x y = ...
+
+    apply f x = f x
+
+    main = apply (add 4) 5
+
+
+    define i32 @add(i32 %x, i32 %y){
+      %1 = add i32 %x, %y
+      ret %1
+    }
+
+    define i32 @apply(ptr %f, ptr %x){
+      force
+
+    }
+
+    define i32 @main(){
+
+    }
+    
+
+
+
+
 
 
 

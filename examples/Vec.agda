@@ -1,7 +1,5 @@
 
-module vec where
-
--- open import Data.Nat using (ℕ; zero; suc)
+module Vec where
 
 data Nat : Set where
     zero : Nat
@@ -18,5 +16,9 @@ onetwothree = cons 1 (cons 2 (cons 3 nil))
 
 head : {A : Set}{n : Nat} → Vec A (suc n) → A
 head (cons x _) = x
+
+map : {A B : Set}{n : Nat} → (A → B) → Vec A n → Vec B n
+map f nil = nil
+map f (cons x xs) = cons (f x) (map f xs)
 
 

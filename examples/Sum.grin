@@ -1,0 +1,13 @@
+
+sum xs = eval xs ; λ u →  
+         case u of
+           CNil       → unit (CInt 0)
+           CCons x xs → eval x ; λ (CInt n) → 
+                        sum xs ; λ (CInt m) → 
+                        suc m ; λ (CInt m') →
+                        unit (CInt m')
+
+main = store CNil ; λ t₁ → 
+       store (Fsum t₁) → λ t
+       eval t₈ ; λ (CInt t₉) → 
+       intPrint y t₉

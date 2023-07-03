@@ -1,13 +1,10 @@
-{-# OPTIONS --guardedness #-}
 
-module natural where
+module Simple where
 
 data ℕ : Set where
     zero : ℕ
     suc  : ℕ -> ℕ
-
 {-# BUILTIN NATURAL ℕ #-}
 
-two = suc (suc zero)
-
-
+four : ℕ
+four = 4
