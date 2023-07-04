@@ -1,0 +1,4 @@
+name: agda
+include: agda 
+         .
+depend: standard-library

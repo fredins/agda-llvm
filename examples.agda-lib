@@ -1,3 +1,0 @@
-name: examples
-include: examples
-depend: standard-library

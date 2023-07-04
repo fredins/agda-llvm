@@ -79,7 +79,7 @@ data LlvmOptions = LlvmOptions
   }deriving (Generic, NFData)
 
 
-data LlvmEnv = LlvmEnv {terms :: [Term]}
+data LlvmEnv = LlvmEnv {}
 
 data LlvmModuleEnv = LlvmModuleEnv
 newtype LlvmModule = LlvmModule [GrinDefinition]
@@ -99,9 +99,7 @@ llvmCommandLineFlags =
     enable o = pure o{ flagLlvmCompile = True }
 
 llvmPreCompile :: LlvmOptions -> TCM LlvmEnv
-llvmPreCompile _ = do
-  terms <- manual
-  pure LlvmEnv {terms = terms}
+llvmPreCompile _ = pure LlvmEnv
 
 -- TODO need to filter unreachable functions
 llvmCompileDef :: LlvmEnv
@@ -194,12 +192,20 @@ llvmPostCompile env _ mods = do
 
     -- liftIO $ putStrLn $ render $ vcat [text "BUILTINS:", nest 2 $ pretty builtins]
 
-    let llvmInstructions = runReader (evalStateT (grinToLlvm defs) initEnv)
-                         $ initCxt defs builtins
+    -- let llvmInstructions = runReader (evalStateT (grinToLlvm defs) initEnv)
+    --                      $ initCxt defs builtins
+    -- liftIO $ putStrLn "\n------------------------------------------------------------------------"
+    -- liftIO $ putStrLn "-- * LLVM"
+    -- liftIO $ putStrLn "------------------------------------------------------------------------\n"
+    -- liftIO $ putStrLn $ intercalate "\n\n" $ map prettyShow llvmInstructions
+
     liftIO $ putStrLn "\n------------------------------------------------------------------------"
-    liftIO $ putStrLn "-- * LLVM"
+    liftIO $ putStrLn "-- * Manual GRIN"
     liftIO $ putStrLn "------------------------------------------------------------------------\n"
-    liftIO $ putStrLn $ intercalate "\n\n" $ map prettyShow llvmInstructions
+    liftIO $ putStrLn $ intercalate "\n\n" $ map prettyShow manual
+
+
+
   where
     mkEl unEl = I.El {unEl=unEl, _getSort=undefined}
     mkDom unDom = I.Dom {domTactic=undefined, domName=undefined, domIsFinite=undefined, domInfo=undefined, unDom=unDom}
@@ -842,138 +848,140 @@ returnType = go . ([], ) where
 -- * Other
 -----------------------------------------------------------------------
 
-manual :: MonadFresh NameId m => m [Term]
-manual = do
-  let
-    callEval = App (Def "eval") . singleton
-    nilN = "[]"
-    consN = "_∷_"
-    sumN = "sum"
-    downFromN = "downFrom"
-    printfN = "printf"
-    natN = "nat"
+manual :: [GrinDefinition]
+manual = [evalDef, downFromDef, sumDef, mainDef] where
+  callEval = App (Def "eval") . singleton
+  nilN = "[]"
+  consN = "_∷_"
+  sumN = "sum"
+  downFromN = "downFrom"
+  printfN = "printf"
+  natN = "nat"
 
-  let eval =
-        Bind
-          (Fetch $ Var 0)
-          (AltVar
-            (Case 0 unreachable
-              [ AltNode CTag {tTag=0, tCon=natN, tArity=1} (Unit $ Var 1)
-              , AltNode CTag {tTag=1, tCon=nilN, tArity=0} (Unit $ Var 0)
-              , AltNode CTag {tTag=2, tCon=consN, tArity=2} (Unit $ Var 2)
-              , AltNode FTag {tTag=3, tDef=downFromN, tArity=1}
-                  (Bind
-                    (App (Def downFromN) [Var 0])
-                    (AltVar
-                      (Bind
-                        (Update (Var 2) (Var 0))
-                        (AltEmpty
-                          (Unit $ Var 0)
-                        )
-                      )
-                    )
-                  )
-              , AltNode FTag {tTag=4, tDef=sumN, tArity=1}
-                  (Bind
-                    (App (Def sumN) [Var 0])
-                    (AltVar
-                      (Bind
-                        (Update (Var 2) (Var 0))
-                        (AltEmpty
-                          (Unit $ Var 0)
-                        )
-                      )
-                    )
-                  )
-              ]
-            )
-          )
-
-  let downFrom =
-        Bind
-          (callEval $ Var 0)
-          (AltNode CTag{tTag=0, tCon=natN, tArity=1}
-            (Case 0
+  evalDef = GrinDefinition {gType=Nothing, gTreeless=Nothing, gTerm=eval, gName="eval", gArity=1}
+  eval =
+    Bind
+      (Fetch $ Var 0)
+      (AltVar
+        (Case 0 unreachable
+          [ AltNode CTag {tTag=0, tCon=natN, tArity=1} (Unit $ Var 1)
+          , AltNode CTag {tTag=1, tCon=nilN, tArity=0} (Unit $ Var 0)
+          , AltNode CTag {tTag=2, tCon=consN, tArity=2} (Unit $ Var 2)
+          , AltNode FTag {tTag=3, tDef=downFromN, tArity=1}
               (Bind
-                (App (Prim PSub64) [Var 0, Lit $ LitNat 1])
+                (App (Def downFromN) [Var 0])
                 (AltVar
                   (Bind
-                    (Store $ Node CTag{tTag=0, tCon=natN, tArity=1} [Var 0])
+                    (Update (Var 2) (Var 0))
+                    (AltEmpty
+                      (Unit $ Var 0)
+                    )
+                  )
+                )
+              )
+          , AltNode FTag {tTag=4, tDef=sumN, tArity=1}
+              (Bind
+                (App (Def sumN) [Var 0])
+                (AltVar
+                  (Bind
+                    (Update (Var 2) (Var 0))
+                    (AltEmpty
+                      (Unit $ Var 0)
+                    )
+                  )
+                )
+              )
+          ]
+        )
+      )
+
+  downFromDef = GrinDefinition {gType=Nothing, gTreeless=Nothing, gTerm=downFrom, gName=downFromN, gArity=1}
+  downFrom =
+    Bind
+      (callEval $ Var 0)
+      (AltNode CTag{tTag=0, tCon=natN, tArity=1}
+        (Case 0
+          (Bind
+            (App (Prim PSub64) [Var 0, Lit $ LitNat 1])
+            (AltVar
+              (Bind
+                (Store $ Node CTag{tTag=0, tCon=natN, tArity=1} [Var 0])
+                (AltVar
+                  (Bind
+                    (Store $ Node FTag {tTag=3, tDef=downFromN, tArity=1} [Var 0])
                     (AltVar
                       (Bind
-                        (Store $ Node FTag {tTag=3, tDef=downFromN, tArity=1} [Var 0])
+                        (Store $ Node CTag{tTag=0, tCon=natN, tArity=1} [Var 2])
                         (AltVar
-                          (Bind
-                            (Store $ Node CTag{tTag=0, tCon=natN, tArity=1} [Var 2])
-                            (AltVar
-                              (Unit $ Node CTag {tTag=2, tCon=consN, tArity=2} [Var 0, Var 1])
-                            )
-                          )
+                          (Unit $ Node CTag {tTag=2, tCon=consN, tArity=2} [Var 0, Var 1])
                         )
                       )
                     )
                   )
                 )
               )
-              [ AltLit (LitNat 0) $ Unit $ Node CTag {tTag=1, tCon=nilN, tArity=0} []]
             )
           )
+          [ AltLit (LitNat 0) $ Unit $ Node CTag {tTag=1, tCon=nilN, tArity=0} []]
+        )
+      )
 
 
-  let sum =
-        Bind
-          (callEval $ Var 0)
-          (AltVar
-            (Case 0 unreachable
-              [ AltNode
-                  CTag {tTag=1, tCon=nilN, tArity=0}
-                  (Unit $ Node CTag { tTag=0, tCon=natN, tArity=1} [Lit $ LitNat 0])
-              , AltNode
-                  CTag {tTag=2, tCon=consN, tArity=2}
+  sumDef = GrinDefinition {gType=Nothing, gTreeless=Nothing, gTerm=sum, gName=sumN, gArity=1}
+  sum =
+    Bind
+      (callEval $ Var 0)
+      (AltVar
+        (Case 0 unreachable
+          [ AltNode
+              CTag {tTag=1, tCon=nilN, tArity=0}
+              (Unit $ Node CTag { tTag=0, tCon=natN, tArity=1} [Lit $ LitNat 0])
+          , AltNode
+              CTag {tTag=2, tCon=consN, tArity=2}
+              (Bind
+                (callEval $ Var 1)
+                (AltNode CTag{tTag=0, tCon=natN, tArity=1}
                   (Bind
-                    (callEval $ Var 1)
+                    (App (Def sumN) [Var 1])
                     (AltNode CTag{tTag=0, tCon=natN, tArity=1}
                       (Bind
-                        (App (Def sumN) [Var 1])
-                        (AltNode CTag{tTag=0, tCon=natN, tArity=1}
-                          (Bind
-                            (App (Prim PAdd64) [Var 1, Var 0])
-                            (AltVar
-                              (Unit $ Node CTag {tTag=0, tCon=natN, tArity=1} [Var 0])
-                            )
-                          )
+                        (App (Prim PAdd64) [Var 1, Var 0])
+                        (AltVar
+                          (Unit $ Node CTag {tTag=0, tCon=natN, tArity=1} [Var 0])
                         )
-                      )
-                    )
-                  )
-
-
-              ]
-            )
-          )
-
-
-  let main =
-        Bind
-          (Store $ Node CTag {tTag=0, tCon=natN, tArity=1} [Lit $ LitNat 4])
-          (AltVar
-            (Bind
-              (Store $ Node FTag {tTag=3, tDef=downFromN, tArity=1} [Var 0])
-              (AltVar
-                (Bind
-                  (Store $ Node FTag {tTag=4, tDef=sumN, tArity=1} [Var 0])
-                  (AltVar
-                    (Bind
-                      (callEval $ Var 0)
-                      (AltNode CTag {tTag=0, tCon=natN, tArity=1}
-                        (App (Def printfN) [Var 0])
                       )
                     )
                   )
                 )
               )
+
+
+          ]
+        )
+      )
+
+
+  mainDef = GrinDefinition {gType=Nothing, gTreeless=Nothing, gTerm=main, gName="main", gArity=0}
+  main =
+    Bind
+      (Store $ Node CTag {tTag=0, tCon=natN, tArity=1} [Lit $ LitNat 4])
+      (AltVar
+        (Bind
+          (Store $ Node FTag {tTag=3, tDef=downFromN, tArity=1} [Var 0])
+          (AltVar
+            (Bind
+              (Store $ Node FTag {tTag=4, tDef=sumN, tArity=1} [Var 0])
+              (AltVar
+                (Bind
+                  (callEval $ Var 0)
+                  (AltNode CTag {tTag=0, tCon=natN, tArity=1}
+                    (App (Def printfN) [Var 0])
+                  )
+                )
+              )
             )
           )
+        )
+      )
 
 
-  pure [eval, downFrom, sum, main]

@@ -3,3 +3,5 @@ dist-newstyle
 output.hs
 output/
 plan.md
+html/
+latex/
