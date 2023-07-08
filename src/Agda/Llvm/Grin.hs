@@ -45,7 +45,7 @@ data Val = Node Tag [Val]
 data Tag = CTag { tTag :: Int, tCon :: String, tArity :: Int }
          | FTag { tTag :: Int, tDef :: String, tArity :: Int }
          | PTag { tTag :: Int, tDef :: String, tArity :: Int, tApplied :: Int}
-           deriving Show
+           deriving (Show, Eq)
 
 
 data Alt = AltNode Tag Term

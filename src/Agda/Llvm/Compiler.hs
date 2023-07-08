@@ -2,32 +2,37 @@
 {-# LANGUAGE OverloadedRecordDot #-}
 {-# LANGUAGE OverloadedStrings   #-}
 {-# LANGUAGE RecordWildCards     #-}
-{-# OPTIONS_GHC -Wno-name-shadowing #-}
+{-# OPTIONS_GHC -Wno-name-shadowing -fno-warn-unused-binds -fno-warn-unused-matches -fno-warn-incomplete-patterns  #-}
 
 module Agda.Llvm.Compiler (llvmBackend) where
 
 import           Control.DeepSeq                       (NFData)
-import           Control.Monad                         (replicateM, zipWithM)
+import           Control.Monad                         (forM_, replicateM,
+                                                        replicateM_, zipWithM,
+                                                        zipWithM_)
 import           Control.Monad.Reader                  (MonadIO (liftIO),
                                                         MonadReader (ask, local),
                                                         Reader, asks, runReader,
                                                         when)
 import           Control.Monad.State                   (MonadState (put), State,
                                                         StateT, evalState,
-                                                        evalStateT, forM, get,
-                                                        gets, modify, runState)
+                                                        evalStateT, execState,
+                                                        forM, get, gets, modify,
+                                                        runState)
 import           Data.Function                         (on)
-import           Data.List                             (mapAccumL, nub)
+import           Data.List                             (insert, intercalate,
+                                                        lookup, mapAccumL, nub,
+                                                        singleton, sort, sortOn,
+                                                        union)
 import           Data.Map                              (Map)
 import qualified Data.Map                              as Map
 import           Data.Maybe                            (catMaybes, fromJust,
                                                         fromMaybe)
 import           Debug.Trace                           (trace)
-import           GHC.Generics                          (Generic)
-import           GHC.OldList                           (intercalate, singleton)
 import           Prelude                               hiding ((!!))
 
 import           Agda.Compiler.Backend                 hiding (Prim, initEnv)
+import           Agda.Compiler.JS.Pretty               (vsep)
 import           Agda.Compiler.ToTreeless              (closedTermToTreeless)
 import           Agda.Compiler.Treeless.Builtin        (translateBuiltins)
 import           Agda.Compiler.Treeless.NormalizeNames (normalizeNames)
@@ -40,20 +45,23 @@ import qualified Agda.Syntax.Internal                  as I
 import           Agda.Syntax.Literal                   (Literal (LitChar, LitNat))
 import           Agda.Syntax.TopLevelModuleName
 import qualified Agda.TypeChecking.Monad.Base          as Base
-import           Agda.TypeChecking.Substitute          (Subst (applySubst),
+import           Agda.TypeChecking.Substitute          (Abstract (abstract),
+                                                        Subst (applySubst),
                                                         raise, raiseFrom,
                                                         raiseFromS, raiseS, wkS)
 import           Agda.Utils.Functor
 import           Agda.Utils.Impossible
 import           Agda.Utils.List
 import           Agda.Utils.List1                      (List1)
-import           Agda.Utils.Maybe                      (allJustM, maybeM)
+import           Agda.Utils.Maybe                      (allJustM, maybeM,
+                                                        whenJust)
 import           Agda.Utils.Pretty
 import           Agda.Utils.Tuple                      (swap)
 import           Control.Applicative                   (Applicative (liftA2))
 import           Data.Bifunctor                        (Bifunctor (bimap, first, second))
 import           Data.Bitraversable                    (bimapM)
 import           Data.Foldable                         (foldrM)
+import           GHC.Generics                          (Generic)
 
 llvmBackend :: Backend
 llvmBackend = Backend llvmBackend'
@@ -122,7 +130,8 @@ llvmCompileDef env menv isMain def@Defn{defName, defType, theDef=Function{funCom
     treeless <- maybeM __IMPOSSIBLE__ normalizeNames $ toTreeless LazyEvaluation defName
     let (arity, treeless') = skipLambdas treeless
 
-    let term' = treelessToGrin (simplifyApp treeless') arity
+    let term' = treelessToGrin (isMain == IsMain && isNamedMain) (simplifyApp treeless') arity
+
     let gDef  = GrinDefinition
           {gType=Just defType
           ,gName=prettyShow defName
@@ -132,8 +141,8 @@ llvmCompileDef env menv isMain def@Defn{defName, defType, theDef=Function{funCom
           }
 
     pure $ Just gDef
-  -- where
-  --   isNamedMain = "main" == (prettyShow . nameConcrete . qnameName) defName
+  where
+    isNamedMain = "main" == (prettyShow . nameConcrete . qnameName) defName
 
 
 llvmCompileDef env menv isMain def@Defn{defName, theDef=Primitive{primName}} = do
@@ -182,13 +191,26 @@ llvmPostCompile env _ mods = do
     liftIO $ putStrLn "------------------------------------------------------------------------\n"
     liftIO $ putStrLn (intercalate "\n\n" $ map prettyShow defs)
 
-    builtinThings <- getsTC $ foldr1 Map.union .
-                     (\m -> map (iBuiltin . maybe __IMPOSSIBLE__ miInterface . flip Map.lookup m) $ Map.keys mods)
-                     . stDecodedModules . stPersistentState
+    liftIO $ putStrLn "\n------------------------------------------------------------------------"
+    liftIO $ putStrLn "-- * Heap points-to analysis"
+    liftIO $ putStrLn "------------------------------------------------------------------------\n"
+    liftIO $ putStrLn "Variable table:"
+    liftIO $ putStrLn (prettyShow $ genVariableTable defs)
+    let (heap, env, share) = heapPointsTo defs
+    liftIO $ putStrLn "\nAbstract heap: "
+    liftIO $ putStrLn $ prettyShow heap
+    liftIO $ putStrLn "\nAbstract env: "
+    liftIO $ putStrLn $ prettyShow env
 
-    let builtins = Map.fromList $ catMaybes $ flip map (Map.toList builtinThings) $ \case
-          (BuiltinName n, Builtin t) -> Just (t, n)
-          _                          -> Nothing
+
+
+    -- builtinThings <- getsTC $ foldr1 Map.union .
+    --                  (\m -> map (iBuiltin . maybe __IMPOSSIBLE__ miInterface . flip Map.lookup m) $ Map.keys mods)
+    --                  . stDecodedModules . stPersistentState
+    --
+    -- let builtins = Map.fromList $ catMaybes $ flip map (Map.toList builtinThings) $ \case
+    --       (BuiltinName n, Builtin t) -> Just (t, n)
+    --       _                          -> Nothing
 
     -- liftIO $ putStrLn $ render $ vcat [text "BUILTINS:", nest 2 $ pretty builtins]
 
@@ -199,10 +221,10 @@ llvmPostCompile env _ mods = do
     -- liftIO $ putStrLn "------------------------------------------------------------------------\n"
     -- liftIO $ putStrLn $ intercalate "\n\n" $ map prettyShow llvmInstructions
 
-    liftIO $ putStrLn "\n------------------------------------------------------------------------"
-    liftIO $ putStrLn "-- * Manual GRIN"
-    liftIO $ putStrLn "------------------------------------------------------------------------\n"
-    liftIO $ putStrLn $ intercalate "\n\n" $ map prettyShow manual
+    -- liftIO $ putStrLn "\n------------------------------------------------------------------------"
+    -- liftIO $ putStrLn "-- * Manual GRIN"
+    -- liftIO $ putStrLn "------------------------------------------------------------------------\n"
+    -- liftIO $ putStrLn $ intercalate "\n\n" $ map prettyShow manual
 
 
 
@@ -280,16 +302,177 @@ simplifyAppAlts = map go where
 -----------------------------------------------------------------------
 
 -- TODO
+-- • Refactor
 -- • Reuse evaluated variables
--- • Fix de Bruijn indices
+-- • Fill in rest of the patterns
+-- • Assign an unique tag (@tTag@) instead of 0?
 
 -- Preconditions:
 -- • Separate applications
 -- • Lambda lifted
 -- • No polymorphic functions?
 -- • Saturated constructors
-treelessToGrin :: TTerm -> Int -> Term
-treelessToGrin t arity = evalState (rScheme t) $ initGEnv arity
+treelessToGrin :: Bool -> TTerm -> Int -> Term
+treelessToGrin isMain t arity = evalState (rScheme t) $ initGEnv arity isMain
+
+
+rScheme :: TTerm -> G Term
+rScheme (TCase n CaseInfo{caseType=CTNat} def alts) = do
+  alts' <- mapM (aScheme . raise 1) alts
+  def' <- rScheme (raise 1 def)
+  pure $ Bind (eval n) $ AltNode natTag $ Case 0 def' alts'
+
+rScheme (TCase n CaseInfo{caseType=CTData _} def alts) = do
+  alts' <- mapM (aScheme . raise 1) alts
+  def' <- rScheme (raise 1 def)
+  pure $ Bind (eval n) $ AltVar $ Case 0 def' alts'
+
+-- | 𝓡 [_[]_] = unit (C_[]_)
+rScheme (TCon q) = pure $ Unit $ Node tag [] where
+  tag = CTag{tTag = 0, tCon = prettyShow q, tArity = 0}
+rScheme (TLit lit) = pure $ Unit $ Node natTag [Lit lit]
+rScheme (TError TUnreachable) = pure $ Error TUnreachable
+
+
+
+rScheme (TApp t as) = do
+    isMain <- gets isMain
+    let res t
+          | isMain = Bind t $ AltVar $ Bind (eval 0) $ AltNode natTag $ printf 0
+          | otherwise = t
+
+    case t of
+      TPrim prim -> value <$> appPrim res prim as
+      TDef q     -> value <$> appDef res q as
+      TCon q     -> value <$> appCon res q as
+      _          -> __IMPOSSIBLE__
+  where
+
+
+    -- | 𝓡 [x + y] = eval @1 ; λ Cnat #1 →
+    --               eval @1 ; λ Cnat #1 →
+    --               add @1 @0 ; λ #1 →
+    --               unit (Cnat @1)
+    appPrim res prim as = pure $ mkWithOffset (length evals) evals'
+      where
+
+        fin = Bind (App (Prim prim) vs) $ AltVar
+            $ res $ Unit $ Node natTag [Var 0]
+
+        evals' = foldr (\t ts -> Bind t $ AltVar ts) fin evals
+        (evals, vs) =  foldr f ([], []) as
+
+        f (TLit lit) (es, vs) = (es, Lit lit : vs)
+        f (TVar n)   (es, vs) = (eval (on (-) length evals es + n - 1)  : es, Var (length es) : vs)
+        f _          _        = __IMPOSSIBLE__
+
+
+
+    -- | 𝓡 [foo x y] = foo x y
+    appDef res q as = pure $ mkWithOffset (length stores) stores'
+      where
+        fin = res $ App (Def $ prettyShow q) vs
+
+        stores' :: Term
+        stores' = foldr (\t ts -> Bind t $ AltVar ts) fin stores
+        (stores, vs) = foldr f ([], []) as
+
+        f (TLit lit) (ss, vs) = (mkStore lit : ss, Var (length ss) : vs)
+        f (TVar n)   (ss, vs) = (ss, Var (n + length stores) : vs)
+        f _          _        = __IMPOSSIBLE__
+
+        mkStore lit = Store $ Node natTag [Lit lit]
+
+    -- | 𝓡 [_∷_ x xs] = unit (C_∷_ @1 @0)
+    appCon res q as = pure $ mkWithOffset (length stores) stores'
+      where
+        tag = CTag{tTag = 0, tCon = prettyShow q, tArity = length as}
+
+        fin = res $ Unit $ Node tag vs
+
+        stores' :: Term
+        stores' = foldr (\t ts -> Bind t $ AltVar ts) fin stores
+        (stores, vs) = foldr f ([], []) as
+
+
+
+
+        f (TLit lit) (ss, vs) = (mkStore lit : ss, Var (length ss) : vs)
+        f (TVar n)   (ss, vs) = (ss, Var (n + length stores) : vs)
+        f _          _        = __IMPOSSIBLE__
+
+        mkStore lit = Store $ Node natTag [Lit lit]
+
+
+-- | 𝓡 [let t1 in t2] = 𝓒 [t1] ; λ #1 → 𝓡 [t2]
+rScheme (TLet t1 t2)
+  | TApp t as <- t1 = do
+    WithOffset{value=t1', offset} <- cSchemeApp t as
+    t2' <- rScheme $ raiseFrom 1 offset t2
+    pure $ t1' t2'
+
+  | TLet t1 t2 <- t1 = do
+    t1' <- cScheme t1
+    t2' <- rScheme t2
+    pure $ Bind t1'$ AltVar t2'
+
+rScheme t = error $ "TODO rScheme " ++ show t
+
+aScheme :: TAlt -> G Alt
+aScheme TALit{aLit, aBody} = do
+  aBody' <- rScheme aBody
+  pure $ AltLit aLit aBody'
+
+aScheme TACon{aCon, aArity, aBody} = do
+    aBody' <- rScheme aBody
+    pure $ AltNode tag aBody'
+  where
+    tag = CTag{tTag = 0, tCon = prettyShow aCon, tArity = aArity}
+
+aScheme alt                = error $ "TODO aScheme " ++ show alt
+
+cScheme :: TTerm -> G Term
+cScheme t = error $ "TODO cScheme " ++ show t
+
+-- | 𝓒 [foo x y] = store (Ffoo @1 @0)
+--
+--   𝓒 [a + 4] = store (Cnat 4) λ #1 →
+--               store (Prim.add @1 @0)
+cSchemeApp :: TTerm -> Args -> G (WithOffset (Term -> Term))
+cSchemeApp t as = pure $ mkWithOffset (length stores) stores'
+  where
+  tag
+    | TDef q <- t = FTag{tTag = 0, tDef = prettyShow q, tArity = length as}
+    | TPrim prim <- t =  FTag {tTag=0, tDef=primStr prim, tArity=length as}
+    | otherwise = __IMPOSSIBLE__
+
+  fin = Bind (Store $ Node tag vs) . AltVar
+
+  stores' = foldr (\t ts -> Bind t . AltVar . ts) fin stores
+  (stores, vs) =  foldr f ([], []) as
+
+  f (TLit lit) (ss, vs) = (mkStore lit : ss, Var (length ss) : vs)
+  f (TVar n)   (ss, vs) = (ss, Var (n + length stores) : vs)
+  f _          _        = __IMPOSSIBLE__
+
+  mkStore lit = Store $ Node natTag [Lit lit]
+
+natTag :: Tag
+natTag = CTag{tTag=0, tCon="nat", tArity=1}
+
+eval :: Int -> Term
+eval = App (Def "eval") . singleton . Var
+
+printf :: Int -> Term
+printf = App (Def "printf") . singleton . Var
+
+
+primStr :: TPrim -> String
+primStr PAdd64 = "Prim.add"
+primStr PAdd   = "Prim.add"
+primStr PSub64 = "Prim.sub"
+primStr PSub   = "Prim.sub"
+primStr p      = error $ "TODO primStr " ++ show p
 
 data GVarInfo = GVarInfo
   { isEvaluated      :: Bool
@@ -300,214 +483,346 @@ mkVar :: GVarInfo
 mkVar = GVarInfo{isEvaluated=False, evaluationOffset=Nothing}
 
 data GEnv = GEnv
-  { gVars :: [GVarInfo]
+  { gVars  :: [GVarInfo]
+  , isMain :: Bool
   }
 
-initGEnv :: Int -> GEnv
-initGEnv arity = GEnv {gVars = replicate arity mkVar}
+initGEnv :: Int -> Bool -> GEnv
+initGEnv arity isMain = GEnv {gVars = replicate arity mkVar, isMain = isMain}
 
 type G = State GEnv
 
-rScheme :: TTerm -> G Term
-rScheme (TCase n CaseInfo{caseType=CTNat} def alts) = do
-  alts' <- mapM (aScheme . raise 1) alts
-  def' <- rScheme $ raise 1 def
-  pure $ Bind (eval n) $ AltNode natTag $ Case 0 def' alts'
+data WithOffset a = WithOffset
+  { offset :: Int
+  , value  :: a
+  }
 
-rScheme (TCase n CaseInfo{caseType=CTData _} def alts) = do
-  alts' <- mapM (aScheme . raise 1) alts
-  def' <- rScheme $ raise 1 def
-  pure $ Bind (eval n) $ AltNode natTag $ Case 0 def' alts'
-
--- | 𝓡 [_[]_] = unit (C_[]_)
-rScheme (TCon q) = pure $ Unit $ Node tag [] where
-  tag = CTag{tTag = 0, tCon = prettyShow q, tArity = 0}
-
--- | 𝓡 [_∷_ x xs] = unit (C_∷_ @1 @0)
-rScheme (TApp (TCon q) as) =
-   pure
-     $ stores'
-     $ Unit $ Node tag vs
-  where
-    tag = CTag{tTag = 0, tCon = prettyShow q, tArity = length as}
-
-    stores' = foldr (.) id stores
-    (stores, vs) =  foldr f ([], []) as
-
-    f (TLit lit) (stores, vs) = (mkStore lit : stores, Var (length stores) : vs)
-    f (TVar n)   (stores, vs) = (stores, Var n : vs)
-    f _          _            = __IMPOSSIBLE__
-
-    mkStore lit = Bind (Store $ Node natTag [Lit lit]) . AltVar
-
-
--- | 𝓡 [x + y] = eval @1 ; λ Cnat #1 →
---               eval @1 ; λ Cnat #1 →
---               add @1 @0 ; λ #1 →
---               unit (Cnat @1)
-rScheme (TApp (TPrim prim) as) =
-  pure
-    $ evals'
-    $ Bind (App (Prim prim) vs) $ AltVar
-    $ Unit $ Node natTag [Var 0]
-
-  where
-    evals' = foldr (.) id evals
-    (evals, vs) =  foldr f ([], []) as
-
-    f (TLit lit) (evals, vs) = (evals, Lit lit : vs)
-    f (TVar n)   (evals, vs) = (mkEval n : evals, Var (length evals) : vs)
-    f _          _           = __IMPOSSIBLE__
-
-    mkEval n = Bind (eval n) . AltNode natTag
-
--- | 𝓡 [foo x y] = foo x y
-rScheme (TApp (TDef q) as) =
-    pure
-      $ stores'
-      $ App (Def $ prettyShow q) vs
-  where
-    stores' = foldr (.) id stores
-    (stores, vs) =  foldr f ([], []) as
-
-    f (TLit lit) (stores, vs) = (mkStore lit : stores, Var (length stores) : vs)
-    f (TVar n)   (stores, vs) = (stores, Var n : vs)
-    f _          _            = __IMPOSSIBLE__
-
-    mkStore lit = Bind (Store $ Node natTag [Lit lit]) . AltVar
-
-
--- | 𝓡 [let t1 in t2] = 𝓒 [t1] ; λ #1 → 𝓡 [t2]
-rScheme (TLet t1 t2) = Bind <$> cScheme t1 <*> (AltVar <$> rScheme t2)
-rScheme (TLit lit) = pure $ Unit $ Lit lit
-rScheme (TError TUnreachable) = pure $ Error TUnreachable
-rScheme t                     = error $ "TODO rScheme " ++ show t
-
-aScheme :: TAlt -> G Alt
-aScheme TALit{aLit, aBody} = AltLit aLit <$> rScheme aBody
-aScheme TACon{aCon, aArity, aBody} = AltNode tag <$> rScheme aBody where
-  tag = CTag{tTag = 0, tCon = prettyShow aCon, tArity = aArity}
-aScheme alt                = error $ "TODO aScheme " ++ show alt
-
-
-eScheme :: TTerm -> G Term
-eScheme t = error $ "TODO eScheme " ++ show t
-
-
-cScheme :: TTerm -> G Term
-
--- | 𝓒 [foo x y] = store (Ffoo @1 @0)
-cScheme (TApp (TDef q) as) =
-    pure
-      $ stores'
-      $ Store $ Node tag vs
-  where
-    tag = FTag{tTag = 0, tDef = prettyShow q, tArity = length as}
-
-    stores' = foldr (.) id stores
-    (stores, vs) =  foldr f ([], []) as
-
-    f (TLit lit) (stores, vs) = (mkStore lit : stores, Var (length stores) : vs)
-    f (TVar n)   (stores, vs) = (stores, Var n : vs)
-    f _          _            = __IMPOSSIBLE__
-
-    mkStore lit = Bind (Store $ Node natTag [Lit lit]) . AltVar
-
-
--- | 𝓒 [a + 4] = store (Cnat 4) λ #1 →
---               store (Prim.add @1 @0)
-cScheme (TApp (TPrim prim) as) =
-    pure
-      $ stores'
-      $ Store $ Node tag vs
-  where
-    tag = FTag{tTag = 0, tDef = primStr prim, tArity = length as}
-
-    stores' = foldr (.) id stores
-    (stores, vs) =  foldr f ([], []) as
-
-    f (TLit lit) (stores, vs) = (mkStore lit : stores, Var (length stores) : vs)
-    f (TVar n)   (stores, vs) = (stores, Var n : vs)
-    f _          _            = __IMPOSSIBLE__
-
-    mkStore lit = Bind (Store $ Node natTag [Lit lit]) . AltVar
-
-
-
-
-cScheme t = error $ "TODO cScheme " ++ show t
-
-
-natTag :: Tag
-natTag = CTag{tTag=0, tCon="nat", tArity=1}
-
-eval :: Int -> Term
-eval = App (Def "eval") . singleton . Var
-
-primStr :: TPrim -> String
-primStr PAdd64 = "Prim.add"
-primStr PAdd   = "Prim.add"
-primStr PSub64 = "Prim.sub"
-primStr PSub   = "Prim.sub"
-primStr p      = error $ "TODO primStr " ++ show p
-
-
-
--- | Primitive operations need the arguments to be evaluated, unboxed,
---   and then boxed again.
---
---   𝓡 [let b = a - 1 in foo b]  =
---   𝓔 [a - 1] ; λ b → 𝓡 [foo b] =
---   eval a ; λ Cnat #1 →
---   Sub64 @0 1 ; λ #1 →
---   store (Cnat @0) ; λ #1 →
---   foo @0
---
--- • TODO Should primitives always be forced?
-{-
-rScheme (TLet (TApp (TPrim prim) as) t2) = do
-    t2' <- rScheme (raiseFrom 1 indexOffset t2)
-    pure
-      $ evals'
-      $ Bind (App (Prim prim) vs) $ AltNode natTag
-      $ Bind (Store $ Node natTag [Var 0]) $ AltVar t2'
-  where
-    indexOffset = length evals + 1
-
-    evals' = foldr (.) id evals
-    (evals, vs) =  foldr f ([], []) as
-
-    f (TLit lit) (evals, vs) = (evals, Lit lit : vs)
-    f (TVar n)   (evals, vs) = (mkEval n : evals, Var (length evals) : vs)
-    f _          _           = __IMPOSSIBLE__
-
-    mkEval n = Bind (eval n) . AltNode natTag
--}
-
+mkWithOffset :: Int -> a -> WithOffset a
+mkWithOffset n a = WithOffset{offset = n, value = a}
 
 -----------------------------------------------------------------------
 -- * GRIN heap points-to analysis
 -----------------------------------------------------------------------
 
+-- • "determine for each call to eval, a safe approximation to what different node
+--   values (or rather tags) that eval might find when it fetches a node from the
+--   heap via its argument pointer." (s. 67)
+--
+-- • The abstract heap (also called store) maps locations to a set of nodes.
+--   Locations are defined as {1, 2, ...,maxloc} where maxloc is total number
+--   of store operations. Additionally, locations with F-tags also contain the
+--   possible return types of the function. This is due to the eval function
+--   which will be generated later, but has the ability to @update@ the node with
+--   the evaluated value.
+--
+-- • The Abstract enviroment maps variables to a set of values:
+--
+-- • The heap points-to analysis also incorporates a sharing analysis,
+--   which determines for each abstract location if it is shared or unique.
+--   An abstract location is shared if a concrete instance of the abstract
+--   location is subject to @fetch@ more than once. In practice, this is
+--   evident if the location is a possible value of a variable which is used
+--   more than once.
 
---
--- "determine for each call to eval, a safe approximation to what different node
--- values (or rather tags) that eval might find when it fetches a node from the
--- heap via its argument pointer." (s. 67)
---
--- • abstract locations: {1, 2, ...,maxloc} where maxloc is total number of store
---   operations
--- • the abstract store contains a set of...
---
--- Abstract store maps heap locations ({1, 2, ...,maxloc}) to a set of nodes:
--- 1 → {Cnat [{BAS}]}
--- 2 → {FdownFrom {[{1}]}}
--- 3 → {Cnat [{BAS}]}
---
--- Abstract enviroment maps variables to a set of values:
-heapPointsTo = undefined -- TODO
+-- TODO
+-- • Solve equations
+-- • Sharing analysis
+-- • Refactor
+
+newtype VariableTable = VariableTable { unVariableTable :: [(String, [Variable])] }
+
+instance Pretty Variable where
+  pretty (MkVariable n) = text $ "x" ++ prettyShow n
+
+instance Pretty VariableTable where
+  pretty (VariableTable entries) =
+      vcat $ map prettyEntry entries
+    where
+      prettyEntry (n, xs) =
+        text n <+> "→" <+> vcat (map pretty xs)
 
 
+genVariableTable :: [GrinDefinition] -> VariableTable
+genVariableTable defs = snd $ foldl genEntry (0, VariableTable []) defs where
+
+  genEntry :: (Int, VariableTable) -> GrinDefinition -> (Int, VariableTable)
+  genEntry (n, VariableTable vt) GrinDefinition{gTerm, gArity, gName} =
+      (n'', VariableTable $ snoc vt (gName, map MkVariable [n .. n'' - 1]))
+    where
+      n'' | isSuffixOf "main" gName = n'
+          | otherwise = n' + 1
+      n' = n + gArity + countVars gTerm
+
+
+  countVars :: Term -> Int
+  countVars (Bind t alt)    = countVars t + countVarsAlt alt
+  countVars (Case _ t alts) = countVars t + sum (map countVarsAlt alts)
+  countVars _               = 0
+
+  countVarsAlt :: Alt -> Int
+  countVarsAlt (AltVar t)      = 1 + countVars t
+  countVarsAlt (AltNode tag t) = tagArity tag + countVars t
+  countVarsAlt (AltEmpty t)    = countVars t
+  countVarsAlt (AltLit _ t)    = countVars t
+
+
+isSuffixOf :: String -> String -> Bool
+isSuffixOf s1 s2@(s:ss)
+  | on (==) length s1 s2 = s1 == s2
+  | on (<) length s1 s2  = isSuffixOf s1 ss
+  | otherwise = False
+
+newtype AbsHeap = AbsHeap{unAbsHeap :: [(Location, [Value])]}
+newtype AbsEnv = AbsEnv{unAbsEnv :: [(Variable, [Value])] }
+
+instance Pretty AbsHeap where
+  pretty (AbsHeap heap) =
+      vcat $ map prettyEntry heap
+    where
+      prettyEntry :: (Location, [Value]) -> Doc
+      prettyEntry (x, vs) =
+            pretty x
+        <+> text "→"
+        <+> prettyValues vs
+
+
+instance Pretty AbsEnv where
+  pretty (AbsEnv env) =
+      vcat $ map prettyEntry env
+    where
+      prettyEntry :: (Variable, [Value]) -> Doc
+      prettyEntry (x, vs) =
+            pretty x
+        <+> text "→"
+        <+> prettyValues vs
+
+
+prettyValues :: [Value] -> Doc
+prettyValues [v] = pretty v
+prettyValues vs  = text $ "{" ++ intercalate ", " (map prettyShow vs) ++ "}"
+
+instance Pretty Location where
+  pretty (MkLocation l) = text $ "l" ++ prettyShow l
+
+
+instance Pretty Value where
+  pretty (VNode tag vs) =
+    pretty tag <+> text ("[" ++ intercalate ", " (map prettyShow vs) ++ "]")
+  pretty Bas            = text "BAS"
+  pretty (Location loc) = pretty loc
+  pretty (Variable x)   = pretty x
+  pretty (Pick v p) = pretty v <+> text "↓" <+> pretty p
+  pretty (EvalFetch v) = text $ "EVAL(FETCH heap " ++ prettyShow v ++ ")"
+
+instance Pretty Picker where
+  pretty (Index n) = text $ "i" ++ prettyShow n
+  pretty (Tag tag) = pretty tag
+
+
+
+data Value = VNode Tag [Value]
+           | Bas
+           | Location Location
+           | Variable Variable
+           | Pick Value Picker
+           | EvalFetch Value
+             deriving Eq
+
+data Picker = Index Int
+            | Tag Tag
+              deriving Eq
+
+
+newtype Location = MkLocation{unLocation :: Int} deriving (Eq, Ord, Enum)
+newtype Variable = MkVariable{unVariable :: Int} deriving (Eq, Ord, Enum)
+
+mkVariable :: Int -> Value
+mkVariable = Variable . MkVariable
+
+mkLocation :: Int -> Value
+mkLocation = Location . MkLocation
+
+
+-- maps bstract locations → sharing properties
+
+-- A procedure parameter gets its abstract value by taking the union
+-- of the actual parameters at all call sites, and the same abstract
+-- return value is returned as a result of all calls to a procedure.
+--
+--
+-- 1. set up heap and enviroment equations
+-- 2. solving the equations
+
+
+data CxtPointsTo = CxtPointsTo
+  { heap         :: AbsHeap
+  , env          :: AbsEnv
+  , lastVariable :: Variable
+  , lastLocation :: Location
+  , gDef         :: GrinDefinition
+  }
+
+heapPointsTo :: [GrinDefinition] -> (AbsHeap, AbsEnv, Map Location Bool)
+heapPointsTo defs = (x.heap, env_fin, mempty)
+  where
+    env_fin = AbsEnv $ sortOn fst $ unAbsEnv x.env
+    x = flip execState initCxt $ forM_ defs $ \gDef@GrinDefinition{gTerm, gArity, gName} -> do
+      let x = vtLookup gName
+
+
+      modify $ \cxt ->
+        let cxt'
+              | isSuffixOf "main" gName = cxt{gDef = gDef}
+              | x <- vtLookup gName !! gArity = cxt{gDef = gDef, lastVariable=x} in
+        cxt'
+
+
+      deriveEquations gTerm
+
+    initCxt = CxtPointsTo
+      { heap=AbsHeap []
+      , env=AbsEnv []
+      , lastVariable=MkVariable (-1) -- ew
+      , lastLocation=MkLocation (-1)
+      , gDef = head defs
+      }
+
+
+    vt = genVariableTable defs
+    vtLookup :: String -> [Variable]
+    vtLookup n = fromMaybe (error $ show n ++ " not found") $ lookup n $ unVariableTable vt
+
+    lookupVt :: String -> Maybe [Variable]
+    lookupVt n = lookup n $ unVariableTable vt
+
+
+    envInsert :: MonadState CxtPointsTo m => Variable -> [Value] -> m ()
+    envInsert x vs = modify $ \cxt ->
+      let env = unAbsEnv cxt.env
+          env'
+            | Nothing <- lookup x env = snoc env (x, vs)
+            | otherwise = [ if x' == x then (x', union vs' vs) else (x', vs') | (x', vs') <- env ] in
+      cxt{env = AbsEnv env'}
+
+    heapInsert :: MonadState CxtPointsTo m => [Value] -> m ()
+    heapInsert vs = modify $ \cxt ->
+      let heap = unAbsHeap cxt.heap
+          location = succ cxt.lastLocation in
+      cxt
+        { heap = AbsHeap $ snoc heap (location, vs)
+        , lastLocation = location
+        }
+
+    sucLastVariable :: MonadState CxtPointsTo m => m ()
+    sucLastVariable = modify $ \cxt -> cxt{lastVariable = succ cxt.lastVariable}
+
+
+    lookupGrinVar :: MonadState CxtPointsTo m => Int -> m Variable
+    lookupGrinVar n = do
+      lastVariable <- gets $ unVariable . lastVariable
+      pure $ MkVariable $ lastVariable - n
+
+    -- FIXME super ugly stateful code
+    deriveEquations :: Term -> State CxtPointsTo ()
+    deriveEquations t = case t of
+
+      Bind t1@Store{} (AltVar t2) -> do
+        deriveEquations t1
+        lastVariable <- gets lastVariable
+        sucLastVariable
+        cxt <- get
+        envInsert (cxt.lastVariable) [Location $ cxt.lastLocation]
+        deriveEquations t2
+
+
+      Bind t1 (AltNode tag t2) | tag == natTag -> do
+        deriveEquations t1
+        sucLastVariable
+        cxt <- get
+        envInsert (cxt.lastVariable) [Bas]
+        deriveEquations t2
+
+      Bind t1@(App (Prim _) _) (AltVar t2) -> do
+        deriveEquations t1
+        sucLastVariable
+        cxt <- get
+        envInsert (cxt.lastVariable) [Bas]
+        deriveEquations t2
+
+      Bind (App (Def "eval") [Var n]) (AltVar t) -> do
+        x <- Variable <$> lookupGrinVar n
+        sucLastVariable
+        cxt <- get
+        envInsert (cxt.lastVariable) [EvalFetch x]
+        deriveEquations t
+
+      Bind t@(App (Def n) _) alt        -> do
+          deriveEquations t
+          deriveEquationsAlt alt
+        where
+          deriveEquationsAlt (AltNode tag t) = do
+            replicateM_ (tagArity tag) sucLastVariable
+            deriveEquations t
+          deriveEquationsAlt (AltLit _ t) = deriveEquations t
+          deriveEquationsAlt (AltVar t) = do
+            sucLastVariable
+            x <- gets lastVariable
+            v <- gets $ Variable . head . vtLookup . gName . gDef
+            envInsert x [v]
+            deriveEquations t
+
+      Case n t alts     -> do
+          sc <- Variable <$> lookupGrinVar n
+          let
+            deriveEquationsAlt (AltNode tag t) = do
+              forM_ [0 .. tagArity tag - 1] $ \i -> do
+                sucLastVariable
+                lastVariable <- gets lastVariable
+                envInsert lastVariable [sc `Pick` Tag tag `Pick` Index i]
+              deriveEquations t
+            deriveEquationsAlt (AltLit _ t) = deriveEquations t
+            deriveEquationsAlt (AltVar t) = sucLastVariable >> deriveEquations t
+
+          mapM_ deriveEquationsAlt alts
+          deriveEquations t
+
+
+      App (Def "eval") _ -> pure ()
+      App (Def "printf") _ -> pure ()
+      App (Prim _) _ -> pure ()
+      App (Def n) vs ->
+        zipWithM_ (\x v -> envInsert x . singleton =<< valToValue v) (tail $ vtLookup n) vs
+
+      Store (Lit _)     -> heapInsert [Bas]
+      Store (Node tag vs) -> do
+        vs' <- mapM valToValue vs
+        vs'' <- case tag of
+          FTag{tDef=n} | Just xs <- tail <$> lookupVt n -> do
+            zipWithM_ (\x -> envInsert x . singleton) xs vs'
+            v <- gets $ head . vtLookup . gName . gDef
+            pure $ snoc vs' $ Variable v
+
+          _ -> pure vs'
+        heapInsert [VNode tag vs']
+
+
+      Error _ -> pure ()
+
+      Unit v  -> do
+          x <- gets $ head . vtLookup . gName . gDef
+          v' <- valToValue v
+          envInsert x [v']
+        where
+          valToValue (Var n)       = Variable <$> lookupGrinVar n
+          valToValue (Lit _)       = pure Bas
+          valToValue (Node tag vs) = VNode tag <$> mapM valToValue vs
+
+      t -> error $ "missing " ++ show t
+
+      where
+        valToValue (Var n) = Variable <$> lookupGrinVar n
+        valToValue (Lit _) = pure Bas
+        valToValue _       = __IMPOSSIBLE__
 
 
 
