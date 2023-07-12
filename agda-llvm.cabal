@@ -34,6 +34,7 @@ executable agda-llvm
       , containers >= 0.6.0.1  && < 0.7
       , deepseq    >= 1.4.4.0  && < 1.5            
       , mtl
+      , extra
 
     hs-source-dirs:   src
     default-language: GHC2021

@@ -1,18 +1,22 @@
-{-# LANGUAGE DeriveAnyClass      #-}
-{-# LANGUAGE OverloadedRecordDot #-}
-{-# LANGUAGE OverloadedStrings   #-}
-{-# LANGUAGE RecordWildCards     #-}
-{-# OPTIONS_GHC -Wno-name-shadowing -fno-warn-unused-binds -fno-warn-unused-matches -fno-warn-incomplete-patterns  #-}
+{-# LANGUAGE DeriveAnyClass           #-}
+{-# LANGUAGE NondecreasingIndentation #-}
+{-# LANGUAGE OverloadedRecordDot      #-}
+{-# LANGUAGE OverloadedStrings        #-}
+{-# LANGUAGE RecordWildCards          #-}
+{-# OPTIONS_GHC -Wno-name-shadowing #-}
+-- {-# OPTIONS_GHC -fno-warn-unused-binds #-}
 
 module Agda.Llvm.Compiler (llvmBackend) where
 
 import           Control.DeepSeq                       (NFData)
-import           Control.Monad                         (forM_, replicateM,
-                                                        replicateM_, zipWithM,
+import           Control.Monad                         (forM_, liftM2,
+                                                        replicateM, replicateM_,
+                                                        unless, zipWithM,
                                                         zipWithM_)
 import           Control.Monad.Reader                  (MonadIO (liftIO),
                                                         MonadReader (ask, local),
-                                                        Reader, asks, runReader,
+                                                        Reader, ReaderT, asks,
+                                                        runReader, runReaderT,
                                                         when)
 import           Control.Monad.State                   (MonadState (put), State,
                                                         StateT, evalState,
@@ -20,14 +24,19 @@ import           Control.Monad.State                   (MonadState (put), State,
                                                         forM, get, gets, modify,
                                                         runState)
 import           Data.Function                         (on)
-import           Data.List                             (insert, intercalate,
-                                                        lookup, mapAccumL, nub,
-                                                        singleton, sort, sortOn,
-                                                        union)
+import           Data.List                             (deleteBy, find, insert,
+                                                        intercalate,
+                                                        intersectBy, lookup,
+                                                        mapAccumL, nub,
+                                                        partition, singleton,
+                                                        sort, sortOn, union,
+                                                        (\\))
 import           Data.Map                              (Map)
 import qualified Data.Map                              as Map
 import           Data.Maybe                            (catMaybes, fromJust,
-                                                        fromMaybe)
+                                                        fromMaybe, isJust,
+                                                        mapMaybe)
+import           Data.Tuple.Extra                      (secondM)
 import           Debug.Trace                           (trace)
 import           Prelude                               hiding ((!!))
 
@@ -53,8 +62,10 @@ import           Agda.Utils.Functor
 import           Agda.Utils.Impossible
 import           Agda.Utils.List
 import           Agda.Utils.List1                      (List1)
-import           Agda.Utils.Maybe                      (allJustM, maybeM,
-                                                        whenJust)
+import           Agda.Utils.Maybe                      (allJustM, caseMaybeM,
+                                                        fromMaybeM, maybeM,
+                                                        whenJust, whenJustM)
+import           Agda.Utils.Monad                      (ifM)
 import           Agda.Utils.Pretty
 import           Agda.Utils.Tuple                      (swap)
 import           Control.Applicative                   (Applicative (liftA2))
@@ -201,6 +212,13 @@ llvmPostCompile env _ mods = do
     liftIO $ putStrLn $ prettyShow heap
     liftIO $ putStrLn "\nAbstract env: "
     liftIO $ putStrLn $ prettyShow env
+
+    let (heap', env') = solveEquations heap env
+    liftIO $ putStrLn "\nSolved heap: "
+    liftIO $ putStrLn $ prettyShow heap'
+    liftIO $ putStrLn "\nSolved env: "
+    liftIO $ putStrLn $ prettyShow env'
+
 
 
 
@@ -525,23 +543,112 @@ mkWithOffset n a = WithOffset{offset = n, value = a}
 --   more than once.
 
 -- TODO
--- • Solve equations
 -- • Sharing analysis
 -- • Refactor
 
-newtype VariableTable = VariableTable { unVariableTable :: [(String, [Variable])] }
+heapPointsTo :: [GrinDefinition] -> (AbsHeap, AbsEnv, Map Location Bool)
+heapPointsTo defs = (equationsHeap, equationsEnv, mempty)
+  where
+    equationsEnv = AbsEnv $ sortOn fst $ unAbsEnv equationsState.env
+    equationsHeap = AbsHeap $ sortOn fst $ unAbsHeap equationsState.heap
+
+    equationsState = flip execState initCxtState $ forM defs $ \def ->
+      let cxtReader = CxtReader {gDef=def, variableTable=variableTable} in do
+      unless (isSuffixOf "main" def.gName) $
+        let var = fromMaybe __IMPOSSIBLE__ (variableTableLookup' variableTable def.gName) !! def.gArity in
+        modify $ \cxtState -> cxtState{lastVariable = var}
+      runReaderT (deriveEquations def.gTerm) cxtReader
+
+    variableTable = genVariableTable defs
+
+newtype AbsHeap = AbsHeap{unAbsHeap :: [(Location, Value)]} deriving Eq
+newtype AbsEnv = AbsEnv{unAbsEnv :: [(Variable, Value)] } deriving Eq
+
+instance Pretty AbsHeap where
+  pretty (AbsHeap heap) =
+      vcat $ map prettyEntry heap
+    where
+      prettyEntry :: (Location, Value) -> Doc
+      prettyEntry (x, v) =
+            pretty x
+        <+> text "→"
+        <+> pretty v
+
+
+instance Pretty AbsEnv where
+  pretty (AbsEnv env) =
+      vcat $ map prettyEntry env
+    where
+      prettyEntry :: (Variable, Value) -> Doc
+      prettyEntry (x, v) =
+            pretty x
+        <+> text "→"
+        <+> pretty v
+
+data Value = VNode Tag [Value]
+           | Bas
+           | Location Location
+           | Variable Variable
+           | Pick Value Tag Int
+           | EVAL Value
+           | FETCH Value
+           | Union Value Value
+             deriving (Eq, Ord)
+
+instance Pretty Value where
+  pretty (VNode tag vs) =
+    pretty tag <+> text ("[" ++ intercalate ", " (map prettyShow vs) ++ "]")
+  pretty Bas            = text "BAS"
+  pretty (Location loc) = pretty loc
+  pretty (Variable x)   = pretty x
+  pretty (Pick v tag i) = pretty v <+> text "↓" <+> pretty tag <+> text "↓" <+> pretty i
+  pretty (EVAL v) = text $ "EVAL(" ++ prettyShow v ++ ")"
+  pretty (FETCH v) = text $ "FETCH(" ++ prettyShow v ++ ")"
+  pretty (Union v1 v2) = pretty v1 <+> text "∪" <+> pretty v2
+
+vnodeView :: Value -> Maybe (Tag, [Value])
+vnodeView (VNode tag vs) = Just (tag, vs)
+vnodeView _              = Nothing
+
+mkUnion :: Value -> Value -> Value
+mkUnion a b
+  | a == b = a
+  | otherwise = Union a b
+
+newtype Location = MkLocation{unLocation :: Int} deriving (Eq, Ord, Enum)
+
+instance Pretty Location where
+  pretty (MkLocation l) = text $ "l" ++ prettyShow l
+
+newtype Variable = MkVariable{unVariable :: Int} deriving (Eq, Ord, Enum)
 
 instance Pretty Variable where
   pretty (MkVariable n) = text $ "x" ++ prettyShow n
 
-instance Pretty VariableTable where
-  pretty (VariableTable entries) =
-      vcat $ map prettyEntry entries
-    where
-      prettyEntry (n, xs) =
-        text n <+> "→" <+> vcat (map pretty xs)
 
+data CxtReader = CxtReader
+  { gDef          :: GrinDefinition
+  , variableTable :: VariableTable
+  }
 
+data CxtState = CxtState
+  { heap         :: AbsHeap
+  , env          :: AbsEnv
+  , lastVariable :: Variable
+  , lastLocation :: Location
+  }
+
+initCxtState :: CxtState
+initCxtState = CxtState
+  { heap=AbsHeap []
+  , env=AbsEnv []
+  , lastVariable=MkVariable (-1) -- ew TODO use Maybe
+  , lastLocation=MkLocation (-1)
+  }
+
+type H = ReaderT CxtReader (State CxtState)
+
+-- | Generate variable table
 genVariableTable :: [GrinDefinition] -> VariableTable
 genVariableTable defs = snd $ foldl genEntry (0, VariableTable []) defs where
 
@@ -565,265 +672,377 @@ genVariableTable defs = snd $ foldl genEntry (0, VariableTable []) defs where
   countVarsAlt (AltEmpty t)    = countVars t
   countVarsAlt (AltLit _ t)    = countVars t
 
-
 isSuffixOf :: String -> String -> Bool
 isSuffixOf s1 s2@(s:ss)
   | on (==) length s1 s2 = s1 == s2
   | on (<) length s1 s2  = isSuffixOf s1 ss
   | otherwise = False
 
-newtype AbsHeap = AbsHeap{unAbsHeap :: [(Location, [Value])]}
-newtype AbsEnv = AbsEnv{unAbsEnv :: [(Variable, [Value])] }
+newtype VariableTable = VariableTable { unVariableTable :: [(String, [Variable])] }
 
-instance Pretty AbsHeap where
-  pretty (AbsHeap heap) =
-      vcat $ map prettyEntry heap
+
+instance Pretty VariableTable where
+  pretty (VariableTable entries) =
+      vcat $ map prettyEntry entries
     where
-      prettyEntry :: (Location, [Value]) -> Doc
-      prettyEntry (x, vs) =
-            pretty x
-        <+> text "→"
-        <+> prettyValues vs
+      prettyEntry (n, xs) =
+        text n <+> "→" <+> vcat (map pretty xs)
 
+-- FIXME super ugly stateful code
+-- | Derive equations
+deriveEquations :: Term -> H ()
+deriveEquations t = case t of
 
-instance Pretty AbsEnv where
-  pretty (AbsEnv env) =
-      vcat $ map prettyEntry env
+  Bind t1@Store{} (AltVar t2) -> do
+    deriveEquations t1
+    sucLastVariable
+    cxt <- get
+    envInsert (cxt.lastVariable) (Location cxt.lastLocation)
+    deriveEquations t2
+
+  Bind t1 (AltNode tag t2) | tag == natTag -> do
+    deriveEquations t1
+    sucLastVariable
+    cxt <- get
+    envInsert (cxt.lastVariable) Bas
+    deriveEquations t2
+
+  Bind t1@(App (Prim _) _) (AltVar t2) -> do
+    deriveEquations t1
+    sucLastVariable
+    cxt <- get
+    envInsert (cxt.lastVariable) Bas
+    deriveEquations t2
+
+  Bind (App (Def "eval") [Var n]) (AltVar t) -> do
+    x <- Variable <$> deBruijnLookup n
+    sucLastVariable
+    cxt <- get
+    envInsert (cxt.lastVariable) (EVAL $ FETCH x)
+    deriveEquations t
+
+  Bind t@(App Def{} _) alt        -> do
+      deriveEquations t
+      deriveEquationsAlt alt
     where
-      prettyEntry :: (Variable, [Value]) -> Doc
-      prettyEntry (x, vs) =
-            pretty x
-        <+> text "→"
-        <+> prettyValues vs
-
-
-prettyValues :: [Value] -> Doc
-prettyValues [v] = pretty v
-prettyValues vs  = text $ "{" ++ intercalate ", " (map prettyShow vs) ++ "}"
-
-instance Pretty Location where
-  pretty (MkLocation l) = text $ "l" ++ prettyShow l
-
-
-instance Pretty Value where
-  pretty (VNode tag vs) =
-    pretty tag <+> text ("[" ++ intercalate ", " (map prettyShow vs) ++ "]")
-  pretty Bas            = text "BAS"
-  pretty (Location loc) = pretty loc
-  pretty (Variable x)   = pretty x
-  pretty (Pick v p) = pretty v <+> text "↓" <+> pretty p
-  pretty (EvalFetch v) = text $ "EVAL(FETCH heap " ++ prettyShow v ++ ")"
-
-instance Pretty Picker where
-  pretty (Index n) = text $ "i" ++ prettyShow n
-  pretty (Tag tag) = pretty tag
-
-
-
-data Value = VNode Tag [Value]
-           | Bas
-           | Location Location
-           | Variable Variable
-           | Pick Value Picker
-           | EvalFetch Value
-             deriving Eq
-
-data Picker = Index Int
-            | Tag Tag
-              deriving Eq
-
-
-newtype Location = MkLocation{unLocation :: Int} deriving (Eq, Ord, Enum)
-newtype Variable = MkVariable{unVariable :: Int} deriving (Eq, Ord, Enum)
-
-mkVariable :: Int -> Value
-mkVariable = Variable . MkVariable
-
-mkLocation :: Int -> Value
-mkLocation = Location . MkLocation
-
-
--- maps bstract locations → sharing properties
-
--- A procedure parameter gets its abstract value by taking the union
--- of the actual parameters at all call sites, and the same abstract
--- return value is returned as a result of all calls to a procedure.
---
---
--- 1. set up heap and enviroment equations
--- 2. solving the equations
-
-
-data CxtPointsTo = CxtPointsTo
-  { heap         :: AbsHeap
-  , env          :: AbsEnv
-  , lastVariable :: Variable
-  , lastLocation :: Location
-  , gDef         :: GrinDefinition
-  }
-
-heapPointsTo :: [GrinDefinition] -> (AbsHeap, AbsEnv, Map Location Bool)
-heapPointsTo defs = (x.heap, env_fin, mempty)
-  where
-    env_fin = AbsEnv $ sortOn fst $ unAbsEnv x.env
-    x = flip execState initCxt $ forM_ defs $ \gDef@GrinDefinition{gTerm, gArity, gName} -> do
-      let x = vtLookup gName
-
-
-      modify $ \cxt ->
-        let cxt'
-              | isSuffixOf "main" gName = cxt{gDef = gDef}
-              | x <- vtLookup gName !! gArity = cxt{gDef = gDef, lastVariable=x} in
-        cxt'
-
-
-      deriveEquations gTerm
-
-    initCxt = CxtPointsTo
-      { heap=AbsHeap []
-      , env=AbsEnv []
-      , lastVariable=MkVariable (-1) -- ew
-      , lastLocation=MkLocation (-1)
-      , gDef = head defs
-      }
-
-
-    vt = genVariableTable defs
-    vtLookup :: String -> [Variable]
-    vtLookup n = fromMaybe (error $ show n ++ " not found") $ lookup n $ unVariableTable vt
-
-    lookupVt :: String -> Maybe [Variable]
-    lookupVt n = lookup n $ unVariableTable vt
-
-
-    envInsert :: MonadState CxtPointsTo m => Variable -> [Value] -> m ()
-    envInsert x vs = modify $ \cxt ->
-      let env = unAbsEnv cxt.env
-          env'
-            | Nothing <- lookup x env = snoc env (x, vs)
-            | otherwise = [ if x' == x then (x', union vs' vs) else (x', vs') | (x', vs') <- env ] in
-      cxt{env = AbsEnv env'}
-
-    heapInsert :: MonadState CxtPointsTo m => [Value] -> m ()
-    heapInsert vs = modify $ \cxt ->
-      let heap = unAbsHeap cxt.heap
-          location = succ cxt.lastLocation in
-      cxt
-        { heap = AbsHeap $ snoc heap (location, vs)
-        , lastLocation = location
-        }
-
-    sucLastVariable :: MonadState CxtPointsTo m => m ()
-    sucLastVariable = modify $ \cxt -> cxt{lastVariable = succ cxt.lastVariable}
-
-
-    lookupGrinVar :: MonadState CxtPointsTo m => Int -> m Variable
-    lookupGrinVar n = do
-      lastVariable <- gets $ unVariable . lastVariable
-      pure $ MkVariable $ lastVariable - n
-
-    -- FIXME super ugly stateful code
-    deriveEquations :: Term -> State CxtPointsTo ()
-    deriveEquations t = case t of
-
-      Bind t1@Store{} (AltVar t2) -> do
-        deriveEquations t1
+      deriveEquationsAlt (AltNode tag t) = do
+        replicateM_ (tagArity tag) sucLastVariable
+        deriveEquations t
+      deriveEquationsAlt (AltLit _ t) = deriveEquations t
+      deriveEquationsAlt (AltVar t) = do
+        sucLastVariable
         lastVariable <- gets lastVariable
-        sucLastVariable
-        cxt <- get
-        envInsert (cxt.lastVariable) [Location $ cxt.lastLocation]
-        deriveEquations t2
-
-
-      Bind t1 (AltNode tag t2) | tag == natTag -> do
-        deriveEquations t1
-        sucLastVariable
-        cxt <- get
-        envInsert (cxt.lastVariable) [Bas]
-        deriveEquations t2
-
-      Bind t1@(App (Prim _) _) (AltVar t2) -> do
-        deriveEquations t1
-        sucLastVariable
-        cxt <- get
-        envInsert (cxt.lastVariable) [Bas]
-        deriveEquations t2
-
-      Bind (App (Def "eval") [Var n]) (AltVar t) -> do
-        x <- Variable <$> lookupGrinVar n
-        sucLastVariable
-        cxt <- get
-        envInsert (cxt.lastVariable) [EvalFetch x]
+        name <- asks $ gName . gDef
+        v <- Variable . head . fromMaybe __IMPOSSIBLE__ <$> variableTableLookup name
+        envInsert lastVariable v
         deriveEquations t
 
-      Bind t@(App (Def n) _) alt        -> do
-          deriveEquations t
-          deriveEquationsAlt alt
-        where
-          deriveEquationsAlt (AltNode tag t) = do
-            replicateM_ (tagArity tag) sucLastVariable
-            deriveEquations t
-          deriveEquationsAlt (AltLit _ t) = deriveEquations t
-          deriveEquationsAlt (AltVar t) = do
+  Case n t alts     -> do
+      sc <- Variable <$> deBruijnLookup n
+      let
+        deriveEquationsAlt (AltNode tag t) = do
+          forM_ [0 .. tagArity tag - 1] $ \i -> do
             sucLastVariable
-            x <- gets lastVariable
-            v <- gets $ Variable . head . vtLookup . gName . gDef
-            envInsert x [v]
-            deriveEquations t
-
-      Case n t alts     -> do
-          sc <- Variable <$> lookupGrinVar n
-          let
-            deriveEquationsAlt (AltNode tag t) = do
-              forM_ [0 .. tagArity tag - 1] $ \i -> do
-                sucLastVariable
-                lastVariable <- gets lastVariable
-                envInsert lastVariable [sc `Pick` Tag tag `Pick` Index i]
-              deriveEquations t
-            deriveEquationsAlt (AltLit _ t) = deriveEquations t
-            deriveEquationsAlt (AltVar t) = sucLastVariable >> deriveEquations t
-
-          mapM_ deriveEquationsAlt alts
+            lastVariable <- gets lastVariable
+            envInsert lastVariable (Pick sc tag i)
           deriveEquations t
+        deriveEquationsAlt (AltLit _ t) = deriveEquations t
+        deriveEquationsAlt (AltVar t) = sucLastVariable >> deriveEquations t
+
+      mapM_ deriveEquationsAlt alts
+      deriveEquations t
+
+  App (Def "eval") _ -> pure ()
+  App (Def "printf") _ -> pure ()
+  App (Prim _) _ -> pure ()
+  App (Def n) vs -> do
+    xs <- tail . fromMaybe __IMPOSSIBLE__ <$> variableTableLookup n
+    zipWithM_ (\x v -> envInsert x =<< valToValue v) xs vs
+
+  Store (Lit _)     -> heapInsert Bas
+  Store (Node tag vs) -> do
+    vs' <- mapM valToValue vs
+    variableTable <- asks variableTable
+
+    case tag of
+      FTag{tDef=n}
+        | Just xs <- tail <$> variableTableLookup' variableTable n -> do
+          zipWithM_ envInsert xs vs'
+          let x_return = maybe __IMPOSSIBLE__ head
+                       $ variableTableLookup' variableTable n
+          heapInsert $ mkUnion (VNode tag vs') (Variable x_return)
+      _ -> heapInsert $ VNode tag vs'
+
+  Error _ -> pure ()
+
+  Unit v  -> do
+      variableTable <- asks variableTable
+      x <- asks $ maybe __IMPOSSIBLE__ head
+                . variableTableLookup' variableTable
+                . gName
+                . gDef
+
+      envInsert x =<< valToValue v
+    where
+      valToValue (Var n)       = Variable <$> deBruijnLookup n
+      valToValue (Lit _)       = pure Bas
+      valToValue (Node tag vs) = VNode tag <$> mapM valToValue vs
+
+  t -> error $ "missing " ++ show t
+
+  where
+    valToValue (Var n) = Variable <$> deBruijnLookup n
+    valToValue (Lit _) = pure Bas
+    valToValue _       = __IMPOSSIBLE__
+
+variableTableLookup :: MonadReader CxtReader m => String -> m (Maybe [Variable])
+variableTableLookup n = asks $ flip variableTableLookup' n . variableTable
+
+variableTableLookup' :: VariableTable -> String -> Maybe [Variable]
+variableTableLookup' vt n = lookup n $ unVariableTable vt
+
+envInsert :: MonadState CxtState m => Variable -> Value -> m ()
+envInsert x v = modify $ \cxt ->
+  let env = unAbsEnv cxt.env
+      env'
+        | Nothing <- lookup x env = snoc env (x, v)
+        | otherwise = [ if x' == x then (x',  mkUnion v' v) else (x', v') | (x', v') <- env ] in
+  cxt{env = AbsEnv env'}
+
+heapInsert :: MonadState CxtState m => Value -> m ()
+heapInsert vs = modify $ \cxt ->
+  let heap = unAbsHeap cxt.heap
+      location = succ cxt.lastLocation in
+  cxt
+    { heap = AbsHeap $ snoc heap (location, vs)
+    , lastLocation = location
+    }
+
+sucLastVariable :: MonadState CxtState m => m ()
+sucLastVariable = modify $ \cxt -> cxt{lastVariable = succ cxt.lastVariable}
+
+deBruijnLookup :: MonadState CxtState m => Int -> m Variable
+deBruijnLookup n = do
+  lastVariable <- gets $ unVariable . lastVariable
+  pure $ MkVariable $ lastVariable - n
 
 
-      App (Def "eval") _ -> pure ()
-      App (Def "printf") _ -> pure ()
-      App (Prim _) _ -> pure ()
-      App (Def n) vs ->
-        zipWithM_ (\x v -> envInsert x . singleton =<< valToValue v) (tail $ vtLookup n) vs
+-- TODO
 
-      Store (Lit _)     -> heapInsert [Bas]
-      Store (Node tag vs) -> do
-        vs' <- mapM valToValue vs
-        vs'' <- case tag of
-          FTag{tDef=n} | Just xs <- tail <$> lookupVt n -> do
-            zipWithM_ (\x -> envInsert x . singleton) xs vs'
-            v <- gets $ head . vtLookup . gName . gDef
-            pure $ snoc vs' $ Variable v
+type F = Reader FixCxt
 
-          _ -> pure vs'
-        heapInsert [VNode tag vs']
+data FixCxt = FixCxt
+  { fHeap :: AbsHeap
+  , fEnv  :: AbsEnv
+  } deriving Eq
 
+initFixCxt :: FixCxt
+initFixCxt = FixCxt
+  { fHeap = AbsHeap []
+  , fEnv  = AbsEnv []
+  }
 
-      Error _ -> pure ()
+instance Semigroup FixCxt where
+  cxt1 <> cxt2 = FixCxt
+    { fHeap = AbsHeap $ on unionNub (unAbsHeap . fHeap) cxt1 cxt2
+    , fEnv = AbsEnv $ on unionNub (unAbsEnv . fEnv) cxt1 cxt2
+    }
 
-      Unit v  -> do
-          x <- gets $ head . vtLookup . gName . gDef
-          v' <- valToValue v
-          envInsert x [v']
-        where
-          valToValue (Var n)       = Variable <$> lookupGrinVar n
-          valToValue (Lit _)       = pure Bas
-          valToValue (Node tag vs) = VNode tag <$> mapM valToValue vs
+unionNub :: Eq a => [a] -> [a] -> [a]
+unionNub xs = union xs . filter (`notElem` xs)
 
-      t -> error $ "missing " ++ show t
+differenceBy :: (a -> a -> Bool) -> [a] -> [a] -> [a]
+differenceBy eq =  foldl (flip $ deleteBy eq)
 
+-- | Solve equations
+solveEquations :: AbsHeap -> AbsEnv -> (AbsHeap, AbsEnv)
+solveEquations (AbsHeap heapEqs) (AbsEnv envEqs) = fix initFixCxt
+  where
+    fix :: FixCxt -> (AbsHeap, AbsEnv)
+    fix cxt@FixCxt{fHeap, fEnv = AbsEnv es} =
+        go es
       where
-        valToValue (Var n) = Variable <$> lookupGrinVar n
-        valToValue (Lit _) = pure Bas
-        valToValue _       = __IMPOSSIBLE__
+        go es
+          | e:_ <- differenceBy (on (==) fst) envEqs es =
+            fix $ fixFixCxt $ collectNewFixCxt $ envInsert' cxt e
+          | otherwise = (fHeap, AbsEnv es)
 
+    collectNewFixCxt :: FixCxt -> FixCxt
+    collectNewFixCxt cxt
+      | Nothing <- mcxt  = cxt
+      | Just cxt' <- mcxt = collectNewFixCxt $ cxt <> cxt'
+      where
+        mcxt =
+          flip runReader cxt $ liftA2 (<>)
+          (go $ unAbsEnv $ cxt.fEnv)
+          (go $ unAbsHeap $ cxt.fHeap)
+        go xs = foldl (<>) Nothing <$> mapM (collectNew . snd) xs
+
+    collectNew :: Value -> F (Maybe FixCxt)
+    collectNew (Union a b) = on (<>) collectNew a b
+    collectNew (Variable x) =
+      maybe (Just cxt) (const Nothing) <$> envLookup x
+     where
+      v = fromMaybe __IMPOSSIBLE__ $ lookup x envEqs
+      cxt = initFixCxt{fEnv = AbsEnv [(x, v)]}
+    collectNew (Location l) =
+      maybe (Just cxt) (const Nothing) <$> heapLookup l
+     where
+      v = fromMaybe __IMPOSSIBLE__ $ lookup l heapEqs
+      cxt = initFixCxt{fHeap = AbsHeap [(l, v)]}
+    collectNew (FETCH v) = collectNew v
+    collectNew (EVAL v) = collectNew v
+    collectNew (VNode _ vs) = foldl (<>) Nothing <$> mapM collectNew vs
+    collectNew (Pick v _ _) = collectNew v
+    collectNew Bas = pure Nothing
+
+fixFixCxt :: FixCxt -> FixCxt
+fixFixCxt cxt
+  | cxt == cxt' = cxt
+  | otherwise = fixFixCxt cxt'
+  where
+    cxt' =
+      let f cxt (l, v) = heapUpdate cxt (l, runReader (sub v) cxt) in
+      let cxt' = foldl f cxt $ unAbsHeap cxt.fHeap in
+      let g cxt (x, v) = envUpdate cxt (x, runReader (sub v) cxt) in
+      foldl g cxt' $ unAbsEnv cxt'.fEnv
+
+sub :: Value -> F Value
+sub (Union a b)
+  -- {... tag [a₁,...,aᵢ,...],...} ∪ {... tag [b₁,...,bᵢ,...],...} =
+  -- {... tag [a₁ ∪ b₁,...,aᵢ ∪ b₁,...],...}
+  | (as, bs) <- on (,) valueToList a b
+  , _:_ <- intersectBy sameTag as bs =
+    pure $ listToValue $ for as $ \case
+      VNode tag vs
+        | (_, vss) <- unzipWith (fromMaybe __IMPOSSIBLE__ . vnodeView) $ filter (hasTag tag) bs ->
+          VNode tag $ foldl (zipWith Union) vs vss
+      v -> v
+ | a == b = pure a
+ | otherwise = on (liftM2 Union) sub a b
+ -- | otherwise = pure $ Union a b
+
+sub (Location l)   = pure $ Location l -- fix point
+sub Bas            = pure Bas -- fix point
+sub (Variable x)   = fromMaybeM __IMPOSSIBLE__ $ envLookup x
+sub (VNode tag vs) = VNode tag <$> mapM sub vs
+
+sub (FETCH v )
+  | Just l <- isLocation v = fromMaybeM __IMPOSSIBLE__ $ heapLookup l
+  | Union{} <- v
+  , (xs, ys) <- partition (isJust . isLocation) $ valueToList v
+  , Just ls <- mapM isLocation xs
+  = do
+    xs' <- mapM (fromMaybeM __IMPOSSIBLE__ . heapLookup) ls
+    pure $ listToValue $ xs' ++ ys
+  | Union a b <- v = pure $ on Union FETCH a b
+  | otherwise = FETCH <$> sub v
+  -- | otherwise = pure $ FETCH v
+
+sub (EVAL v)
+  | VNode CTag{} _ <- v = pure v
+
+  -- solve correct values
+  | Union{} <- v
+  , all isCNode $ valueToList v = pure v
+  | Union{} <- v
+  , (xs, ys) <- partition isCNode $ valueToList v
+  , on (&&) (not . null) xs ys =
+    pure $ Union (listToValue xs) $ EVAL (listToValue ys)
+
+  -- filter wrong tags
+  | Union{} <- v
+  , (xs, ys) <- partition (\v -> not $ isPNode v || isFNode v) $ valueToList v
+  , on (&&) (not . null) xs ys =
+    pure $ EVAL $ listToValue xs
+
+  | otherwise = EVAL <$> sub v
+
+  where
+    isCNode (VNode CTag{} _) = True
+    isCNode _                = False
+
+    isPNode (VNode FTag{} _) = True
+    isPNode _                = False
+
+    isFNode (VNode FTag{} _) = True
+    isFNode _                = False
+
+sub (Pick v tag1 i)
+  | VNode tag2 vs <- v
+  , tag1 == tag2 = pure $ vs !! i
+
+  -- filter wrong tags
+  | Union{} <- v
+  , (xs, ys) <- partition (hasWrongTag tag1) $ valueToList v
+  , on (&&) (not . null) xs ys =
+    pure $ Pick (listToValue ys) tag1 i
+
+  -- solve correct values
+  | Union{} <- v
+  , all (hasTag tag1) $ valueToList v =
+    pure $ listToValue $ for (valueToList v) $ \(VNode _ vs) -> vs !! i
+  | Union{} <- v
+  , (xs, ys) <- partition (hasTag tag1) $ valueToList v
+  , on (&&) (not . null) xs ys =
+    pure $ Union (listToValue xs) $ Pick (listToValue ys) tag1 i
+
+
+  | otherwise = (\v' -> Pick v' tag1 i) <$> sub v
+  -- | otherwise = pure $ Pick v tag1 i
+
+envLookup :: MonadReader FixCxt m => Variable -> m (Maybe Value)
+envLookup x = asks $ lookup x . unAbsEnv . fEnv
+
+heapUpdate :: FixCxt -> (Location, Value) -> FixCxt
+heapUpdate cxt (l, v) =
+    cxt{fHeap = AbsHeap hs}
+  where
+    hs = [ if l == l' then (l, v) else (l', v')
+         | (l', v') <- unAbsHeap cxt.fHeap
+         ]
+
+envUpdate :: FixCxt -> (Variable, Value) -> FixCxt
+envUpdate cxt (x, v) =
+    cxt{fEnv = AbsEnv es}
+  where
+    es = [ if x == x' then (x, v) else (x', v')
+         | (x', v') <- unAbsEnv cxt.fEnv
+         ]
+
+envInsert' :: FixCxt -> (Variable, Value) -> FixCxt
+envInsert' cxt e = cxt{fEnv = AbsEnv $ insert e $ unAbsEnv cxt.fEnv}
+
+heapLookup :: MonadReader FixCxt m => Location -> m (Maybe Value)
+heapLookup l = asks $ lookup l . unAbsHeap . fHeap
+
+hasWrongTag :: Tag -> Value -> Bool
+hasWrongTag tag1 (VNode tag2 _) = tag1 /= tag2
+hasWrongTag _ _                 = False
+
+hasTag :: Tag -> Value -> Bool
+hasTag tag1 (VNode tag2 _) = tag1 == tag2
+hasTag _ _                 = False
+
+sameTag :: Value -> Value -> Bool
+sameTag (VNode tag1 _) (VNode tag2 _) = tag1 == tag2
+sameTag _ _                           = False
+
+valueToList :: Value -> [Value]
+valueToList (Union a b) = on (++) valueToList a b
+valueToList a           = [a]
+
+-- partial!
+listToValue :: [Value] -> Value
+listToValue = foldr1 Union
+
+isLocation :: Value -> Maybe Location
+isLocation (Location l) = Just l
+isLocation _            = Nothing
+
+-- TODO sharing analysis
+
+sharingAnalysis = undefined
 
 
 -----------------------------------------------------------------------

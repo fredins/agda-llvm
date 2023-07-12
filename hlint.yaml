@@ -1,1 +1,2 @@
-- ignore: {name: "Use camelCase"}
+- ignore: {name: Use infix}
+- ignore: {name: Use camelCase} 
