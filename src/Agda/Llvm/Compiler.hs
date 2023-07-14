@@ -213,7 +213,7 @@ llvmPostCompile env _ mods = do
     liftIO $ putStrLn "\nAbstract env: "
     liftIO $ putStrLn $ prettyShow env
 
-    let (heap', env') = solveEquations heap env
+    let (heap', env') = bimap sortAbsHeap sortAbsEnv $ solveEquations heap env
     liftIO $ putStrLn "\nSolved heap: "
     liftIO $ putStrLn $ prettyShow heap'
     liftIO $ putStrLn "\nSolved env: "
@@ -549,8 +549,8 @@ mkWithOffset n a = WithOffset{offset = n, value = a}
 heapPointsTo :: [GrinDefinition] -> (AbsHeap, AbsEnv, Map Location Bool)
 heapPointsTo defs = (equationsHeap, equationsEnv, mempty)
   where
-    equationsEnv = AbsEnv $ sortOn fst $ unAbsEnv equationsState.env
-    equationsHeap = AbsHeap $ sortOn fst $ unAbsHeap equationsState.heap
+    equationsEnv = sortAbsEnv equationsState.env
+    equationsHeap = sortAbsHeap equationsState.heap
 
     equationsState = flip execState initCxtState $ forM defs $ \def ->
       let cxtReader = CxtReader {gDef=def, variableTable=variableTable} in do
@@ -563,6 +563,12 @@ heapPointsTo defs = (equationsHeap, equationsEnv, mempty)
 
 newtype AbsHeap = AbsHeap{unAbsHeap :: [(Location, Value)]} deriving Eq
 newtype AbsEnv = AbsEnv{unAbsEnv :: [(Variable, Value)] } deriving Eq
+
+sortAbsHeap :: AbsHeap -> AbsHeap
+sortAbsHeap (AbsHeap heap) = AbsHeap $ sortOn fst heap
+
+sortAbsEnv :: AbsEnv -> AbsEnv
+sortAbsEnv (AbsEnv env) = AbsEnv $ sortOn fst env
 
 instance Pretty AbsHeap where
   pretty (AbsHeap heap) =
