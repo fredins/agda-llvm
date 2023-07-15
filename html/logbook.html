@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="" xml:lang="">
+<head>
+  <meta charset="utf-8" />
+  <meta name="generator" content="pandoc" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <title>logbook</title>
+  <style>
+    code{white-space: pre-wrap;}
+    span.smallcaps{font-variant: small-caps;}
+    div.columns{display: flex; gap: min(4vw, 1.5em);}
+    div.column{flex: auto; overflow-x: auto;}
+    div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+    ul.task-list{list-style: none;}
+    ul.task-list li input[type="checkbox"] {
+      width: 0.8em;
+      margin: 0 0.8em 0.2em -1.6em;
+      vertical-align: middle;
+    }
+    pre > code.sourceCode { white-space: pre; position: relative; }
+    pre > code.sourceCode > span { display: inline-block; line-height: 1.25; }
+    pre > code.sourceCode > span:empty { height: 1.2em; }
+    .sourceCode { overflow: visible; }
+    code.sourceCode > span { color: inherit; text-decoration: inherit; }
+    div.sourceCode { margin: 1em 0; }
+    pre.sourceCode { margin: 0; }
+    @media screen {
+    div.sourceCode { overflow: auto; }
+    }
+    @media print {
+    pre > code.sourceCode { white-space: pre-wrap; }
+    pre > code.sourceCode > span { text-indent: -5em; padding-left: 5em; }
+    }
+    pre.numberSource code
+      { counter-reset: source-line 0; }
+    pre.numberSource code > span
+      { position: relative; left: -4em; counter-increment: source-line; }
+    pre.numberSource code > span > a:first-child::before
+      { content: counter(source-line);
+        position: relative; left: -1em; text-align: right; vertical-align: baseline;
+        border: none; display: inline-block;
+        -webkit-touch-callout: none; -webkit-user-select: none;
+        -khtml-user-select: none; -moz-user-select: none;
+        -ms-user-select: none; user-select: none;
+        padding: 0 4px; width: 4em;
+        color: #aaaaaa;
+      }
+    pre.numberSource { margin-left: 3em; border-left: 1px solid #aaaaaa;  padding-left: 4px; }
+    div.sourceCode
+      {   }
+    @media screen {
+    pre > code.sourceCode > span > a:first-child::before { text-decoration: underline; }
+    }
+    code span.al { color: #ff0000; font-weight: bold; } /* Alert */
+    code span.an { color: #60a0b0; font-weight: bold; font-style: italic; } /* Annotation */
+    code span.at { color: #7d9029; } /* Attribute */
+    code span.bn { color: #40a070; } /* BaseN */
+    code span.bu { color: #008000; } /* BuiltIn */
+    code span.cf { color: #007020; font-weight: bold; } /* ControlFlow */
+    code span.ch { color: #4070a0; } /* Char */
+    code span.cn { color: #880000; } /* Constant */
+    code span.co { color: #60a0b0; font-style: italic; } /* Comment */
+    code span.cv { color: #60a0b0; font-weight: bold; font-style: italic; } /* CommentVar */
+    code span.do { color: #ba2121; font-style: italic; } /* Documentation */
+    code span.dt { color: #902000; } /* DataType */
+    code span.dv { color: #40a070; } /* DecVal */
+    code span.er { color: #ff0000; font-weight: bold; } /* Error */
+    code span.ex { } /* Extension */
+    code span.fl { color: #40a070; } /* Float */
+    code span.fu { color: #06287e; } /* Function */
+    code span.im { color: #008000; font-weight: bold; } /* Import */
+    code span.in { color: #60a0b0; font-weight: bold; font-style: italic; } /* Information */
+    code span.kw { color: #007020; font-weight: bold; } /* Keyword */
+    code span.op { color: #666666; } /* Operator */
+    code span.ot { color: #007020; } /* Other */
+    code span.pp { color: #bc7a00; } /* Preprocessor */
+    code span.sc { color: #4070a0; } /* SpecialChar */
+    code span.ss { color: #bb6688; } /* SpecialString */
+    code span.st { color: #4070a0; } /* String */
+    code span.va { color: #19177c; } /* Variable */
+    code span.vs { color: #4070a0; } /* VerbatimString */
+    code span.wa { color: #60a0b0; font-weight: bold; font-style: italic; } /* Warning */
+    .display.math{display: block; text-align: center; margin: 0.5rem auto;}
+    div.csl-bib-body { }
+    div.csl-entry {
+      clear: both;
+    }
+    .hanging div.csl-entry {
+      margin-left:2em;
+      text-indent:-2em;
+    }
+    div.csl-left-margin {
+      min-width:2em;
+      float:left;
+    }
+    div.csl-right-inline {
+      margin-left:2em;
+      padding-left:1em;
+    }
+    div.csl-indent {
+      margin-left: 2em;
+    }
+  </style>
+  <link rel="stylesheet" href="Agda.css" />
+  <!--[if lt IE 9]>
+    <script src="//cdnjs.cloudflare.com/ajax/libs/html5shiv/3.7.3/html5shiv-printshiv.min.js"></script>
+  <![endif]-->
+</head>
+<body>
+<h3 id="w.-28">W. 28</h3>
+<p>Read the following papers:</p>
+<ul>
+<li><span class="citation" data-cites="boquist1996">Boquist and Johnsson
+[1996]</span></li>
+<li><span class="citation" data-cites="aho2006">Aho et al.
+[2006]</span></li>
+</ul>
+<p>Did the following:</p>
+<ul>
+<li><p>Implemented the heap points-to analysis, which gives a safe
+approximation of the possible values of each abstract heap location. It
+also determines the possible values of each variable.</p>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode markdown"><code class="sourceCode markdown"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a>variable                                            location</span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a>------------------------------------------------------------</span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a>x1      DownFrom.downFrom #1 =</span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a>x2        eval @0 ; λ Cnat #1 →</span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a>          case @0 of</span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a>            0 → unit (CDownFrom.List.[])</span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a>x3          _ → store (Cnat 1) ; λ #1 →                   l0</span>
+<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a>x4              store (FPrim.sub @2 @0) ; λ #1 →          l1</span>
+<span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a>x5              store (FDownFrom.downFrom @0) ; λ #1 →    l2</span>
+<span id="cb1-11"><a href="#cb1-11" aria-hidden="true" tabindex="-1"></a>                unit (CDownFrom.List._∷_ @4 @0) </span>
+<span id="cb1-12"><a href="#cb1-12" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-13"><a href="#cb1-13" aria-hidden="true" tabindex="-1"></a>... rest of the program ...</span>
+<span id="cb1-14"><a href="#cb1-14" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-15"><a href="#cb1-15" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-16"><a href="#cb1-16" aria-hidden="true" tabindex="-1"></a>Heap points-to analysis</span>
+<span id="cb1-17"><a href="#cb1-17" aria-hidden="true" tabindex="-1"></a>------------------------------------------------------------</span>
+<span id="cb1-18"><a href="#cb1-18" aria-hidden="true" tabindex="-1"></a>Solved heap:</span>
+<span id="cb1-19"><a href="#cb1-19" aria-hidden="true" tabindex="-1"></a>l0 → Cnat <span class="co">[</span><span class="ot">BAS</span><span class="co">]</span></span>
+<span id="cb1-20"><a href="#cb1-20" aria-hidden="true" tabindex="-1"></a>l1 → FPrim.sub <span class="co">[</span><span class="ot">l1 ∪ l4, l0</span><span class="co">]</span></span>
+<span id="cb1-21"><a href="#cb1-21" aria-hidden="true" tabindex="-1"></a>l2 → FDownFrom.downFrom <span class="co">[</span><span class="ot">l1</span><span class="co">]</span> ∪ CDownFrom.List.[] [] ∪ CDownFrom.List._∷_ <span class="co">[</span><span class="ot">l1 ∪ l4, l2</span><span class="co">]</span></span>
+<span id="cb1-22"><a href="#cb1-22" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-23"><a href="#cb1-23" aria-hidden="true" tabindex="-1"></a>Solved env:</span>
+<span id="cb1-24"><a href="#cb1-24" aria-hidden="true" tabindex="-1"></a>x0 → CDownFrom.List.[] [] ∪ CDownFrom.List._∷_ <span class="co">[</span><span class="ot">l1 ∪ l4, l2</span><span class="co">]</span></span>
+<span id="cb1-25"><a href="#cb1-25" aria-hidden="true" tabindex="-1"></a>x1 → l1 ∪ l4</span>
+<span id="cb1-26"><a href="#cb1-26" aria-hidden="true" tabindex="-1"></a>x2 → BAS</span>
+<span id="cb1-27"><a href="#cb1-27" aria-hidden="true" tabindex="-1"></a>x3 → l0</span>
+<span id="cb1-28"><a href="#cb1-28" aria-hidden="true" tabindex="-1"></a>x4 → l1</span>
+<span id="cb1-29"><a href="#cb1-29" aria-hidden="true" tabindex="-1"></a>x5 → l2</span></code></pre></div></li>
+<li><p>Started incorporating sharing analysis which makes the heap
+points-to analysis more precise.</p></li>
+</ul>
+<h3 id="w.-27-and-prior">W. 27 and prior</h3>
+<p>Read the following papers:</p>
+<ul>
+<li><span class="citation" data-cites="jones1992">Jones et al.
+[1992]</span></li>
+<li><span class="citation" data-cites="boquist1999">Boquist
+[1999]</span></li>
+<li>more…</li>
+</ul>
+<p>Did the following:</p>
+<ul>
+<li><p>Tried to implement STG-like thunks manually in LLVM IR.<br />
+</p></li>
+<li><p>Manually translated the the following program first to GRIN and
+then LLVM IR.</p>
+<pre class="Agda">
+<a id="1661" class="Keyword">open</a> <a id="1666" class="Keyword">import</a> <a id="1673" href="Agda.Builtin.Nat.html" class="Module">Agda.Builtin.Nat</a> <a id="1690" class="Keyword">using</a> <a id="1696" class="Symbol">(</a><a id="1697" href="Agda.Builtin.Nat.html#217" class="InductiveConstructor">suc</a><a id="1700" class="Symbol">;</a> <a id="1702" href="Agda.Builtin.Nat.html#204" class="InductiveConstructor">zero</a><a id="1706" class="Symbol">;</a> <a id="1708" href="Agda.Builtin.Nat.html#319" class="Primitive Operator">_+_</a><a id="1711" class="Symbol">)</a> <a id="1713" class="Keyword">renaming</a> <a id="1722" class="Symbol">(</a><a id="1723" href="Agda.Builtin.Nat.html#186" class="Datatype">Nat</a> <a id="1727" class="Symbol">to</a> <a id="1730" class="Datatype">ℕ</a><a id="1731" class="Symbol">)</a> 
+
+<a id="1737" class="Keyword">infixr</a> <a id="1744" class="Number">5</a> <a id="1746" href="logbook.html#1813" class="InductiveConstructor Operator">_∷_</a>
+<a id="1752" class="Keyword">data</a> <a id="List"></a><a id="1757" href="logbook.html#1757" class="Datatype">List</a> <a id="1762" class="Symbol">{</a><a id="1763" href="logbook.html#1763" class="Bound">a</a><a id="1764" class="Symbol">}</a> <a id="1766" class="Symbol">(</a><a id="1767" href="logbook.html#1767" class="Bound">A</a> <a id="1769" class="Symbol">:</a> <a id="1771" href="Agda.Primitive.html#320" class="Primitive">Set</a> <a id="1775" href="logbook.html#1763" class="Bound">a</a><a id="1776" class="Symbol">)</a> <a id="1778" class="Symbol">:</a> <a id="1780" href="Agda.Primitive.html#320" class="Primitive">Set</a> <a id="1784" href="logbook.html#1763" class="Bound">a</a> <a id="1786" class="Keyword">where</a>
+  <a id="List.[]"></a><a id="1796" href="logbook.html#1796" class="InductiveConstructor">[]</a>  <a id="1800" class="Symbol">:</a> <a id="1802" href="logbook.html#1757" class="Datatype">List</a> <a id="1807" href="logbook.html#1767" class="Bound">A</a>
+  <a id="List._∷_"></a><a id="1813" href="logbook.html#1813" class="InductiveConstructor Operator">_∷_</a> <a id="1817" class="Symbol">:</a> <a id="1819" class="Symbol">(</a><a id="1820" href="logbook.html#1820" class="Bound">x</a> <a id="1822" class="Symbol">:</a> <a id="1824" href="logbook.html#1767" class="Bound">A</a><a id="1825" class="Symbol">)</a> <a id="1827" class="Symbol">(</a><a id="1828" href="logbook.html#1828" class="Bound">xs</a> <a id="1831" class="Symbol">:</a> <a id="1833" href="logbook.html#1757" class="Datatype">List</a> <a id="1838" href="logbook.html#1767" class="Bound">A</a><a id="1839" class="Symbol">)</a> <a id="1841" class="Symbol">→</a> <a id="1843" href="logbook.html#1757" class="Datatype">List</a> <a id="1848" href="logbook.html#1767" class="Bound">A</a>
+
+<a id="downFrom"></a><a id="1853" href="logbook.html#1853" class="Function">downFrom</a> <a id="1862" class="Symbol">:</a> <a id="1864" href="logbook.html#1730" class="Datatype">ℕ</a> <a id="1866" class="Symbol">→</a> <a id="1868" href="logbook.html#1757" class="Datatype">List</a> <a id="1873" href="logbook.html#1730" class="Datatype">ℕ</a>
+<a id="1877" href="logbook.html#1853" class="Function">downFrom</a> <a id="1886" href="Agda.Builtin.Nat.html#204" class="InductiveConstructor">zero</a> <a id="1891" class="Symbol">=</a> <a id="1893" href="logbook.html#1796" class="InductiveConstructor">[]</a>
+<a id="1898" href="logbook.html#1853" class="Function">downFrom</a> <a id="1907" class="Symbol">(</a><a id="1908" href="Agda.Builtin.Nat.html#217" class="InductiveConstructor">suc</a> <a id="1912" href="logbook.html#1912" class="Bound">n</a><a id="1913" class="Symbol">)</a> <a id="1915" class="Symbol">=</a> <a id="1917" href="Agda.Builtin.Nat.html#217" class="InductiveConstructor">suc</a> <a id="1921" href="logbook.html#1912" class="Bound">n</a> <a id="1923" href="logbook.html#1813" class="InductiveConstructor Operator">∷</a> <a id="1925" href="logbook.html#1853" class="Function">downFrom</a> <a id="1934" href="logbook.html#1912" class="Bound">n</a> 
+
+<a id="sum"></a><a id="1942" href="logbook.html#1942" class="Function">sum</a> <a id="1946" class="Symbol">:</a> <a id="1948" href="logbook.html#1757" class="Datatype">List</a> <a id="1953" href="logbook.html#1730" class="Datatype">ℕ</a> <a id="1955" class="Symbol">→</a> <a id="1957" href="logbook.html#1730" class="Datatype">ℕ</a>
+<a id="1961" href="logbook.html#1942" class="Function">sum</a> <a id="1965" href="logbook.html#1796" class="InductiveConstructor">[]</a> <a id="1968" class="Symbol">=</a> <a id="1970" class="Number">0</a>
+<a id="1974" href="logbook.html#1942" class="Function">sum</a> <a id="1978" class="Symbol">(</a><a id="1979" href="logbook.html#1979" class="Bound">x</a> <a id="1981" href="logbook.html#1813" class="InductiveConstructor Operator">∷</a> <a id="1983" href="logbook.html#1983" class="Bound">xs</a><a id="1985" class="Symbol">)</a> <a id="1987" class="Symbol">=</a> <a id="1989" href="logbook.html#1979" class="Bound">x</a> <a id="1991" href="Agda.Builtin.Nat.html#319" class="Primitive Operator">+</a> <a id="1993" href="logbook.html#1942" class="Function">sum</a> <a id="1997" href="logbook.html#1983" class="Bound">xs</a>
+
+<a id="main"></a><a id="2005" href="logbook.html#2005" class="Function">main</a> <a id="2010" class="Symbol">=</a> <a id="2012" href="logbook.html#1942" class="Function">sum</a> <a id="2016" class="Symbol">(</a><a id="2017" href="logbook.html#1853" class="Function">downFrom</a> <a id="2026" class="Number">4</a><a id="2027" class="Symbol">)</a>
+</pre></li>
+<li><p>Created a transformation for the treeless syntax that simplify
+applications.</p>
+<div class="sourceCode" id="cb2"><pre
+class="sourceCode markdown"><code class="sourceCode markdown"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a>f a (g b) (h c)</span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a>-- &gt;&gt;&gt;</span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a>let b&#39; = g b in</span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a>let c&#39; = h c in</span>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a>f a b&#39; c&#39;</span></code></pre></div></li>
+<li><p>Started on the treeless-to-GRIN transformation, and the
+GRIN-to-LLVM transformation.</p></li>
+<li><p>Checked out literate agda using both markdown and latex.<br />
+</p></li>
+<li><p>Prepared the documents for the logbook and the report.</p></li>
+</ul>
+<h2 class="unnumbered" id="references">References</h2>
+<div id="refs" class="references csl-bib-body hanging-indent"
+role="doc-bibliography">
+<div id="ref-aho2006" class="csl-entry" role="doc-biblioentry">
+<span class="smallcaps">Aho, A.V., Lam, M.S., Sethi, R., and Ullman,
+J.D.</span> 2006. <em>Compilers: Principles, techniques, and tools (2nd
+edition)</em>. Addison-Wesley Longman Publishing Co., Inc., USA.
+</div>
+<div id="ref-boquist1999" class="csl-entry" role="doc-biblioentry">
+<span class="smallcaps">Boquist, U.</span> 1999. Code optimisation
+techniques for lazy functional languages.
+</div>
+<div id="ref-boquist1996" class="csl-entry" role="doc-biblioentry">
+<span class="smallcaps">Boquist, U. and Johnsson, T.</span> 1996. The
+GRIN project: A highly optimising back end for lazy functional
+languages. <em>Selected papers from the 8th international workshop on
+implementation of functional languages</em>, Springer-Verlag, 58–84.
+</div>
+<div id="ref-jones1992" class="csl-entry" role="doc-biblioentry">
+<span class="smallcaps">Jones, P., L, S., and Peyton Jones, S.</span>
+1992. <a
+href="https://www.microsoft.com/en-us/research/publication/implementing-lazy-functional-languages-on-stock-hardware-the-spineless-tagless-g-machine/">Implementing
+lazy functional languages on stock hardware: The spineless tagless
+g-machine</a>. <em>Journal of Functional Programming</em> <em>2</em>,
+127–202.
+</div>
+</div>
+</body>
+</html>
