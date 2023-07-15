@@ -57,13 +57,14 @@ Read the following papers:
 
 - @jones1992 
 - @boquist1999
+- @reinking2020
 - more... 
 
 Did the following:
 
 - Tried to implement STG-like thunks manually in LLVM IR.  
 - Manually translated the the following program first to GRIN and then
-  LLVM IR.  
+  to LLVM IR.  
 
   ```agda  
 
@@ -95,8 +96,8 @@ Did the following:
   let c' = h c in
   f a b' c'
   ```
-- Started on the treeless-to-GRIN transformation, and the 
-  GRIN-to-LLVM transformation.
+- Implemented treeless-to-GRIN transformation for the example program, 
+  and started on the GRIN-to-LLVM transformation.
 - Checked out literate agda using both markdown and latex.  
 - Prepared the documents for the logbook and the report.  
 
