@@ -22,6 +22,8 @@ executable agda-llvm
         Agda.Llvm.Compiler
         Agda.Llvm.Grin
         Agda.Llvm.Llvm
+        Agda.Llvm.Utils
+        Agda.Llvm.HeapPointsTo
          
     default-extensions:
         LambdaCase

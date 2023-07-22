@@ -1,14 +1,14 @@
 {-# LANGUAGE LambdaCase      #-}
 {-# LANGUAGE RecordWildCards #-}
+{-# OPTIONS_GHC -Wno-name-shadowing #-}
 
 module Agda.Llvm.Grin where
 
 import           Agda.Compiler.Backend hiding (Prim)
 import           Agda.Syntax.Internal  (Type)
 import           Agda.Syntax.Literal
-import           Agda.Utils.Function   (applyWhen)
 import           Agda.Utils.Impossible (__IMPOSSIBLE__)
-import           Agda.Utils.Maybe      (ifJust, isJust)
+import           Agda.Utils.Maybe      (ifJust)
 import           Agda.Utils.Pretty
 import           Control.Monad         (replicateM)
 
@@ -114,7 +114,7 @@ instance Pretty GrinDefinition where
     ]
     where
       ret :: Doc -> Doc
-      ret doc = ifJust gReturn (\abs -> (text ("~r" ++ tail (prettyShow abs)) <+> doc)) doc
+      ret doc = ifJust gReturn (\abs -> text ("~r" ++ tail (prettyShow abs)) <+> doc) doc
 
 
 instance Pretty Term where
