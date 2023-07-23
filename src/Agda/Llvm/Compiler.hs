@@ -38,21 +38,20 @@ llvmBackend :: Backend
 llvmBackend = Backend llvmBackend'
 
 llvmBackend' :: Backend' LlvmOptions LlvmEnv LlvmModuleEnv LlvmModule (Maybe GrinDefinition)
-llvmBackend' =
-  Backend'
-    { backendName           = "LLVM"
-    , backendVersion        = Nothing
-    , options               = defaultLlvmOptions
-    , commandLineFlags      = llvmCommandLineFlags
-    , isEnabled             = flagLlvmCompile
-    , preCompile            = llvmPreCompile
-    , postCompile           = llvmPostCompile
-    , preModule             = \_ _ _ -> pure $ pure $ Recompile LlvmModuleEnv
-    , postModule            = llvmPostModule
-    , compileDef            = llvmCompileDef
-    , scopeCheckingSuffices = False
-    , mayEraseType          = const $ pure True
-    }
+llvmBackend' = Backend'
+  { backendName           = "LLVM"
+  , backendVersion        = Nothing
+  , options               = defaultLlvmOptions
+  , commandLineFlags      = llvmCommandLineFlags
+  , isEnabled             = flagLlvmCompile
+  , preCompile            = llvmPreCompile
+  , postCompile           = llvmPostCompile
+  , preModule             = \_ _ _ -> pure $ pure $ Recompile LlvmModuleEnv
+  , postModule            = llvmPostModule
+  , compileDef            = llvmCompileDef
+  , scopeCheckingSuffices = False
+  , mayEraseType          = const $ pure True
+  }
 
 newtype LlvmOptions = LlvmOptions
   { flagLlvmCompile :: Bool
@@ -429,6 +428,7 @@ mkWithOffset n a = WithOffset{offset = n, value = a}
 
 -- TODO inlining eval
 
+-- inlineEval :: AbstractContext ->
 
 
 

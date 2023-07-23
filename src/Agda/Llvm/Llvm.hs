@@ -1,5 +1,7 @@
+{-# OPTIONS_GHC -Wno-name-shadowing #-}
 
 module Agda.Llvm.Llvm where
+
 import           Data.List             (intercalate)
 
 import           Agda.Compiler.Backend hiding (Name)

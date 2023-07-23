@@ -61,8 +61,8 @@ import           Agda.Llvm.Utils
 heapPointsTo :: [GrinDefinition] -> (AbstractContext, Set Gid)
 heapPointsTo defs = (absCxt', shared) where
   shared = equations.shared'
-  absCxt' = solveEquations defs absCxt
-  absCxt = AbstractContext (sortAbsHeap' equations.absHeap') (sortAbsEnv' equations.absEnv')
+  absCxt' = sortAbsCxt $ solveEquations defs absCxt
+  absCxt = sortAbsCxt $ AbstractContext equations.absHeap' equations.absEnv'
   equations =
     foldl1 (<>) $ for defs $ \def ->
       runReader (deriveEquations def.gTerm) $
@@ -110,11 +110,14 @@ countMultiplicities def = evalState (go def.gTerm) def.gArgs where
   goVal (Prim _) = pure mempty
   goVal Empty = pure mempty
 
-sortAbsHeap' :: AbsHeap' -> AbsHeap'
-sortAbsHeap' (AbsHeap' heap) = AbsHeap' $ sortOn fst heap
+sortAbsCxt :: AbstractContext -> AbstractContext
+sortAbsCxt cxt = cxt{fHeap = sortAbsHeap cxt.fHeap, fEnv = sortAbsEnv cxt.fEnv}
 
-sortAbsEnv' :: AbsEnv' -> AbsEnv'
-sortAbsEnv' (AbsEnv' env) = AbsEnv' $ sortOn fst env
+sortAbsHeap :: AbsHeap -> AbsHeap
+sortAbsHeap (AbsHeap heap) = AbsHeap $ sortOn fst heap
+
+sortAbsEnv :: AbsEnv -> AbsEnv
+sortAbsEnv (AbsEnv env) = AbsEnv $ sortOn fst env
 
 data Value = VNode Tag [Value]
            | Bas
@@ -146,14 +149,14 @@ mkUnion a b
   | a == b = a
   | otherwise = Union a b
 
-newtype AbsHeap' = AbsHeap'{unAbsHeap' :: [(Loc, Value)]} deriving Eq
+newtype AbsHeap = AbsHeap{unAbsHeap :: [(Loc, Value)]} deriving Eq
 
-instance Semigroup AbsHeap' where
+instance Semigroup AbsHeap where
   (<>) = composeAbsHeap
 
-composeAbsHeap :: AbsHeap' -> AbsHeap' -> AbsHeap'
-composeAbsHeap (AbsHeap' h1) (AbsHeap' h2) =
-    AbsHeap' $ (h1 \\ common) ++ common' ++ (h2 \\ common)
+composeAbsHeap :: AbsHeap -> AbsHeap -> AbsHeap
+composeAbsHeap (AbsHeap h1) (AbsHeap h2) =
+    AbsHeap $ (h1 \\ common) ++ common' ++ (h2 \\ common)
   where
     common = let insec = intersectBy (on (==) fst) in insec h1 h2 ++ insec h2 h1
     locs = nub $ map fst common
@@ -164,13 +167,12 @@ composeAbsHeap (AbsHeap' h1) (AbsHeap' h2) =
           let vs = mapMaybe (\(loc', v) -> boolToMaybe (loc'==loc) v) common in
           (loc, foldl1 mkUnion vs)
 
-
-instance Semigroup AbsEnv' where
+instance Semigroup AbsEnv where
   (<>) = composeAbsEnv
 
-composeAbsEnv :: AbsEnv' -> AbsEnv' -> AbsEnv'
-composeAbsEnv (AbsEnv' e1) (AbsEnv' e2) =
-    AbsEnv' $ (e1 \\ common) ++ common' ++ (e2 \\ common)
+composeAbsEnv :: AbsEnv -> AbsEnv -> AbsEnv
+composeAbsEnv (AbsEnv e1) (AbsEnv e2) =
+    AbsEnv $ (e1 \\ common) ++ common' ++ (e2 \\ common)
   where
     common = let insec = intersectBy (on (==) fst) in insec e1 e2 ++ insec e2 e1
     abss = nub $ map fst common
@@ -181,10 +183,10 @@ composeAbsEnv (AbsEnv' e1) (AbsEnv' e2) =
           let vs = mapMaybe (\(abs', v) -> boolToMaybe (abs'==abs) v) common in
           (abs, foldl1 mkUnion vs)
 
-newtype AbsEnv' = AbsEnv'{unAbsEnv' :: [(Abs, Value)]}deriving Eq
+newtype AbsEnv = AbsEnv{unAbsEnv :: [(Abs, Value)]}deriving Eq
 
-instance Pretty AbsHeap' where
-  pretty (AbsHeap' heap) =
+instance Pretty AbsHeap where
+  pretty (AbsHeap heap) =
       vcat $ map prettyEntry heap
     where
       prettyEntry :: (Loc, Value) -> Doc
@@ -193,9 +195,8 @@ instance Pretty AbsHeap' where
         <+> text "→"
         <+> pretty v
 
-
-instance Pretty AbsEnv' where
-  pretty (AbsEnv' env) =
+instance Pretty AbsEnv where
+  pretty (AbsEnv env) =
       vcat $ map prettyEntry env
     where
       prettyEntry :: (Abs, Value) -> Doc
@@ -207,8 +208,8 @@ instance Pretty AbsEnv' where
 type H' = Reader HCxt
 
 data HCxt = HCxt
-  { absHeap    :: AbsHeap'
-  , absEnv     :: AbsEnv'
+  { absHeap    :: AbsHeap
+  , absEnv     :: AbsEnv
   , defs       :: [GrinDefinition]
   , abss       :: [Abs]
   , locs       :: [Loc]
@@ -219,8 +220,8 @@ data HCxt = HCxt
 initHCxt :: [GrinDefinition] -> GrinDefinition -> HCxt
 initHCxt defs currentDef =
     HCxt
-      { absHeap = AbsHeap' []
-      , absEnv = AbsEnv' []
+      { absHeap = AbsHeap []
+      , absEnv = AbsEnv []
       , defs = defs
       , abss = currentDef.gArgs
       , locs = []
@@ -247,15 +248,15 @@ instance Semigroup HRet where
       }
 
 data HRet = HRet
-  { absHeap' :: AbsHeap'
-  , absEnv'  :: AbsEnv'
+  { absHeap' :: AbsHeap
+  , absEnv'  :: AbsEnv
   , shared'  :: Set Gid
   }
 
-composeShared :: AbsHeap' -> AbsEnv' -> Set Gid -> Set Gid -> Set Gid
+composeShared :: AbsHeap -> AbsEnv -> Set Gid -> Set Gid -> Set Gid
 composeShared heap env = updateShared heap env .: Set.union
 
-updateShared :: AbsHeap' -> AbsEnv' -> Set Gid -> Set Gid
+updateShared :: AbsHeap -> AbsEnv -> Set Gid -> Set Gid
 updateShared absHeap absEnv shared
   | shared' == shared = shared
   | otherwise = updateShared absHeap absEnv shared'
@@ -263,10 +264,10 @@ updateShared absHeap absEnv shared
     shared' = foldl addGids shared vs
     vs =
       nub $
-      mapMaybe (\(MkLoc gid, v) -> boolToMaybe (Set.member gid shared) v) (unAbsHeap' absHeap) ++
-      mapMaybe (\(MkAbs gid, v) -> boolToMaybe (Set.member gid shared) v) (unAbsEnv' absEnv)
+      mapMaybe (\(MkLoc gid, v) -> boolToMaybe (Set.member gid shared) v) (unAbsHeap absHeap) ++
+      mapMaybe (\(MkAbs gid, v) -> boolToMaybe (Set.member gid shared) v) (unAbsEnv absEnv)
 
-makeShared :: AbsHeap' -> AbsEnv' -> Set Gid -> Value -> Set Gid
+makeShared :: AbsHeap -> AbsEnv -> Set Gid -> Value -> Set Gid
 makeShared heap env = updateShared heap env .: addGids
 
 addGids :: Set Gid -> Value -> Set Gid
@@ -279,9 +280,6 @@ addGids s (Pick v _ _)      = addGids s v
 addGids s (EVAL v)          = addGids s v
 addGids s (FETCH v)         = addGids s v
 
-localAbss :: MonadReader HCxt m => [Abs] -> m a -> m a
-localAbss = foldl (\f abs -> f . localAbs abs) id
-
 localAbs :: MonadReader HCxt m => Abs -> m a -> m a
 localAbs abs = local $ \cxt -> cxt{abss = abs : cxt.abss}
 
@@ -292,13 +290,13 @@ localLoc loc = local $ \cxt -> cxt{locs = loc : cxt.locs}
 -- | Adds l → v to the abstract heap and makes v shared if x is shared
 localAbsHeap :: MonadReader HCxt m => (Loc, Value) -> m a -> m a
 localAbsHeap (loc, v) = local $ \cxt ->
-  let heap = unAbsHeap' cxt.absHeap
+  let heap = unAbsHeap cxt.absHeap
       heap'
         | any ((==loc) . fst) heap =
           for heap $ \(loc', v') ->
             if loc == loc' then (loc', mkUnion v' v ) else (loc', v')
-        | otherwise = insert (loc, v) $ unAbsHeap' cxt.absHeap
-      absHeap = AbsHeap' heap' in
+        | otherwise = insert (loc, v) $ unAbsHeap cxt.absHeap
+      absHeap = AbsHeap heap' in
 
   applyWhen
     (Set.member (unLoc loc) cxt.shared)
@@ -308,13 +306,13 @@ localAbsHeap (loc, v) = local $ \cxt ->
 -- | Adds x → v to the abstract enviroment and makes v shared if x is shared
 localAbsEnv :: MonadReader HCxt m => (Abs, Value) -> m a -> m a
 localAbsEnv (abs, v) = local $ \cxt ->
-  let env = unAbsEnv' cxt.absEnv
+  let env = unAbsEnv cxt.absEnv
       env'
         | any ((==abs) . fst) env =
           for env $ \(abs', v') ->
             if abs == abs' then (abs', mkUnion v' v ) else (abs', v')
         | otherwise = insert (abs, v) env
-      absEnv' = AbsEnv' env' in
+      absEnv' = AbsEnv env' in
 
   applyWhen
     (Set.member (unAbs abs) cxt.shared)
@@ -404,25 +402,11 @@ deriveEquations term = case term of
       localAbsEnv (abs, Bas) $
       deriveEquations t
 
-   -- TODO add return value of def?
     Bind (App (Def defName) vs) (AltVar abs t) -> do
       gArgs <- asks $ maybe __IMPOSSIBLE__ gArgs . find ((defName==) . gName) . defs
       mapM valToValue vs >>= \vs' ->
         localAbs abs $
         foldl (.: localAbsEnv) id (zip gArgs vs') $
-        deriveEquations t
-      where
-        valToValue :: MonadReader HCxt m => Val -> m Value
-        valToValue (Var n) = Abs . fromMaybe __IMPOSSIBLE__ <$> deBruijnLookup n
-        valToValue (Lit _) = pure Bas
-        valToValue  _      = __IMPOSSIBLE__
-
-   -- TODO add return value of def?
-   -- TODO add arguments
-    Bind (App (Def defName) vs) (AltNode tag abss t) ->
-      mapM valToValue vs >>= \vs' ->
-        localAbss abss $
-        foldl (.: localAbsEnv) id (zip abss vs') $
         deriveEquations t
       where
         valToValue :: MonadReader HCxt m => Val -> m Value
@@ -439,7 +423,6 @@ deriveEquations term = case term of
       localAbs abs $
       localAbsEnv (abs, Bas) $
       deriveEquations t
-
 
     Unit v -> do
         abs <- asks $ fromMaybe __IMPOSSIBLE__ . gReturn . currentDef
@@ -466,10 +449,9 @@ deBruijnLookup :: MonadReader HCxt m => Int -> m (Maybe Abs)
 deBruijnLookup n = asks $ (!!! n) . abss
 
 data AbstractContext = AbstractContext
-  { fHeap :: AbsHeap'
-  , fEnv  :: AbsEnv'
+  { fHeap :: AbsHeap
+  , fEnv  :: AbsEnv
   } deriving Eq
-
 
 instance Pretty AbstractContext where
   pretty (AbstractContext {fHeap, fEnv}) =
@@ -482,21 +464,21 @@ instance Pretty AbstractContext where
 
 instance Semigroup AbstractContext where
   cxt1 <> cxt2 = AbstractContext
-    { fHeap = AbsHeap' $ on unionNub (unAbsHeap' . fHeap) cxt1 cxt2
-    , fEnv = AbsEnv' $ on unionNub (unAbsEnv' . fEnv) cxt1 cxt2
+    { fHeap = AbsHeap $ on unionNub (unAbsHeap . fHeap) cxt1 cxt2
+    , fEnv = AbsEnv $ on unionNub (unAbsEnv . fEnv) cxt1 cxt2
     }
 
 instance Monoid AbstractContext where
-  mempty = AbstractContext{fHeap = AbsHeap' [], fEnv = AbsEnv' []}
+  mempty = AbstractContext{fHeap = AbsHeap [], fEnv = AbsEnv []}
 
 solveEquations :: [GrinDefinition] -> AbstractContext -> AbstractContext
-solveEquations defs AbstractContext{fHeap = AbsHeap' heapEqs, fEnv = AbsEnv' envEqs} =
+solveEquations defs AbstractContext{fHeap = AbsHeap heapEqs, fEnv = AbsEnv envEqs} =
     fix initAbstractContext
   where
     initAbstractContext :: AbstractContext
     initAbstractContext =
       let env =
-            AbsEnv' $ for (mapMaybe gReturn defs) $ \abs ->
+            AbsEnv $ for (mapMaybe gReturn defs) $ \abs ->
               (abs, fromMaybe __IMPOSSIBLE__ $ envEqsLookup abs) in
       mempty{fEnv = env }
 
@@ -523,17 +505,16 @@ solveEquations defs AbstractContext{fHeap = AbsHeap' heapEqs, fEnv = AbsEnv' env
                     foldl
                       (\cxt (l, v) -> absHeapUpdate l (simplify defs cxt v) cxt)
                       cxt
-                      (unAbsHeap' cxt.fHeap) in
+                      (unAbsHeap cxt.fHeap) in
               foldl
                 (\cxt (x, v) -> absEnvUpdate x (simplify defs cxt v) cxt)
                 cxt'
-                (unAbsEnv' cxt'.fEnv)
-
+                (unAbsEnv cxt'.fEnv)
 
     -- | Returns the next missing abstract heap equation (e.g. `~l4 → FDownFrom.downFrom [~x2]`).
     nextHeapEq :: AbstractContext -> Maybe (Loc, Value)
     nextHeapEq =
-      listToMaybe . differenceBy (on (==) fst) heapEqs . unAbsHeap' . fHeap
+      listToMaybe . differenceBy (on (==) fst) heapEqs . unAbsHeap . fHeap
 
     -- | Adds missing equations that are referenced in the current equations.
     addMissingEqs :: AbstractContext -> AbstractContext
@@ -544,20 +525,20 @@ solveEquations defs AbstractContext{fHeap = AbsHeap' heapEqs, fEnv = AbsEnv' env
         cxt' =
           foldr (<>) cxt $
             mapMaybe (collectEqs cxt) $
-              map snd (unAbsHeap' cxt.fHeap) ++ map snd (unAbsEnv' cxt.fEnv)
+              map snd (unAbsHeap cxt.fHeap) ++ map snd (unAbsEnv cxt.fEnv)
 
     -- | Collect all equations refererenced equations.
     collectEqs :: AbstractContext -> Value -> Maybe AbstractContext
     collectEqs cxt (Union v1 v2) = on (<>) (collectEqs cxt) v1 v2
     collectEqs cxt (Abs abs)
-      | Just _ <- lookup abs (unAbsEnv' cxt.fEnv) = Nothing
-      | otherwise = Just $ AbstractContext {fHeap=AbsHeap' [], fEnv = AbsEnv' [(abs, v)]}
+      | Just _ <- lookup abs (unAbsEnv cxt.fEnv) = Nothing
+      | otherwise = Just $ AbstractContext {fHeap=AbsHeap [], fEnv = AbsEnv [(abs, v)]}
       where
         v = fromMaybe __IMPOSSIBLE__ $ lookup abs envEqs
 
     collectEqs cxt (Loc loc)
-      | Just _ <- lookup loc (unAbsHeap' cxt.fHeap) = Nothing
-      | otherwise = Just $ AbstractContext {fHeap = AbsHeap' [(loc, v)], fEnv = AbsEnv' []}
+      | Just _ <- lookup loc (unAbsHeap cxt.fHeap) = Nothing
+      | otherwise = Just $ AbstractContext {fHeap = AbsHeap [(loc, v)], fEnv = AbsEnv []}
       where
         v = fromMaybe __IMPOSSIBLE__ $ lookup loc heapEqs
 
@@ -576,10 +557,10 @@ simplify :: [GrinDefinition] -> AbstractContext -> Value -> Value
 simplify defs AbstractContext{fHeap, fEnv} = go where
 
   envLookup :: Abs -> Maybe Value
-  envLookup abs = lookup abs $ unAbsEnv' fEnv
+  envLookup abs = lookup abs $ unAbsEnv fEnv
 
   heapLookup :: Loc -> Maybe Value
-  heapLookup loc = lookup loc $ unAbsHeap' fHeap
+  heapLookup loc = lookup loc $ unAbsHeap fHeap
 
   defReturnLookup :: String -> Maybe Abs
   defReturnLookup name =
@@ -591,7 +572,7 @@ simplify defs AbstractContext{fHeap, fEnv} = go where
   go (VNode tag vs) = VNode tag $ map go vs
 
   -- Replace with pointee
-  go (Abs abs) = fromMaybe (error $ "CAN'T FIND " ++ prettyShow abs) $ envLookup abs
+  go (Abs abs) = fromMaybe __IMPOSSIBLE__ $ envLookup abs
 
   go (Union v1 v2)
     -- Filter duplicates
@@ -631,7 +612,6 @@ simplify defs AbstractContext{fHeap, fEnv} = go where
     | Pick{} <- v1 = Pick (go v1) tag1 i
     | Abs{} <- v1 = Pick (go v1) tag1 i
 
-
     -- Filter everything which is confirmed wrong
     | Union{} <- v1
     , (_:_, v2 : v2s) <- partition isWrong $ valueToList v1 =
@@ -650,7 +630,7 @@ simplify defs AbstractContext{fHeap, fEnv} = go where
     | Union v2 v3 <- v1 = Pick (on mkUnion go v2 v3) tag1 i
 
     | Bas <- v1 = __IMPOSSIBLE__
-    | Loc{} <- v1 = error $ "BAD: " ++ prettyShow v1
+    | Loc{} <- v1 = __IMPOSSIBLE__
 
     where
       isWrong (VNode tag2 _) = tag1 /= tag2
@@ -685,7 +665,6 @@ simplify defs AbstractContext{fHeap, fEnv} = go where
     | FETCH{} <- v1 = FETCH $ go v1
     | Pick{} <- v1 = FETCH $ go v1
     | Abs{} <- v1 = FETCH $ go v1
-
 
     | Bas <- v1 = __IMPOSSIBLE__
     | VNode{} <- v1 = __IMPOSSIBLE__
@@ -742,20 +721,20 @@ simplify defs AbstractContext{fHeap, fEnv} = go where
 
 absHeapUpdate :: Loc -> Value -> AbstractContext -> AbstractContext
 absHeapUpdate loc v cxt =
-    cxt{fHeap = AbsHeap' heap}
+    cxt{fHeap = AbsHeap heap}
   where
-    heap = for (unAbsHeap' cxt.fHeap) $
+    heap = for (unAbsHeap cxt.fHeap) $
       \(loc', v') -> if loc == loc' then (loc', v) else (loc', v')
 
 absEnvUpdate :: Abs -> Value -> AbstractContext -> AbstractContext
 absEnvUpdate abs v cxt =
-    cxt{fEnv = AbsEnv' env}
+    cxt{fEnv = AbsEnv env}
   where
-    env = for (unAbsEnv' cxt.fEnv) $
+    env = for (unAbsEnv cxt.fEnv) $
       \(abs', v') -> if abs == abs' then (abs', v) else (abs', v')
 
 heapInsert :: (Loc, Value) -> AbstractContext -> AbstractContext
-heapInsert entry cxt = cxt{fHeap = AbsHeap' $ insert entry $ unAbsHeap' cxt.fHeap}
+heapInsert entry cxt = cxt{fHeap = AbsHeap $ insert entry $ unAbsHeap cxt.fHeap}
 
 valueToList :: Value -> [Value]
 valueToList (Union a b) = on (++) valueToList a b

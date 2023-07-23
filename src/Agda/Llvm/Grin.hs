@@ -114,7 +114,7 @@ instance Pretty GrinDefinition where
     ]
     where
       ret :: Doc -> Doc
-      ret doc = ifJust gReturn (\abs -> text ("~r" ++ tail (prettyShow abs)) <+> doc) doc
+      ret doc = ifJust gReturn (\abs -> text ("r" ++ tail (prettyShow abs)) <+> doc) doc
 
 
 instance Pretty Term where
@@ -146,10 +146,10 @@ instance Pretty Term where
 
 
 instance Pretty Abs where
-  pretty (MkAbs gid) = text $ "~x" ++ prettyShow gid
+  pretty (MkAbs gid) = text $ "x" ++ prettyShow gid
 
 instance Pretty Loc where
-  pretty (MkLoc gid) = text $ "~l" ++ prettyShow gid
+  pretty (MkLoc gid) = text $ "l" ++ prettyShow gid
 
 instance Pretty Gid where
   pretty (Gid n) = pretty n
