@@ -12,3 +12,6 @@ unionNub xs = union xs . filter (`notElem` xs)
 -- | Non-overloaded version of '\\' (non-associative).
 differenceBy :: (a -> a -> Bool) -> [a] -> [a] -> [a]
 differenceBy eq =  foldl (flip $ deleteBy eq)
+
+(??) :: Functor f => f (a -> b) -> a -> f b
+fab ?? a = fmap ($ a) fab

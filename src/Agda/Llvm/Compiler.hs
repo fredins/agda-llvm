@@ -8,11 +8,12 @@
 module Agda.Llvm.Compiler (llvmBackend) where
 
 import           Control.DeepSeq                       (NFData)
-import           Control.Monad                         (replicateM)
+import           Control.Monad                         (forM, replicateM)
 import           Control.Monad.IO.Class                (liftIO)
-import           Control.Monad.State                   (StateT, evalStateT,
+import           Control.Monad.State                   (MonadTrans (lift),
+                                                        StateT, evalStateT,
                                                         gets)
-import           Data.Foldable                         (foldrM)
+import           Data.Foldable                         (foldrM, toList)
 import           Data.Function                         (on)
 import           Data.List                             (intercalate, singleton)
 import           Data.Map                              (Map)
@@ -27,11 +28,20 @@ import           Agda.Syntax.TopLevelModuleName
 import           Agda.TypeChecking.Substitute
 import           Agda.Utils.Functor
 import           Agda.Utils.Impossible
+import           Agda.Utils.List
+import           Agda.Utils.List1                      (List1, pattern (:|))
+import qualified Agda.Utils.List1                      as List1
 import           Agda.Utils.Maybe
 import           Agda.Utils.Pretty
 
 import           Agda.Llvm.Grin
 import           Agda.Llvm.HeapPointsTo
+import           Agda.Llvm.Utils
+import           Agda.TypeChecking.SizedTypes.Utils    (trace)
+import           Control.Applicative                   (Applicative (liftA2))
+import           Control.Monad.Reader                  (MonadReader (local),
+                                                        ReaderT (runReaderT),
+                                                        ask, asks)
 
 
 llvmBackend :: Backend
@@ -148,7 +158,7 @@ llvmPostCompile env _ mods = do
     liftIO $ putStrLn "\n------------------------------------------------------------------------"
     liftIO $ putStrLn "-- * GRIN"
     liftIO $ putStrLn "------------------------------------------------------------------------\n"
-    liftIO $ putStrLn (intercalate "\n\n" $ map prettyShow defs)
+    liftIO $ putStrLn $ intercalate "\n\n" (map prettyShow defs)
 
     liftIO $ putStrLn "\n------------------------------------------------------------------------"
     liftIO $ putStrLn "-- * Heap points-to analysis"
@@ -159,8 +169,14 @@ llvmPostCompile env _ mods = do
     liftIO $ putStrLn $ prettyShow absCxt.fHeap
     liftIO $ putStrLn "\nAbstract env: "
     liftIO $ putStrLn $ prettyShow absCxt.fEnv
-    liftIO $ putStrLn "\nShared: "
-    liftIO $ putStrLn $ prettyShow share
+    liftIO $ putStrLn $ "\nShared: " ++ prettyShow share
+
+
+    defs' <- inlineEval defs absCxt
+    liftIO $ putStrLn "\n------------------------------------------------------------------------"
+    liftIO $ putStrLn "-- * Inlining eval"
+    liftIO $ putStrLn "------------------------------------------------------------------------\n"
+    liftIO $ putStrLn $ intercalate "\n\n" (map prettyShow defs')
 
   where
     defs = concatMap (\(LlvmModule xs) -> xs) (Map.elems mods)
@@ -228,6 +244,7 @@ simplifyAppAlts = map go where
 
 -- TODO
 -- • Refactor (use Reader instead of State)
+-- • Use bind combinators
 -- • Reuse evaluated variables
 -- • Fill in rest of the patterns
 -- • Assign an unique tag (@tTag@) instead of 0?
@@ -259,7 +276,7 @@ rScheme (TError TUnreachable) = pure $ Error TUnreachable
 
 rScheme (TApp t as) = do
     isMain <- gets isMain
-    alt <- altVar . Bind (eval 0) =<< altNode natTag (printf 0)
+    alt <- altNode natTag (printf 0)
     let res t
           | isMain = Bind t alt
           | otherwise = t
@@ -384,6 +401,12 @@ natTag = CTag{tTag = 0, tCon = "nat" , tArity = 1}
 eval :: Int -> Term
 eval = App (Def "eval") . singleton . Var
 
+fetch :: Int -> Term
+fetch = Fetch . Var
+
+update :: Int -> Int -> Term
+update = on Update Var
+
 printf :: Int -> Term
 printf = App (Def "printf") . singleton . Var
 
@@ -420,31 +443,93 @@ data WithOffset a = WithOffset
 mkWithOffset :: Int -> a -> WithOffset a
 mkWithOffset n a = WithOffset{offset = n, value = a}
 
-
 -----------------------------------------------------------------------
 -- * GRIN transformations
 -----------------------------------------------------------------------
 
 
--- TODO inlining eval
+type E = ReaderT [Abs] TCM
 
--- inlineEval :: AbstractContext ->
+-- | Specialize and inline calls to eval
+--
+-- eval 3 ; λ x14 →
+-- >>>
+-- (fetch 3 ; λ x42 →
+--  (case 0 of
+--     FPrim.sub x38 x39 → Prim.sub 0
+--     Cnat x40 → unit 0
+--  ) ; λ x41 →
+--  update 2 0 ; λ () →
+--  unit 0
+-- ) ; λ x14 →
+inlineEval :: [GrinDefinition] -> AbstractContext -> TCM [GrinDefinition]
+inlineEval defs absCxt =
+    forM defs $ \def -> do
+      t <- runReaderT (go def.gTerm) (returnAbs ++ def.gArgs)
+      pure def{gTerm = t}
 
+  where
+    returnAbs = mapMaybe gReturn defs
 
+    localAbs :: Abs -> E a -> E a
+    localAbs abs = local (abs :)
 
+    localAbss :: [Abs] -> E a -> E a
+    localAbss = foldl (.: localAbs) id
 
+    heapLookup :: Loc -> Maybe Value
+    heapLookup loc = lookup loc $ unAbsHeap absCxt.fHeap
 
+    envLookup :: Abs -> Maybe Value
+    envLookup abs = lookup abs $ unAbsEnv absCxt.fEnv
 
+    go :: Term -> E Term
+    go term = case term of
+      App (Def "eval") [Var n] -> genEval n =<< deBruijnLookup n
+      Case i t alts            -> liftA2 (Case i) (go t) (mapM goAlt alts)
+      Bind t alt               -> liftA2 Bind (go t) (goAlt alt)
+      App _ _                  -> pure term
+      Store _ _                -> pure term
+      Unit _                   -> pure term
+      Fetch _                  -> pure term
+      Update _ _               -> pure term
+      Error _                  -> pure term
 
+    goAlt :: Alt -> E Alt
+    goAlt (AltEmpty t)         = AltEmpty <$> go t
+    goAlt (AltVar abs t)       = AltVar abs <$> localAbs abs (go t)
+    goAlt (AltNode tag abss t) = AltNode tag abss <$> localAbss abss (go t)
+    goAlt (AltLit lit t)       = AltLit lit <$> go t
 
+    genEval :: Int -> Abs -> E Term
+    genEval n abs =
+        fetch n    `bindVarR`
+        caseOf     `bindVarL`
+        update 2 0 `bindEmpty`
+        Unit (Var 0)
+      where
+        caseOf :: E Term
+        caseOf =
+          Case 0 unreachable . toList <$>
+          forM (collectTags abs) (\tag -> altNode tag $ genBody tag)
 
+        genBody :: Tag -> Term
+        genBody FTag{tDef, tArity} =
+          App (Def tDef) $ map Var $ downFrom tArity
+        genBody CTag{} = Unit $ Var 0
+        genBody PTag{} = error "TODO"
 
+    collectTags :: Abs -> List1 Tag
+    collectTags abs =
+        go $ fromMaybe __IMPOSSIBLE__ $ envLookup abs
+      where
+        go (Loc loc)     = go $ fromMaybe __IMPOSSIBLE__ $ heapLookup loc
+        go (Union v1 v2) = List1.nub $ on (<>) go v1 v2
+        go (VNode tag _) = List1.singleton tag
+        go _             = __IMPOSSIBLE__
 
-
-
-
-
-
+    deBruijnLookup :: Int -> E Abs
+    deBruijnLookup n = asks $ fromMaybe __IMPOSSIBLE__ . (!!! n)
 
 -----------------------------------------------------------------------
 -- * LLVM code generation

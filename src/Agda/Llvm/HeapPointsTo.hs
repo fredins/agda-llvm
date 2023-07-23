@@ -28,7 +28,13 @@
 --   evident if the location is a possible value of a variable which is used
 --   more than once.
 
-module Agda.Llvm.HeapPointsTo (heapPointsTo, AbstractContext(..)) where
+module Agda.Llvm.HeapPointsTo
+  ( heapPointsTo
+  , AbstractContext(..)
+  , Value(..)
+  , AbsHeap(..)
+  , AbsEnv(..)
+  ) where
 
 import           Control.Monad.Reader  (MonadReader (ask, local), Reader, asks,
                                         runReader)
@@ -134,8 +140,8 @@ instance Pretty Value where
     pretty tag <+> text ("[" ++ intercalate ", " (map prettyShow vs) ++ "]")
   pretty Bas            = text "BAS"
   pretty (Pick v tag i) = pretty v <+> text "↓" <+> pretty tag <+> text "↓" <+> pretty i
-  pretty (EVAL v) = text $ "EVAL(" ++ prettyShow v ++ ")"
-  pretty (FETCH v) = text $ "FETCH(" ++ prettyShow v ++ ")"
+  pretty (EVAL v) = text "EVAL(" <> pretty v <> text ")"
+  pretty (FETCH v) = text "FETCH(" <> pretty v <> ")"
   pretty (Union v1 v2) = pretty v1 <+> text "∪" <+> pretty v2
   pretty (Abs abs) = pretty abs
   pretty (Loc loc) = pretty loc
@@ -283,6 +289,10 @@ addGids s (FETCH v)         = addGids s v
 localAbs :: MonadReader HCxt m => Abs -> m a -> m a
 localAbs abs = local $ \cxt -> cxt{abss = abs : cxt.abss}
 
+localAbss :: MonadReader HCxt m => [Abs] -> m a -> m a
+localAbss = foldl (.: localAbs) id
+
+
 localLoc :: MonadReader HCxt m => Loc -> m a -> m a
 localLoc loc = local $ \cxt -> cxt{locs = loc : cxt.locs}
 
@@ -319,6 +329,9 @@ localAbsEnv (abs, v) = local $ \cxt ->
     (\cxt -> cxt{shared = makeShared cxt.absHeap absEnv' cxt.shared v})
     cxt{absEnv = absEnv'}
 
+localAbssEnv :: MonadReader HCxt m => [(Abs, Value)] -> m a -> m a
+localAbssEnv = foldl (.: localAbsEnv) id
+
 deriveEquations :: Term -> H' HRet
 deriveEquations term = case term of
 
@@ -339,7 +352,7 @@ deriveEquations term = case term of
                  localAbs abs $
                  localAbsEnv (abs, Loc loc) $
                  localAbsHeap (loc, VNode tag vs'  ) $
-                 foldl (.: localAbsEnv) id (zip def.gArgs vs') $
+                 localAbssEnv (zip def.gArgs vs') $
                  deriveEquations t
 
             if Set.member (unLoc loc) h.shared' then
@@ -347,7 +360,7 @@ deriveEquations term = case term of
               localAbs abs $
               localAbsEnv (abs, Loc loc) $
               localAbsHeap (loc, VNode tag vs' `mkUnion` Abs (fromMaybe __IMPOSSIBLE__ def.gReturn)) $
-              foldl (.: localAbsEnv) id (zip def.gArgs vs') $
+              localAbssEnv (zip def.gArgs vs') $
               deriveEquations t
             else
               pure h
@@ -370,10 +383,9 @@ deriveEquations term = case term of
           pure $ foldl (<>) h hs
       where
         deriveEquationsAlt :: Abs -> Alt -> H' HRet
-        deriveEquationsAlt abs1 (AltNode tag abss t) =
-          let localPicks = zipWith (\abs2 i -> localAbsEnv (abs2, Pick (Abs abs1) tag i)) abss [0 ..] in
-          foldl (.: localAbs) id abss $
-          foldl (.) id localPicks $
+        deriveEquationsAlt abs (AltNode tag abss t) =
+          localAbss abss $
+          localAbssEnv (zip abss $ map (Pick (Abs abs) tag) [0 ..]) $
           deriveEquations t
         deriveEquationsAlt _ (AltEmpty t) = deriveEquations t
         deriveEquationsAlt _ AltVar{}     = __IMPOSSIBLE__ -- TODO investigate if this is possible (thesis indicate it is not)
@@ -403,16 +415,32 @@ deriveEquations term = case term of
       deriveEquations t
 
     Bind (App (Def defName) vs) (AltVar abs t) -> do
-      gArgs <- asks $ maybe __IMPOSSIBLE__ gArgs . find ((defName==) . gName) . defs
+      def <- asks $ fromMaybe __IMPOSSIBLE__ . find ((defName==) . gName) . defs
       mapM valToValue vs >>= \vs' ->
         localAbs abs $
-        foldl (.: localAbsEnv) id (zip gArgs vs') $
+        localAbsEnv (abs, maybe __IMPOSSIBLE__ Abs def.gReturn) $
+        localAbssEnv (zip def.gArgs vs') $
         deriveEquations t
       where
         valToValue :: MonadReader HCxt m => Val -> m Value
         valToValue (Var n) = Abs . fromMaybe __IMPOSSIBLE__ <$> deBruijnLookup n
         valToValue (Lit _) = pure Bas
         valToValue  _      = __IMPOSSIBLE__
+
+    Bind (App (Def defName) vs) (AltNode tag abss t) -> do
+      def <- asks $ fromMaybe __IMPOSSIBLE__ . find ((defName==) . gName) . defs
+      let gReturn = maybe __IMPOSSIBLE__ Abs def.gReturn
+      mapM valToValue vs >>= \vs' ->
+        localAbss abss $
+        localAbssEnv (zip abss $ map (Pick gReturn tag) [0 ..]) $
+        localAbssEnv (zip def.gArgs vs') $
+        deriveEquations t
+      where
+        valToValue :: MonadReader HCxt m => Val -> m Value
+        valToValue (Var n) = Abs . fromMaybe __IMPOSSIBLE__ <$> deBruijnLookup n
+        valToValue (Lit _) = pure Bas
+        valToValue  _      = __IMPOSSIBLE__
+
 
     Bind (App (Prim _) _) (AltVar abs t)  ->
       localAbs abs $
@@ -458,7 +486,7 @@ instance Pretty AbstractContext where
     vcat
       [ text "Abstract heap:"
       , pretty fHeap
-      , text "Abstract enviroment"
+      , text "Abstract enviroment:"
       , pretty fEnv
       ]
 
@@ -491,8 +519,8 @@ solveEquations defs AbstractContext{fHeap = AbsHeap heapEqs, fEnv = AbsEnv envEq
       | otherwise   = fix cxt'
       where
         cxt' =
-          caseMaybe (nextHeapEq cxt) cxt $
-            \entry -> fixCurrent $ addMissingEqs $ heapInsert entry cxt
+          caseMaybe (nextEnvEq cxt) cxt $
+            \entry -> fixCurrent $ addMissingEqs $ envInsert entry cxt
 
         fixCurrent :: AbstractContext -> AbstractContext
         fixCurrent cxt
@@ -511,10 +539,10 @@ solveEquations defs AbstractContext{fHeap = AbsHeap heapEqs, fEnv = AbsEnv envEq
                 cxt'
                 (unAbsEnv cxt'.fEnv)
 
-    -- | Returns the next missing abstract heap equation (e.g. `~l4 → FDownFrom.downFrom [~x2]`).
-    nextHeapEq :: AbstractContext -> Maybe (Loc, Value)
-    nextHeapEq =
-      listToMaybe . differenceBy (on (==) fst) heapEqs . unAbsHeap . fHeap
+    -- | Returns the next missing abstract heap equation (e.g. `x21 → l4 ∪ l24`).
+    nextEnvEq :: AbstractContext -> Maybe (Abs, Value)
+    nextEnvEq =
+      listToMaybe . differenceBy (on (==) fst) envEqs . unAbsEnv . fEnv
 
     -- | Adds missing equations that are referenced in the current equations.
     addMissingEqs :: AbstractContext -> AbstractContext
@@ -733,8 +761,8 @@ absEnvUpdate abs v cxt =
     env = for (unAbsEnv cxt.fEnv) $
       \(abs', v') -> if abs == abs' then (abs', v) else (abs', v')
 
-heapInsert :: (Loc, Value) -> AbstractContext -> AbstractContext
-heapInsert entry cxt = cxt{fHeap = AbsHeap $ insert entry $ unAbsHeap cxt.fHeap}
+envInsert :: (Abs, Value) -> AbstractContext -> AbstractContext
+envInsert entry cxt = cxt{fEnv = AbsEnv $ insert entry $ unAbsEnv cxt.fEnv}
 
 valueToList :: Value -> [Value]
 valueToList (Union a b) = on (++) valueToList a b
