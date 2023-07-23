@@ -4,6 +4,145 @@ csl: acm-siggraph.csl
 css: Agda.css
 ---
 
+### W. 29
+
+Read the following papers:
+
+- @boquist1996
+
+Did the following:
+
+- Rewrote the heap points-to analysis and incorporated the sharing analysis.  
+
+  ```markdown
+  ------------------------------------------------------------------------
+  -- * GRIN
+  ------------------------------------------------------------------------
+
+  DownFrom.downFrom r9 x8 =
+    eval 0 ; λ Cnat x7 →
+    case 0 of
+      0 → unit (CDownFrom.List.[])
+      _ → storel0 (Cnat #1) ; λ x3 →
+          storel1 (FPrim.sub 2 0) ; λ x2 →
+          storel4 (FDownFrom.downFrom 0) ; λ x5 →
+          unit (CDownFrom.List._∷_ 4 0)
+
+  DownFrom.sum r20 x19 =
+    eval 0 ; λ x18 →
+    case 0 of
+      CDownFrom.List.[] → unit (Cnat #0)
+      CDownFrom.List._∷_ x16 x17 →
+        storel10 (FDownFrom.sum 0) ; λ x11 →
+        eval 0 ; λ x15 →
+        eval 3 ; λ x14 →
+        PAdd 1 0 ; λ x13 →
+        unit 0
+
+  DownFrom.main =
+    storel21 (Cnat #4) ; λ x24 →
+    storel22 (FDownFrom.downFrom 0) ; λ x23 →
+    DownFrom.sum 0 ; λ Cnat x25 →
+    printf 0
+
+  ------------------------------------------------------------------------
+  -- * Heap points-to analysis
+  ------------------------------------------------------------------------
+
+  Abstract heap:
+  l0 → Cnat [BAS]
+  l1 → FPrim.sub [l1 ∪ l21, l0]
+  l4 → FDownFrom.downFrom [l1]
+  l10 → FDownFrom.sum [l4]
+  l21 → Cnat [BAS]
+  l22 → FDownFrom.downFrom [l21]
+
+  Abstract env:
+  x2 → l1
+  x3 → l0
+  x5 → l4
+  x7 → BAS
+  x8 → l1 ∪ l21
+  x9 → CDownFrom.List._∷_ [l1 ∪ l21, l4] ∪ CDownFrom.List.[] []
+  x11 → l10
+  x13 → Cnat [BAS]
+  x14 → Cnat [BAS]
+  x15 → Cnat [BAS]
+  x16 → l1 ∪ l21
+  x17 → l4
+  x18 → CDownFrom.List._∷_ [l1 ∪ l21, l4] ∪ CDownFrom.List.[] []
+  x19 → l4 ∪ l22
+  x20 → Cnat [BAS]
+  x23 → l22
+  x24 → l21
+  x25 → BAS
+
+  Shared: {0, 1, 2, 3, 8, 21, 24}
+  ```
+- Implemented eval inlining which uses the heap points-to analysis points-to
+  generate specialized eval functions for each call.  
+
+  ```markdown
+
+  ------------------------------------------------------------------------
+  -- * Inlining eval
+  ------------------------------------------------------------------------
+
+  DownFrom.downFrom r9 x8 =
+    (fetch 0 ; λ x30 →
+     (case 0 of
+        CDownFrom.List._∷_ x27 x28 → unit 0
+        CDownFrom.List.[] → unit 0
+     ) ; λ x29 →
+     update 2 0 ; λ () →
+     unit 0
+    ) ; λ Cnat x7 →
+    case 0 of
+      0 → unit (CDownFrom.List.[])
+      _ → storel0 (Cnat #1) ; λ x3 →
+          storel1 (FPrim.sub 2 0) ; λ x2 →
+          storel4 (FDownFrom.downFrom 0) ; λ x5 →
+          unit (CDownFrom.List._∷_ 4 0)
+
+  DownFrom.sum r20 x19 =
+    (fetch 0 ; λ x34 →
+     (case 0 of
+        CDownFrom.List._∷_ x31 x32 → unit 0
+        CDownFrom.List.[] → unit 0
+     ) ; λ x33 →
+     update 2 0 ; λ () →
+     unit 0
+    ) ; λ x18 →
+    case 0 of
+      CDownFrom.List.[] → unit (Cnat #0)
+      CDownFrom.List._∷_ x16 x17 →
+        storel10 (FDownFrom.sum 0) ; λ x11 →
+        (fetch 0 ; λ x37 →
+         (case 0 of
+            FDownFrom.sum x35 → DownFrom.sum 0
+         ) ; λ x36 →
+         update 2 0 ; λ () →
+         unit 0
+        ) ; λ x15 →
+        (fetch 3 ; λ x42 →
+         (case 0 of
+            FPrim.sub x38 x39 → Prim.sub 1 0
+            Cnat x40 → unit 0
+         ) ; λ x41 →
+         update 2 0 ; λ () →
+         unit 0
+        ) ; λ x14 →
+        PAdd 1 0 ; λ x13 →
+        unit 0
+
+  DownFrom.main =
+    storel21 (Cnat #4) ; λ x24 →
+    storel22 (FDownFrom.downFrom 0) ; λ x23 →
+    DownFrom.sum 0 ; λ Cnat x25 →
+    printf 0
+  ```
+  
+
 ### W. 28
 
 Read the following papers:
@@ -50,6 +189,7 @@ Did the following:
   ```
 - Started incorporating sharing analysis which makes the heap points-to 
   analysis more precise.
+
 
 ### W. 27 and prior
 
