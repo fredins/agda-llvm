@@ -456,7 +456,7 @@ type E = ReaderT [Abs] TCM
 -- >>>
 -- (fetch 3 ; λ x42 →
 --  (case 0 of
---     FPrim.sub x38 x39 → Prim.sub 0
+--     FPrim.sub x38 x39 → Prim.sub 1 0
 --     Cnat x40 → unit 0
 --  ) ; λ x41 →
 --  update 2 0 ; λ () →
