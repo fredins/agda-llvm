@@ -86,7 +86,7 @@ Did the following:
 
   Shared: {0, 1, 2, 3, 8, 21, 24}
   ```
-- Implemented eval inlining which uses the heap points-to analysis points-to  
+- Implemented eval inlining which uses the heap points-to analysis to 
   generate specialized eval functions for each call.  
 
   ```markdown
