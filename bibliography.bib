@@ -55,3 +55,138 @@ url = {https://www.microsoft.com/en-us/research/publication/perceus-garbage-free
 number = {MSR-TR-2020-42},
 note = {(*) The first two authors contributed equally to this work. v4, 2021-06-07. Extended version of the PLDI'21 paper.},
 }
+
+@inproceedings{hage2008,
+author = {Hage, Jurriaan and Holdermans, Stefan},
+title = {Heap Recycling for Lazy Languages},
+year = {2008},
+isbn = {9781595939777},
+publisher = {Association for Computing Machinery},
+address = {New York, NY, USA},
+url = {https://doi.org/10.1145/1328408.1328436},
+doi = {10.1145/1328408.1328436},
+abstract = {Pure functional programming languages preclude destructive updates of heap-allocated data. In such languages, all newly computed algebraic values claim freshly allocated heap space, which typically causes idiomatic programs to be notoriously inefficient when compared to their imperative and impure counterparts. We partly overcome this shortcoming by considering a syntactically light language construct for enabling user-controlled in-place updates of algebraic values. The resulting calculus, that is based on a combination of type-based uniqueness and constructor analysis, is guaranteed to maintain referential transparency and is fully compatible with existing run-time systems for nonstrict, pure functional languages.},
+booktitle = {Proceedings of the 2008 ACM SIGPLAN Symposium on Partial Evaluation and Semantics-Based Program Manipulation},
+pages = {189–197},
+numpages = {9},
+keywords = {lazy functional programming, compile-time garbage collection, type-based program analysis},
+location = {San Francisco, California, USA},
+series = {PEPM '08}
+}
+
+@inproceedings{ende2010,
+  title={Extending the UHC LLVM backend : Adding support for accurate garbage collection},
+  author={P v.d. Ende},
+  year={2010}
+}
+
+@inproceedings{dijkstra2009,
+author = {Dijkstra, Atze and Fokker, Jeroen and Swierstra, S. Doaitse},
+title = {The Architecture of the Utrecht Haskell Compiler},
+year = {2009},
+isbn = {9781605585086},
+publisher = {Association for Computing Machinery},
+address = {New York, NY, USA},
+url = {https://doi.org/10.1145/1596638.1596650},
+doi = {10.1145/1596638.1596650},
+abstract = {In this paper we describe the architecture of the Utrecht Haskell Compiler (UHC).UHC is a new Haskell compiler, that supports most (but not all) Haskell 98 features, plus some experimental extensions. It targets multiple backends, including a bytecode interpreter backend and a whole-program analysis backend, both via C. The implementation is rigorously organized as stepwise transformations through some explicit intermediate languages. The tree walks of all transformations are expressed as an algebra, with the aid of an Attribute Grammar based preprocessor. The compiler is just one materialization of a framework that supports experimentation with language variants, thanks to an aspect-oriented internal organization.},
+booktitle = {Proceedings of the 2nd ACM SIGPLAN Symposium on Haskell},
+pages = {93–104},
+numpages = {12},
+keywords = {aspect orientation, attribute grammar, compiler architecture, haskell},
+location = {Edinburgh, Scotland},
+series = {Haskell '09}
+}
+
+@inproceedings{boeijink2010,
+  title={Introducing the PilGRIM: A Processor for Executing Lazy Functional Languages},
+  author={Arjan Boeijink and Philip K. F. H{\"o}lzenspies and Jan Kuper},
+  booktitle={International Symposium on Implementation and Application of Functional Languages},
+  year={2010}
+}
+
+@article{johnsson2004,
+author = {Johnsson, Thomas},
+title = {Efficient Compilation of Lazy Evaluation},
+year = {2004},
+issue_date = {April 2004},
+publisher = {Association for Computing Machinery},
+address = {New York, NY, USA},
+volume = {39},
+number = {4},
+issn = {0362-1340},
+url = {https://doi.org/10.1145/989393.989409},
+doi = {10.1145/989393.989409},
+abstract = {This paper describes the principles underlying an efficient implementation of a lazy functional language, compiling to code for ordinary computers. It is based on combinator-like graph reduction: the user defined functions are used as rewrite rules in the graph. Each function is compiled into an instruction sequence for an abstract graph reduction machine, called the G-machine, the code reduces a function application graph to its value. The G-machine instructions are then translated into target code. Speed improvements by almost two orders of magnitude over previous lazy evaluators have been measured; we provide some performance figures.},
+journal = {SIGPLAN Not.},
+month = {apr},
+pages = {125–138},
+numpages = {14}
+}
+
+@article{podlovics2021,
+  title={A Modern Look at GRIN, an Optimizing Functional Language Back End},
+  author={P{\'e}ter Podlovics and Csaba Hruska and Andor P{\'e}nzes},
+  journal={Acta Cybern.},
+  year={2021},
+  volume={25},
+  pages={847-876}
+}
+
+@article{huang2023,
+author = {Huang, Yulong and Yallop, Jeremy},
+title = {Defunctionalization with Dependent Types},
+year = {2023},
+issue_date = {June 2023},
+publisher = {Association for Computing Machinery},
+address = {New York, NY, USA},
+volume = {7},
+number = {PLDI},
+url = {https://doi.org/10.1145/3591241},
+doi = {10.1145/3591241},
+abstract = {The defunctionalization translation that eliminates higher-order functions from programs forms a key part of many compilers. However, defunctionalization for dependently-typed languages has not been formally studied. We present the first formally-specified defunctionalization translation for a dependently-typed language and establish key metatheoretical properties such as soundness and type preservation. The translation is suitable for incorporation into type-preserving compilers for dependently-typed languages},
+journal = {Proc. ACM Program. Lang.},
+month = {jun},
+articleno = {127},
+numpages = {23},
+keywords = {compilation, type systems, type preservation, dependent types}
+}
+
+@article{10.1145/2775050.2633370,
+author = {Okabe, Kiwamu and Muranushi, Takayuki},
+title = {Systems Demonstration: Writing NetBSD Sound Drivers in Haskell},
+year = {2014},
+issue_date = {December 2014},
+publisher = {Association for Computing Machinery},
+address = {New York, NY, USA},
+volume = {49},
+number = {12},
+issn = {0362-1340},
+url = {https://doi.org/10.1145/2775050.2633370},
+doi = {10.1145/2775050.2633370},
+abstract = {Most strongly typed, functional programming languages are not equipped with a reentrant garbage collector. Therefore such languages are not used for operating systems programming, where the virtues of types are most desired. We propose the use of Context-Local Heaps (CLHs) to achieve reentrancy, which also increasing the speed of garbage collection. We have implemented CLHs in Ajhc, a Haskell compiler derived from jhc, rewritten some NetBSD sound drivers using Ajhc, and benchmarked them. The reentrant, faster garbage collection that CLHs provide opens the path to type-assisted operating systems programming.},
+journal = {SIGPLAN Not.},
+month = {sep},
+pages = {77–78},
+numpages = {2},
+keywords = {performance, languages}
+}
+
+@inproceedings{okabe2014,
+author = {Okabe, Kiwamu and Muranushi, Takayuki},
+title = {Systems Demonstration: Writing NetBSD Sound Drivers in Haskell},
+year = {2014},
+isbn = {9781450330411},
+publisher = {Association for Computing Machinery},
+address = {New York, NY, USA},
+url = {https://doi.org/10.1145/2633357.2633370},
+doi = {10.1145/2633357.2633370},
+abstract = {Most strongly typed, functional programming languages are not equipped with a reentrant garbage collector. Therefore such languages are not used for operating systems programming, where the virtues of types are most desired. We propose the use of Context-Local Heaps (CLHs) to achieve reentrancy, which also increasing the speed of garbage collection. We have implemented CLHs in Ajhc, a Haskell compiler derived from jhc, rewritten some NetBSD sound drivers using Ajhc, and benchmarked them. The reentrant, faster garbage collection that CLHs provide opens the path to type-assisted operating systems programming.},
+booktitle = {Proceedings of the 2014 ACM SIGPLAN Symposium on Haskell},
+pages = {77–78},
+numpages = {2},
+keywords = {performance, languages},
+location = {Gothenburg, Sweden},
+series = {Haskell '14}
+}
+
