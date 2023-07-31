@@ -1,0 +1,5 @@
+storel0 (Cnil) ; λ x6 →
+storel1 (Cnat #1) ; λ x4 →
+storel2 (FdownFrom 0) ; λ x3 →
+unit 0 ; λ x5 →
+unit (Ccons 3 0)

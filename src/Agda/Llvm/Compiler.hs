@@ -1,53 +1,52 @@
+{-# OPTIONS_GHC -Wno-name-shadowing -Wno-unused-matches -Wno-unused-binds #-}
+
 {-# LANGUAGE DeriveAnyClass           #-}
 {-# LANGUAGE DuplicateRecordFields    #-}
 {-# LANGUAGE NondecreasingIndentation #-}
 {-# LANGUAGE OverloadedRecordDot      #-}
 {-# LANGUAGE OverloadedStrings        #-}
-{-# OPTIONS_GHC -Wno-name-shadowing #-}
+{-# LANGUAGE ViewPatterns             #-}
 
-module Agda.Llvm.Compiler (llvmBackend) where
+module Agda.Llvm.Compiler (module Agda.Llvm.Compiler) where
 
-import           Control.DeepSeq                       (NFData)
-import           Control.Monad                         (forM, replicateM)
-import           Control.Monad.IO.Class                (liftIO)
-import           Control.Monad.State                   (MonadTrans (lift),
-                                                        StateT, evalStateT,
-                                                        gets)
-import           Data.Foldable                         (foldrM, toList)
-import           Data.Function                         (on)
-import           Data.List                             (intercalate, singleton)
-import           Data.Map                              (Map)
-import qualified Data.Map                              as Map
-import           GHC.Generics                          (Generic)
-import           Prelude                               hiding ((!!))
+import           Control.Applicative                (Applicative (liftA2))
+import           Control.DeepSeq                    (NFData)
+import           Control.Monad                      (forM, replicateM)
+import           Control.Monad.IO.Class             (liftIO)
+import           Control.Monad.Reader               (MonadReader (local),
+                                                     ReaderT (runReaderT), asks)
+import           Control.Monad.State                (StateT, evalStateT, gets)
+import           Data.Foldable                      (find, foldrM, toList)
+import           Data.Function                      (on)
+import           Data.List                          (intercalate, singleton)
+import           Data.Map                           (Map)
+import qualified Data.Map                           as Map
+import           GHC.Generics                       (Generic)
+import           Prelude                            hiding ((!!))
 
-import           Agda.Compiler.Backend                 hiding (Prim, initEnv)
-import           Agda.Compiler.Treeless.NormalizeNames (normalizeNames)
+import           Agda.Compiler.Backend              hiding (Prim, initEnv)
 import           Agda.Interaction.Options
 import           Agda.Syntax.TopLevelModuleName
 import           Agda.TypeChecking.Substitute
 import           Agda.Utils.Functor
 import           Agda.Utils.Impossible
 import           Agda.Utils.List
-import           Agda.Utils.List1                      (List1, pattern (:|))
-import qualified Agda.Utils.List1                      as List1
+import           Agda.Utils.List1                   (List1, pattern (:|))
+import qualified Agda.Utils.List1                   as List1
 import           Agda.Utils.Maybe
 import           Agda.Utils.Pretty
 
 import           Agda.Llvm.Grin
 import           Agda.Llvm.HeapPointsTo
+import           Agda.Llvm.TreelessTransform
 import           Agda.Llvm.Utils
-import           Agda.TypeChecking.SizedTypes.Utils    (trace)
-import           Control.Applicative                   (Applicative (liftA2))
-import           Control.Monad.Reader                  (MonadReader (local),
-                                                        ReaderT (runReaderT),
-                                                        ask, asks)
+import           Agda.TypeChecking.SizedTypes.Utils (trace)
 
 
 llvmBackend :: Backend
 llvmBackend = Backend llvmBackend'
 
-llvmBackend' :: Backend' LlvmOptions LlvmEnv LlvmModuleEnv LlvmModule (Maybe GrinDefinition)
+llvmBackend' :: Backend' LlvmOptions LlvmEnv LlvmModuleEnv LlvmModule (Maybe TreelessDefinition)
 llvmBackend' = Backend'
   { backendName           = "LLVM"
   , backendVersion        = Nothing
@@ -70,7 +69,7 @@ newtype LlvmOptions = LlvmOptions
 data LlvmEnv = LlvmEnv {}
 
 data LlvmModuleEnv = LlvmModuleEnv
-newtype LlvmModule = LlvmModule [GrinDefinition]
+newtype LlvmModule = LlvmModule [TreelessDefinition]
 
 defaultLlvmOptions :: LlvmOptions
 defaultLlvmOptions = LlvmOptions
@@ -93,150 +92,63 @@ llvmCompileDef :: LlvmEnv
                -> LlvmModuleEnv
                -> IsMain
                -> Definition
-               -> TCM (Maybe GrinDefinition)
-llvmCompileDef env menv isMainModule Defn{defName, defType, theDef=Function{}} = do
-    treeless <- maybeM __IMPOSSIBLE__ normalizeNames $ toTreeless LazyEvaluation defName
-    let (arity, treeless') = skipLambdas treeless
+               -> TCM (Maybe TreelessDefinition)
 
-    term' <- treelessToGrin isMain (simplifyApp treeless') arity
-    gArgs <- replicateM arity freshAbs
-    gReturn <- boolToMaybe (not isMain) <$> freshAbs
-
-    let gDef  =
-          GrinDefinition
-            { gType = Just defType
-            , gName = prettyShow defName
-            , gArity = arity
-            , gTerm = term'
-            , gTreeless = Just $ simplifyApp treeless
-            , gArgs = gArgs
-            , gReturn = gReturn
-            }
-    pure $ Just gDef
-  where
-    isMain = isNamedMain && isMainModule == IsMain
-    isNamedMain = "main" == (prettyShow . nameConcrete . qnameName) defName
-
-llvmCompileDef env menv isMain def@Defn{defName, theDef=Primitive{primName}} = do
-  -- liftIO $ putStrLn $ render $ sep [text "Primitive:", pretty defName, pretty primName]
-  pure Nothing
-
-llvmCompileDef env menv isMain def@Defn{defName, theDef=Datatype{dataCons}} = do
-  -- liftIO $ putStrLn $ render $ sep [text "Datatype: ", pretty defName, pretty dataCons]
-  pure Nothing
-
-llvmCompileDef env menv isMain def@Defn{defName, defType, theDef=Constructor{conArity, conData}} = do
-  -- liftIO $ putStrLn $ render $ sep [text "Constructor:", pretty defName, pretty conData, pretty conArity]
-  pure Nothing
-
-llvmCompileDef env menv isMain def = pure Nothing
+llvmCompileDef _ _ = definitionToTreeless
 
 llvmPostModule :: LlvmEnv
                -> LlvmModuleEnv
                -> IsMain
                -> TopLevelModuleName
-               -> [Maybe GrinDefinition]
+               -> [Maybe TreelessDefinition]
                -> TCM LlvmModule
-llvmPostModule _ _ _ topModName defs =
+llvmPostModule _ _ _ _ defs =
   pure $ LlvmModule $ catMaybes defs
 
 llvmPostCompile :: LlvmEnv
                 -> IsMain
                 -> Map TopLevelModuleName LlvmModule
                 -> TCM ()
-llvmPostCompile env _ mods = do
+llvmPostCompile _ _ mods = do
+  let tl_defs = concatMap (\(LlvmModule xs) -> xs) (Map.elems mods)
+  gr_defs <- treelessToGrin tl_defs
+  let (absCxt, share) = heapPointsTo gr_defs
+  gr_defs' <- inlineEval gr_defs absCxt
+  let gr_defs'' = for gr_defs' $ \def -> def{gr_term = normalise def.gr_term}
+  let gr_defs''' = for gr_defs'' $ \def -> def{gr_term = removeUnitBind def.gr_term}
+  let gr_defs'''' = specializeUpdate gr_defs'''
 
-    liftIO $ putStrLn "\n------------------------------------------------------------------------"
-    liftIO $ putStrLn "-- * Treeless"
-    liftIO $ putStrLn "------------------------------------------------------------------------\n"
-    liftIO $ putStrLn $ intercalate "\n\n" $ for defs $ \GrinDefinition{gName, gTreeless, gType} ->
-      render $ vcat
-        [ pretty gName <+> text ":" <+> pretty gType
-        , pretty gName <+> text "=" <+> pretty gTreeless
-        ]
+  liftIO $ do
+    putStrLn "\n------------------------------------------------------------------------"
+    putStrLn "-- * Treeless"
+    putStrLn "------------------------------------------------------------------------\n"
+    putStrLn $ intercalate "\n\n" $ map prettyShow tl_defs
+    putStrLn "\n------------------------------------------------------------------------"
+    putStrLn "-- * GRIN"
+    putStrLn "------------------------------------------------------------------------\n"
+    putStrLn $ intercalate "\n\n" $ map prettyShow gr_defs
+    putStrLn "\n------------------------------------------------------------------------"
+    putStrLn "-- * Heap points-to analysis"
+    putStrLn "------------------------------------------------------------------------\n"
+    putStrLn $ prettyShow absCxt
+    putStrLn $ "\nSharing Heap: " ++ prettyShow share
+    putStrLn "\n------------------------------------------------------------------------"
+    putStrLn "-- * Inlining Eval"
+    putStrLn "------------------------------------------------------------------------\n"
+    putStrLn $ intercalate "\n\n" $ map prettyShow gr_defs'
+    putStrLn "\n------------------------------------------------------------------------"
+    putStrLn "-- * Normalise"
+    putStrLn "------------------------------------------------------------------------\n"
+    putStrLn $ intercalate "\n\n" $ map prettyShow gr_defs''
+    putStrLn "\n------------------------------------------------------------------------"
+    putStrLn "-- * Remove `unit n λ xₘ → 〈t 〉`"
+    putStrLn "------------------------------------------------------------------------\n"
+    putStrLn $ intercalate "\n\n" $ map prettyShow gr_defs'''
+    putStrLn "\n------------------------------------------------------------------------"
+    putStrLn "-- * Specialize Update"
+    putStrLn "------------------------------------------------------------------------\n"
+    putStrLn $ intercalate "\n\n" $ map prettyShow gr_defs''''
 
-    liftIO $ putStrLn "\n------------------------------------------------------------------------"
-    liftIO $ putStrLn "-- * GRIN"
-    liftIO $ putStrLn "------------------------------------------------------------------------\n"
-    liftIO $ putStrLn $ intercalate "\n\n" (map prettyShow defs)
-
-    liftIO $ putStrLn "\n------------------------------------------------------------------------"
-    liftIO $ putStrLn "-- * Heap points-to analysis"
-    liftIO $ putStrLn "------------------------------------------------------------------------\n"
-
-    let (absCxt, share) = heapPointsTo defs
-    liftIO $ putStrLn "\nAbstract heap: "
-    liftIO $ putStrLn $ prettyShow absCxt.fHeap
-    liftIO $ putStrLn "\nAbstract env: "
-    liftIO $ putStrLn $ prettyShow absCxt.fEnv
-    liftIO $ putStrLn $ "\nShared: " ++ prettyShow share
-
-
-    defs' <- inlineEval defs absCxt
-    liftIO $ putStrLn "\n------------------------------------------------------------------------"
-    liftIO $ putStrLn "-- * Inlining eval"
-    liftIO $ putStrLn "------------------------------------------------------------------------\n"
-    liftIO $ putStrLn $ intercalate "\n\n" (map prettyShow defs')
-
-  where
-    defs = concatMap (\(LlvmModule xs) -> xs) (Map.elems mods)
-
------------------------------------------------------------------------
--- * Treeless transformations
------------------------------------------------------------------------
-
--- | Skip initial lambdas
-skipLambdas :: TTerm -> (Int, TTerm)
-skipLambdas = go . (0, ) where
-  go (n, TLam t) = go (n + 1, t)
-  go p           = p
-
--- | Simplify complicated applications
---
--- f a (g b) (h c)
--- >>>
--- let b' = g b in
--- let c' = h c in
--- f a b' c'
-simplifyApp :: TTerm -> TTerm
-simplifyApp t | (f, as@(_:_)) <- tAppView t  = go f as where
-  -- Create a let expression and raise de Bruijn indices, until
-  -- simple application
-  go f as
-    | Just (before, t, after) <- splitArgs as =
-      simplifyApp $ mkLet t
-                  $ mkTApp (raise1 f)
-                  $ raise1 before ++ TVar 0 : raise1 after
-    | otherwise = mkTApp f as
-
-  raise1 :: Subst a => a -> a
-  raise1 = applySubst $ raiseS 1
-
-  -- Split arguments on the first application
-  splitArgs :: Args -> Maybe (Args, TTerm, Args)
-  splitArgs []              = Nothing
-  splitArgs (a@TApp{} : as) = Just ([], a, as)
-  splitArgs (a : as)
-    | Just (before, t, after) <- splitArgs as = Just (a:before, t, after)
-    | otherwise = Nothing
-
-simplifyApp t = case t of
-  TCase n info def alts -> TCase n info (simplifyApp def) (simplifyAppAlts alts)
-  TLet t1 t2            -> on TLet simplifyApp t1 t2
-  TLit _                -> t
-  TCon _                -> t
-  TError _              -> t
-  TVar _                -> t
-  TPrim _               -> t
-  TDef _                -> t
-  TLam t                -> TLam $ simplifyApp t
-  _                     -> error $ "TODO " ++ show t
-
-simplifyAppAlts :: [TAlt] -> [TAlt]
-simplifyAppAlts = map go where
-  go alt@TACon{aBody} = alt{aBody = simplifyApp aBody}
-  go alt@TALit{aBody} = alt{aBody = simplifyApp aBody}
-  go _                = error "TODO"
 
 -----------------------------------------------------------------------
 -- * GRIN code generation
@@ -247,15 +159,27 @@ simplifyAppAlts = map go where
 -- • Use bind combinators
 -- • Reuse evaluated variables
 -- • Fill in rest of the patterns
--- • Assign an unique tag (@tTag@) instead of 0?
 
 -- Preconditions:
 -- • Separate applications
 -- • Lambda lifted
 -- • No polymorphic functions?
 -- • Saturated constructors
-treelessToGrin :: Bool -> TTerm -> Int -> TCM Term
-treelessToGrin isMain t arity = evalStateT (rScheme t) $ initGEnv arity isMain
+treelessToGrin :: [TreelessDefinition] -> TCM [GrinDefinition]
+treelessToGrin defs = forM defs $ \def -> do
+  gr_term <- evalStateT (rScheme def.tl_term) $
+           initGEnv def.tl_arity def.tl_isMain
+  gr_args <- replicateM def.tl_arity freshAbs
+  gr_return <- boolToMaybe (not def.tl_isMain) <$> freshAbs
+  pure $ GrinDefinition
+    { gr_name = def.tl_name
+    , gr_isMain = def.tl_isMain
+    , gr_arity = def.tl_arity
+    , gr_type = Just def.tl_type
+    , gr_term = gr_term
+    , gr_args = gr_args
+    , gr_return = gr_return
+    }
 
 rScheme :: TTerm -> G Term
 rScheme (TCase n CaseInfo{caseType=CTNat} def alts) = do
@@ -270,7 +194,7 @@ rScheme (TCase n CaseInfo{caseType=CTData _} def alts) = do
 
 -- | 𝓡 [_[]_] = unit (C_[]_)
 rScheme (TCon q) = pure $ Unit $ Node tag [] where
-  tag = CTag{tTag = 0, tCon = prettyShow q, tArity = 0}
+  tag = CTag{tCon = prettyShow q, tArity = 0}
 rScheme (TLit lit) = pure $ Unit $ Node natTag [Lit lit]
 rScheme (TError TUnreachable) = pure $ Error TUnreachable
 
@@ -292,7 +216,7 @@ rScheme (TApp t as) = do
     --               unit @0
     appPrim res prim as = do
         fin <- Bind (App (Prim prim) vs) <$> altVar (res $ Unit $ Var 0)
-        evals' <- foldrM (\t ts -> Bind t <$> altVar ts) fin evals
+        evals' <- foldrM (\t ts -> Bind t <$> altNode natTag ts) fin evals
         pure $ mkWithOffset (length evals) evals'
       where
         (evals, vs) =  foldr f ([], []) as
@@ -335,7 +259,7 @@ rScheme (TApp t as) = do
 
         pure $ mkWithOffset (length stores) stores'
       where
-        tag = CTag{tTag = 0, tCon = prettyShow q, tArity = length as}
+        tag = CTag{tCon = prettyShow q, tArity = length as}
 
 -- | 𝓡 [let t1 in t2] = 𝓒 [t1] ; λ #1 → 𝓡 [t2]
 rScheme (TLet t1 t2)
@@ -360,7 +284,7 @@ aScheme TACon{aCon, aArity, aBody} = do
     aBody' <- rScheme aBody
     altNode tag aBody'
   where
-    tag = CTag{tTag = 0, tCon = prettyShow aCon, tArity = aArity}
+    tag = CTag{tCon = prettyShow aCon, tArity = aArity}
 
 aScheme alt                = error $ "TODO aScheme " ++ show alt
 
@@ -391,21 +315,18 @@ cSchemeApp t as = do
     pure $ mkWithOffset nLits stores'
   where
   tag
-    | TDef q <- t = FTag{tTag = 0, tDef = prettyShow q, tArity = length as}
-    | TPrim prim <- t =  FTag {tTag=0, tDef=primStr prim, tArity=length as}
+    | TDef q <- t = FTag{tDef = prettyShow q, tArity = length as}
+    | TPrim prim <- t =  FTag {tDef=primStr prim, tArity=length as}
     | otherwise = __IMPOSSIBLE__
 
 natTag :: Tag
-natTag = CTag{tTag = 0, tCon = "nat" , tArity = 1}
+natTag = CTag{tCon = "nat" , tArity = 1}
 
 eval :: Int -> Term
 eval = App (Def "eval") . singleton . Var
 
 fetch :: Int -> Term
 fetch = Fetch . Var
-
-update :: Int -> Int -> Term
-update = on Update Var
 
 printf :: Int -> Term
 printf = App (Def "printf") . singleton . Var
@@ -465,11 +386,11 @@ type E = ReaderT [Abs] TCM
 inlineEval :: [GrinDefinition] -> AbstractContext -> TCM [GrinDefinition]
 inlineEval defs absCxt =
     forM defs $ \def -> do
-      t <- runReaderT (go def.gTerm) (returnAbs ++ def.gArgs)
-      pure def{gTerm = t}
+      t <- runReaderT (go def.gr_term) (returnAbs ++ def.gr_args)
+      pure def{gr_term = t}
 
   where
-    returnAbs = mapMaybe gReturn defs
+    returnAbs = mapMaybe gr_return defs
 
     localAbs :: Abs -> E a -> E a
     localAbs abs = local (abs :)
@@ -492,8 +413,9 @@ inlineEval defs absCxt =
       Store _ _                -> pure term
       Unit _                   -> pure term
       Fetch _                  -> pure term
-      Update _ _               -> pure term
+      Update{}                 -> pure term
       Error _                  -> pure term
+      -- TODO missing
 
     goAlt :: Alt -> E Alt
     goAlt (AltEmpty t)         = AltEmpty <$> go t
@@ -505,18 +427,24 @@ inlineEval defs absCxt =
     genEval n abs =
         fetch n    `bindVarR`
         caseOf     `bindVarL`
-        update 2 0 `bindEmpty`
+        Update Nothing 2 0 `BindEmpty`
         Unit (Var 0)
       where
         caseOf :: E Term
         caseOf =
           Case 0 unreachable . toList <$>
-          forM (collectTags abs) (\tag -> altNode tag $ genBody tag)
+          forM (collectTags abs) (\tag -> altNode tag =<< genBody tag)
 
-        genBody :: Tag -> Term
-        genBody FTag{tDef, tArity} =
-          App (Def tDef) $ map Var $ downFrom tArity
-        genBody CTag{} = Unit $ Var 0
+        genBody :: Tag -> E Term
+        genBody FTag{tDef, tArity}
+          | isJust $ find ((tDef==). gr_name) defs = pure app
+          -- Wrap primitive values
+          | otherwise =
+              app `bindVar`
+              Unit (Node natTag [Var 0])
+          where
+            app = App (Def tDef) $ map Var $ downFrom tArity
+        genBody CTag{tArity} = pure $ Unit $ Var tArity
         genBody PTag{} = error "TODO"
 
     collectTags :: Abs -> List1 Tag
@@ -530,6 +458,173 @@ inlineEval defs absCxt =
 
     deBruijnLookup :: Int -> E Abs
     deBruijnLookup n = asks $ fromMaybe __IMPOSSIBLE__ . (!!! n)
+
+
+-- unit n ; λ xₘ →
+-- 〈t 〉
+-- >>>
+-- 〈t 〉[n / m]
+removeUnitBind :: Term -> Term
+removeUnitBind (Unit (Var n) `Bind` AltVar abs t) =
+    applySubst rho t
+  where
+    rho = strengthenS __IMPOSSIBLE__ 1 `composeS` singletonS 0 (Var $ n + 1)
+removeUnitBind term = case term of
+  Bind t alt    -> Bind (removeUnitBind t) (removeUnitBindAlt alt)
+  Case n t alts -> Case n (removeUnitBind t) (map removeUnitBindAlt alts)
+  App{}         -> term
+  Unit{}        -> term
+  Store{}       -> term
+  Fetch{}       -> term
+  Update{}      -> term
+  Error{}       -> term
+  _             -> error "TODO"
+
+removeUnitBindAlt :: Alt -> Alt
+removeUnitBindAlt (AltVar abs t)       = AltVar abs $ removeUnitBind t
+removeUnitBindAlt (AltNode tag abss t) = AltNode tag abss $ removeUnitBind t
+removeUnitBindAlt (AltLit lit t)       = AltLit lit $ removeUnitBind t
+removeUnitBindAlt (AltEmpty t)         = AltEmpty $ removeUnitBind t
+
+
+-- | Normalise the GRIN expression by making the expression right-skewed.
+normalise :: Term -> Term
+normalise (Bind t1 alt1)
+  | Bind t2 alt2 <- normalise t1 =
+    let alt1' = raise (countBinders alt2) $ normaliseAlt alt1
+        (mkAlt2, t_alt2) = splitAlt alt2 in
+    normalise $ Bind t2 (mkAlt2 (Bind t_alt2 alt1'))
+
+normalise term = case term of
+  Bind t alt    -> Bind (normalise t) (normaliseAlt alt)
+  Case n t alts -> Case n (normalise t) (map normaliseAlt alts)
+  App{}         -> term
+  Unit{}        -> term
+  Store{}       -> term
+  Fetch{}       -> term
+  Update{}      -> term
+  Error{}       -> term
+  -- TODO missing
+
+normaliseAlt :: Alt -> Alt
+normaliseAlt (AltVar abs t)       = AltVar abs $ normalise t
+normaliseAlt (AltNode tag abss t) = AltNode tag abss $ normalise t
+normaliseAlt (AltLit lit t)       = AltLit lit $ normalise t
+normaliseAlt (AltEmpty t)         = AltEmpty $ normalise t
+
+countBinders :: Alt -> Int
+countBinders (AltNode _ abss _) = length abss
+countBinders AltVar{}           = 1
+countBinders AltLit{}           = 0
+countBinders AltEmpty{}         = 0
+
+splitAlt :: Alt -> (Term -> Alt, Term)
+splitAlt (AltVar abs t)       = (AltVar abs, t)
+splitAlt (AltNode tag abss t) = (AltNode tag abss, t)
+splitAlt (AltLit lit t)       = (AltLit lit, t)
+splitAlt (AltEmpty t)         = (AltEmpty, t)
+
+-- TODO Fix returning eval [Boquist 1999, p. 95]
+specializeUpdate :: [GrinDefinition] -> [GrinDefinition]
+specializeUpdate defs =
+    for defs $ \def -> def{gr_term = go def.gr_term}
+  where
+
+    -- update v₁ v₂ ; λ () →
+    -- 〈m₁ 〉
+    -- case v₂ of
+    --   CNil       → 〈m₂ 〉
+    --   CCons x xs → 〈m₃ 〉
+    -- >>>
+    -- 〈m₁ 〉
+    -- case v₂ of
+    --   CNil       →
+    --     updateᶜᴺⁱˡ v₁ v₂ ; λ () →
+    --     〈m₂ 〉
+    --   CCons x xs →
+    --     updateᶜᶜᵒⁿˢ v₁ v₂ ; λ () →
+    --     〈m₃ 〉
+    go (caseUpdateView -> Just (Update Nothing n1 n2, m, Case n3 t alts)) =
+        go $ m $ Case n3 t alts'
+      where
+        alts' =
+          for alts $ \case
+            AltNode tag abss t ->
+              AltNode tag abss $ Update (Just tag) n1 n2 `BindEmpty` t
+            _ -> __IMPOSSIBLE__
+
+
+
+    -- update v₁ v₂ ; λ () →
+    -- unit v₂ ; λ CNat x →
+    -- 〈m 〉
+    -- >>>
+    -- updateᶜᴺᵃᵗ v₁ v₂ ; λ () →
+    -- unit v₂ ; λ CNat x →
+    -- 〈m 〉
+    go (Update Nothing n1 n2 `BindEmpty`
+        Unit (Var n2') `Bind` AltNode tag abss t) =
+
+      Update (Just tag) n1 n2 `BindEmpty`
+      Unit (Var n2') `Bind` AltNode tag abss
+      (go t)
+
+    go (Bind t alt) = Bind (go t) (goAlt alt)
+    go (Case n t alts) = Case n (go t) (map goAlt alts)
+    go (Update mtag n1 n2)
+      | Nothing <- mtag = __IMPOSSIBLE__
+      | otherwise = Update mtag n1 n2
+    go (App v1 v2) = App v1 v2
+    go (Store loc v) = Store loc v
+    go (Fetch v) = Fetch v
+    go (Unit v) = Unit v
+    go (Error err) = Error err
+    go _ = error "TODO"
+    -- TODO missing
+
+    goAlt (AltVar abs t)       = AltVar abs $ go t
+    goAlt (AltNode tag abss t) = AltNode tag abss $ go t
+    goAlt (AltEmpty t)         = AltEmpty $ go t
+    goAlt (AltLit lit t)       = AltLit lit $ go t
+
+
+
+-- update v₁ v₂ ; λ () →
+-- 〈m 〉where n₁ ∉ m
+-- case v₂ of alts
+--
+-- Returns: (update v₁ v₂, λ t → 〈m 〉t, case v₂ of alts)
+caseUpdateView :: Term -> Maybe (Term, Term -> Term, Term)
+caseUpdateView (Update Nothing n1 n2 `BindEmpty` t) =
+    go [] id t <&> \ (m, caseof) -> (Update Nothing n1 n2, m, caseof)
+  where
+    go :: [Abs]
+       -> (Term -> Term)
+       -> Term
+       -> Maybe (Term -> Term, Term)
+    go abss m (Case n3 t alts)
+      | n3 - length abss == n2 = Just (m, Case n3 t alts)
+      | otherwise =  Nothing
+    go abss m (Bind t alt) = goAlt (m . Bind t) abss alt
+    go abss m t = case t of
+      App{}    -> Nothing
+      Unit{}   -> Nothing
+      Store{}  -> Nothing
+      Fetch{}  -> Nothing
+      Update{} -> Nothing
+      Error{}  -> Nothing
+
+    goAlt :: (Alt -> Term)
+          -> [Abs]
+          -> Alt
+          -> Maybe (Term -> Term, Term)
+    goAlt m abss (AltVar abs t) = go (abs : abss) (m . AltVar abs) t
+    goAlt m abss1 (AltNode tag abss2 t) =
+      go (reverse abss2 ++ abss1) (m . AltNode tag abss2) t
+    goAlt m abss (AltEmpty t) = go abss (m . AltEmpty) t
+    goAlt _ _ AltLit{} = __IMPOSSIBLE__
+
+caseUpdateView _                                  = Nothing
 
 -----------------------------------------------------------------------
 -- * LLVM code generation
@@ -581,20 +676,20 @@ inlineEval defs absCxt =
 -- grinToLlvm defs =
 --   forM defs $ \def -> do
 --     put initEnv
---     let vars = take def.gArity $ map (VarInfo . singleton) ['a' ..]
+--     let vars = take def.gr_arity $ map (VarInfo . singleton) ['a' ..]
 --     local (\cxt -> cxt {vars=vars , currentDef=def}) $ defToLlvm def
 --
 -- defToLlvm :: GrinDefinition -> M L.Instruction
--- defToLlvm GrinDefinition{gName, gType=Just typ, gTerm, gArity} = do
+-- defToLlvm GrinDefinition{gr_name, gr_type=Just typ, gr_term, gr_arity} = do
 --   (ts, t) <- bimapM (mapM typeToLlvm) typeToLlvm $ returnType typ
---   body <- termToLlvm gTerm
+--   body <- termToLlvm gr_term
 --
 --   pure $
 --     L.Define
 --       L.Fastcc
 --       L.Ptr
---       (L.MkVar $ prettyShow gName)
---       (zip (replicate gArity L.Ptr) $ map singleton ['a' ..])
+--       (L.MkVar $ prettyShow gr_name)
+--       (zip (replicate gr_arity L.Ptr) $ map singleton ['a' ..])
 --       body
 --
 -- termToLlvm :: Term -> M [L.Instruction]
@@ -729,7 +824,7 @@ inlineEval defs absCxt =
 --   -- TODO claues
 --   AltNode tag t -> do
 --     scrutVar <- getVar 0
---     let arity = tagArity tag
+--     let arity = tagr_arity tag
 --
 --     -- TODO do same for full arity
 --     (newVars, is) <- fmap (second concat . unzip) $ forM [1 .. arity] $ \n -> do
@@ -854,7 +949,7 @@ inlineEval defs absCxt =
 --   printfN = "printf"
 --   natN = "nat"
 --
---   evalDef = GrinDefinition {gType=Nothing, gTreeless=Nothing, gTerm=eval, gName="eval", gArity=1}
+--   evalDef = GrinDefinition {gr_type=Nothing, gTreeless=Nothing, gr_term=eval, gr_name="eval", gr_arity=1}
 --   eval =
 --     Bind
 --       (Fetch $ Var 0)
@@ -891,7 +986,7 @@ inlineEval defs absCxt =
 --         )
 --       )
 --
---   downFromDef = GrinDefinition {gType=Nothing, gTreeless=Nothing, gTerm=downFrom, gName=downFromN, gArity=1}
+--   downFromDef = GrinDefinition {gr_type=Nothing, gTreeless=Nothing, gr_term=downFrom, gr_name=downFromN, gr_arity=1}
 --   downFrom =
 --     Bind
 --       (callEval $ Var 0)
@@ -923,7 +1018,7 @@ inlineEval defs absCxt =
 --       )
 --
 --
---   sumDef = GrinDefinition {gType=Nothing, gTreeless=Nothing, gTerm=sum, gName=sumN, gArity=1}
+--   sumDef = GrinDefinition {gr_type=Nothing, gTreeless=Nothing, gr_term=sum, gr_name=sumN, gr_arity=1}
 --   sum =
 --     Bind
 --       (callEval $ Var 0)
@@ -957,7 +1052,7 @@ inlineEval defs absCxt =
 --       )
 --
 --
---   mainDef = GrinDefinition {gType=Nothing, gTreeless=Nothing, gTerm=main, gName="main", gArity=0}
+--   mainDef = GrinDefinition {gr_type=Nothing, gTreeless=Nothing, gr_term=main, gr_name="main", gr_arity=0}
 --   main =
 --     Bind
 --       (Store $ Node CTag {tTag=0, tCon=natN, tArity=1} [Lit $ LitNat 4])
@@ -981,3 +1076,39 @@ inlineEval defs absCxt =
 --       )
 --
 
+-- llvmCompileDef env menv isMainModule Defn{defName, defType, theDef=Function{}} = do
+--     treeless <- maybeM __IMPOSSIBLE__ normalizeNames $ toTreeless LazyEvaluation defName
+--     let (arity, treeless') = skipLambdas treeless
+--
+--     term' <- treelessToGrin isMain (simplifyApp treeless') arity
+--     gr_args <- replicateM arity freshAbs
+--     gr_return <- boolToMaybe (not isMain) <$> freshAbs
+--
+--     let gDef  =
+--           GrinDefinition
+--             { gr_type = Just defType
+--             , gr_name = prettyShow defName
+--             , gr_arity = arity
+--             , gr_term = term'
+--             , gTreeless = Just $ simplifyApp treeless
+--             , gr_args = gr_args
+--             , gr_return = gr_return
+--             }
+--     pure $ Just gDef
+--   where
+--     isMain = isNamedMain && isMainModule == IsMain
+--     isNamedMain = "main" == (prettyShow . nameConcrete . qnameName) defName
+--
+-- llvmCompileDef env menv isMain def@Defn{defName, theDef=Primitive{primName}} = do
+--   -- liftIO $ putStrLn $ render $ sep [text "Primitive:", pretty defName, pretty primName]
+--   pure Nothing
+--
+-- llvmCompileDef env menv isMain def@Defn{defName, theDef=Datatype{dataCons}} = do
+--   -- liftIO $ putStrLn $ render $ sep [text "Datatype: ", pretty defName, pretty dataCons]
+--   pure Nothing
+--
+-- llvmCompileDef env menv isMain def@Defn{defName, defType, theDef=Constructor{conArity, conData}} = do
+--   -- liftIO $ putStrLn $ render $ sep [text "Constructor:", pretty defName, pretty conData, pretty conArity]
+--   pure Nothing
+--
+-- llvmCompileDef env menv isMain def = pure Nothing

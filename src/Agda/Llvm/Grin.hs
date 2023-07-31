@@ -1,44 +1,88 @@
+{-# OPTIONS_GHC -Wno-name-shadowing #-}
+
 {-# LANGUAGE LambdaCase      #-}
 {-# LANGUAGE RecordWildCards #-}
-{-# OPTIONS_GHC -Wno-name-shadowing #-}
+{-# LANGUAGE TypeFamilies    #-}
+
 
 module Agda.Llvm.Grin where
 
-import           Agda.Compiler.Backend hiding (Prim)
+import           Control.Monad                (replicateM)
+
+import           Agda.Compiler.Backend        hiding (Prim)
 import           Agda.Llvm.Utils
-import           Agda.Syntax.Internal  (Type)
+import           Agda.Syntax.Internal         (Type)
 import           Agda.Syntax.Literal
-import           Agda.Utils.Function   (applyWhen)
-import           Agda.Utils.Impossible (__IMPOSSIBLE__)
-import           Agda.Utils.List       (snoc)
-import           Agda.Utils.Maybe      (ifJust)
+import           Agda.TypeChecking.Substitute hiding (applySubstTerm)
+import           Agda.Utils.Function          (applyWhen)
+import           Agda.Utils.Impossible        (__IMPOSSIBLE__)
+import           Agda.Utils.Maybe             (ifJust)
 import           Agda.Utils.Pretty
-import           Control.Monad         (replicateM)
 
 
 data GrinDefinition = GrinDefinition
-  { gName     :: String
-  , gType     :: Maybe Type
-  , gTerm     :: Term
-  , gArity    :: Int
-  , gArgs     :: [Abs]
-  , gReturn   :: Maybe Abs
-  , gTreeless :: Maybe TTerm
+  { gr_name   :: String
+  , gr_isMain :: Bool
+  , gr_arity  :: Int
+  , gr_type   :: Maybe Type
+  , gr_term   :: Term
+  , gr_args   :: [Abs]
+  , gr_return :: Maybe Abs
   }
 
 data Term = Bind Term Alt
           | Case Int Term [Alt]
-          | App Val [Val]
-          | Unit Val
-          | Store Loc Val
-          | Fetch Val
-          | Update Val Val
+          | App Term [Term]
+          | Unit Term
+          | Store Loc Term
+          | Fetch Term
+          | Update (Maybe Tag) Int Int
+          | Node Tag [Term]
+          | Lit Literal
+          | Empty
+          | Var Int
+          | Def String
+          | Prim TPrim
           | Error TError
-            deriving Show
+            deriving (Show, Eq)
 
-store :: MonadFresh Int m => Val -> m Term
+instance DeBruijn Term where
+  deBruijnVar = Var
+  deBruijnView (Var n) = Just n
+  deBruijnView _       = Nothing
+
+-- TODO
+instance Subst Term where
+  type SubstArg Term = Term
+  applySubst = applySubstTerm
+
+applySubstTerm :: Substitution' (SubstArg Term) -> Term -> Term
+applySubstTerm IdS term = term
+applySubstTerm rho term = case term of
+  Var n         -> lookupS rho n
+  App t ts      -> App (applySubst rho t) (applySubst rho ts)
+  Bind t alt    -> Bind (applySubst rho t) (applySubst rho alt)
+  Case n t alts
+    | Var n' <- lookupS rho n ->
+      Case n' (applySubst rho t) (applySubst rho alts)
+    | otherwise -> __IMPOSSIBLE__
+
+  Unit t -> Unit (applySubst rho t)
+  Store loc t -> Store loc (applySubst rho t)
+  Fetch t -> Fetch (applySubst rho t)
+  Update tag n1 n2
+    | Var n1' <- lookupS rho n1
+    , Var n2' <- lookupS rho n2 -> Update tag n1' n2'
+    | otherwise -> __IMPOSSIBLE__
+  Node tag ts -> Node tag (applySubst rho ts)
+  Lit{} -> term
+  Empty -> term
+  Prim{} -> term
+  Error{} -> term
+  Def{} -> term
+
+store :: MonadFresh Int m => Term -> m Term
 store v = (`Store` v) <$> freshLoc
-
 
 instance Unreachable Term where
   isUnreachable (Error TUnreachable) = True
@@ -47,17 +91,10 @@ instance Unreachable Term where
 unreachable :: Term
 unreachable = Error TUnreachable
 
-data Val = Node Tag [Val]
-         | Lit Literal
-         | Empty
-         | Var Int
-         | Def String
-         | Prim TPrim
-           deriving Show
 
-data Tag = CTag {tTag :: Int, tCon :: String, tArity :: Int}
-         | FTag {tTag :: Int, tDef :: String, tArity :: Int}
-         | PTag {tTag :: Int, tDef :: String, tArity :: Int, tApplied :: Int, tArgs :: [Gid]}
+data Tag = CTag {tCon :: String, tArity :: Int}
+         | FTag {tDef :: String, tArity :: Int}
+         | PTag {tDef :: String, tArity :: Int, tApplied :: Int}
            deriving (Show, Eq, Ord)
 
 newtype Gid = Gid{unGid :: Int} deriving (Show, Eq, Ord, Enum)
@@ -75,7 +112,24 @@ data Alt = AltNode Tag [Abs] Term
          | AltLit Literal Term
          | AltVar Abs Term
          | AltEmpty Term
-           deriving Show
+           deriving (Show, Eq)
+
+instance Subst Alt where
+  type SubstArg Alt = Term
+  applySubst = applySubstAlt
+
+applySubstAlt :: Substitution' (SubstArg Alt) -> Alt -> Alt
+applySubstAlt IdS alt            = alt
+applySubstAlt rho (AltVar abs t) = AltVar abs $ applySubst (liftS 1 rho) t
+applySubstAlt rho (AltNode tag abss t) =
+  AltNode tag abss $ applySubst (liftS (length abss) rho) t
+applySubstAlt rho (AltLit lit t) = AltLit lit $ applySubst rho t
+applySubstAlt rho (AltEmpty t) = AltEmpty $ applySubst rho t
+
+
+infixr 0 `BindEmpty`, `Bind`
+pattern BindEmpty :: Term -> Term -> Term
+pattern t1 `BindEmpty` t2 = Bind t1 (AltEmpty t2)
 
 newtype Abs = MkAbs{unAbs :: Gid} deriving (Show, Eq, Ord)
 newtype Loc = MkLoc{unLoc :: Gid} deriving (Show, Eq, Ord)
@@ -101,14 +155,8 @@ tagArity = \case
   FTag{..} -> tArity
   PTag{..} -> tArity
 
-tag :: Tag -> Int
-tag CTag{tTag} = tTag
-tag FTag{tTag} = tTag
-tag PTag{tTag} = tTag
-
-
 infixr 0 `bindVar`, `bindVarL`, `bindVarR`, `bindVarM`
-       , `bindEmpty`, `bindEmptyL`, `bindEmptyR`, `bindEmptyM`
+       , `bindEmptyL`, `bindEmptyR`, `bindEmptyM`
 
 bindVar :: MonadFresh Int m => Term -> Term -> m Term
 bindVar t1 t2 = Bind t1 <$> altVar t2
@@ -122,9 +170,6 @@ bindVarR t1 t2 = Bind t1 <$> (altVar =<< t2)
 bindVarM :: MonadFresh Int m => m Term -> m Term -> m Term
 bindVarM t1 t2 = (Bind <$> t1) <*> (altVar =<< t2)
 
-bindEmpty :: Term -> Term -> Term
-bindEmpty t1 t2 = Bind t1 $ AltEmpty t2
-
 bindEmptyL :: MonadFresh Int m => m Term -> Term -> m Term
 bindEmptyL t1 t2 = (Bind <$> t1) ?? AltEmpty t2
 
@@ -134,18 +179,20 @@ bindEmptyR t1 t2 = Bind t1 . AltEmpty <$> t2
 bindEmptyM :: MonadFresh Int m => m Term -> m Term -> m Term
 bindEmptyM t1 t2 = (Bind <$> t1) <*> (AltEmpty <$> t2)
 
+
+
 -----------------------------------------------------------------------
 -- * Pretty printing instances
 -----------------------------------------------------------------------
 
 instance Pretty GrinDefinition where
   pretty GrinDefinition{..} = vcat
-    [ pretty gName <+> ret (sep (map pretty gArgs) <+> text "=")
-    , nest 2 $ pretty gTerm
+    [ pretty gr_name <+> ret (sep (map pretty gr_args) <+> text "=")
+    , nest 2 $ pretty gr_term
     ]
     where
       ret :: Doc -> Doc
-      ret doc = ifJust gReturn (\abs -> text ("r" ++ tail (prettyShow abs)) <+> doc) doc
+      ret doc = ifJust gr_return (\abs -> text ("r" ++ tail (prettyShow abs)) <+> doc) doc
 
 
 instance Pretty Term where
@@ -187,18 +234,17 @@ instance Pretty Term where
         (++ [text "_ →" <+> nest 2 (pretty def)]) $ map pretty alts
       ]
 
-
-
-
-  -- pretty (Case n def alts) = sep [text "case" <+> pretty n <+> text "of"
-  --                            , nest 2 $ vcat $ map pretty alts ++
-  --                                [ sep [text "_ →", nest 2 $ pretty def] | not $ isUnreachable def]
-  --                            ]
   pretty (Fetch v) = text "fetch" <+> pretty v
-  pretty (Update v1 v2) = text "update" <+> pretty v1 <+> pretty v2
+  pretty (Update Nothing v1 v2) = text "update" <+> pretty v1 <+> pretty v2
+  pretty (Update (Just tag) v1 v2) = (text "update" <> pretty tag) <+> pretty v1 <+> pretty v2
   pretty (Error TUnreachable) = text "unreachable"
-  pretty _ = __IMPOSSIBLE__
-
+  pretty (Error (TMeta _)) = __IMPOSSIBLE__
+  pretty Empty = text "()"
+  pretty (Lit lit) = text "#" <> pretty lit
+  pretty (Node tag vs) = sep (pretty tag : map pretty vs)
+  pretty (Var n) = pretty n
+  pretty (Def q) = pretty q
+  pretty (Prim prim) = text $ show prim -- FIXME
 
 instance Pretty Abs where
   pretty (MkAbs gid) = text "x" <> pretty gid
@@ -231,15 +277,4 @@ instance Pretty Tag where
   pretty CTag{..} = text "C" <> pretty tCon
   pretty FTag{..} = text "F" <> pretty tDef
   pretty PTag{..} = text ("P" ++ show (tArity - tApplied)) <> pretty tDef
-
-
-instance Pretty Val where
-  pretty = \case
-    Empty       -> text "()"
-    Lit lit     -> text "#" <> pretty lit
-    Node tag vs -> sep (pretty tag : map pretty vs)
-    Var n       -> pretty n
-    Def q       -> pretty q
-    Prim prim   -> text $ show prim -- FIXME
-
 
