@@ -12,7 +12,7 @@ The goal is to compile Agda to GRIN [Boquist 1996], and to extend GRIN with `dup
 
 ### Build from source
 
-The project depends on features from the unreleased Agda 2.6.4, and therefore includes the repository as a submodule. If you already
+The project depends on features from the unreleased Agda 2.6.4, which is why there is an agda submodule. If you already
 have a local installation of Agda you may instead modify the `cabal.project` file, and skip the submodule.  
 
 ```
