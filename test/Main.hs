@@ -1,6 +1,4 @@
 {-# LANGUAGE OverloadedStrings #-}
-import           Agda.Compiler.Backend
-
 import           Control.Monad.State        (MonadState, State, evalState, get,
                                              modify)
 import qualified Data.ByteString            as BS
@@ -9,16 +7,14 @@ import qualified Data.Text                  as T
 import           Data.Text.Encoding         (decodeUtf8, encodeUtf8)
 
 import           System.FilePath            ((<.>), (</>))
--- import           System.PosixCompat.Files   (touchFile)
 import           Test.Tasty
 import           Test.Tasty.Silver.Advanced
 
+import           Agda.Compiler.Backend
 import           Agda.Llvm.Compiler
 import           Agda.Llvm.Grin
+import           Agda.Syntax.Common.Pretty
 import           Agda.Syntax.Literal
-import           Agda.Utils.Pretty
-
-
 
 main :: IO ()
 main = defaultMain unitTests

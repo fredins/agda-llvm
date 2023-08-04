@@ -9,11 +9,11 @@ import           Data.Function                         (on)
 
 import           Agda.Compiler.Backend                 hiding (Prim, initEnv)
 import           Agda.Compiler.Treeless.NormalizeNames (normalizeNames)
+import           Agda.Syntax.Common.Pretty
 import           Agda.Syntax.Internal                  (Type)
 import           Agda.TypeChecking.Substitute
 import           Agda.Utils.Impossible
 import           Agda.Utils.Maybe
-import           Agda.Utils.Pretty
 
 data TreelessDefinition = TreelessDefinition
   { tl_name     :: String

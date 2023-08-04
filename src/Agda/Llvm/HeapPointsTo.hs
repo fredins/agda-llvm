@@ -36,27 +36,28 @@ module Agda.Llvm.HeapPointsTo
   , AbsEnv(..)
   ) where
 
-import           Control.Monad.Reader  (MonadReader (ask, local), Reader, asks,
-                                        runReader)
-import           Control.Monad.State   (State, evalState, gets, modify)
-import           Data.Function         (on)
-import           Data.List             (find, insert, intercalate, intersectBy,
-                                        nub, partition, sortOn, (\\))
-import           Data.List.Extra       (firstJust)
-import           Data.Map              (Map)
-import qualified Data.Map              as Map
-import           Data.Set              (Set)
-import qualified Data.Set              as Set
-import           Prelude               hiding ((!!))
+import           Control.Monad.Reader      (MonadReader (ask, local), Reader,
+                                            asks, runReader)
+import           Control.Monad.State       (State, evalState, gets, modify)
+import           Data.Function             (on)
+import           Data.List                 (find, insert, intercalate,
+                                            intersectBy, nub, partition, sortOn,
+                                            (\\))
+import           Data.List.Extra           (firstJust)
+import           Data.Map                  (Map)
+import qualified Data.Map                  as Map
+import           Data.Set                  (Set)
+import qualified Data.Set                  as Set
+import           Prelude                   hiding ((!!))
 
-import           Agda.Utils.Function   (applyWhen)
+import           Agda.Syntax.Common.Pretty
+import           Agda.Utils.Function       (applyWhen)
 import           Agda.Utils.Functor
 import           Agda.Utils.Impossible
 import           Agda.Utils.List
-import           Agda.Utils.List1      (List1, pattern (:|))
-import qualified Agda.Utils.List1      as List1
+import           Agda.Utils.List1          (List1, pattern (:|))
+import qualified Agda.Utils.List1          as List1
 import           Agda.Utils.Maybe
-import           Agda.Utils.Pretty
 
 import           Agda.Llvm.Grin
 import           Agda.Llvm.Utils

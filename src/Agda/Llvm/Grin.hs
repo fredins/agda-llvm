@@ -11,13 +11,14 @@ import           Control.Monad                (replicateM)
 
 import           Agda.Compiler.Backend        hiding (Prim)
 import           Agda.Llvm.Utils
+import           Agda.Syntax.Common.Pretty
 import           Agda.Syntax.Internal         (Type)
 import           Agda.Syntax.Literal
 import           Agda.TypeChecking.Substitute hiding (applySubstTerm)
 import           Agda.Utils.Function          (applyWhen)
 import           Agda.Utils.Impossible        (__IMPOSSIBLE__)
 import           Agda.Utils.Maybe             (ifJust)
-import           Agda.Utils.Pretty
+
 
 
 data GrinDefinition = GrinDefinition

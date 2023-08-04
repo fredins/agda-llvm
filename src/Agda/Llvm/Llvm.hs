@@ -2,11 +2,11 @@
 
 module Agda.Llvm.Llvm where
 
-import           Data.List             (intercalate)
+import           Data.List                 (intercalate)
 
-import           Agda.Compiler.Backend hiding (Name)
+import           Agda.Compiler.Backend     hiding (Name)
+import           Agda.Syntax.Common.Pretty
 import           Agda.Syntax.Literal
-import           Agda.Utils.Pretty
 
 data Instruction =
     Define CallingConvention Type Var [(Type, String)] [Instruction]

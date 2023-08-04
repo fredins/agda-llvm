@@ -3,27 +3,29 @@
 
 module Agda.Llvm.GrinInterpreter (module Agda.Llvm.GrinInterpreter) where
 
-import           Control.Monad         ((<=<))
-import           Control.Monad.Reader  (MonadReader, Reader, local, runReader)
-import           Control.Monad.State   (MonadState, StateT, evalStateT, gets,
-                                        modify)
-import           Data.Foldable         (find)
-import           Data.List             (intercalate, singleton)
-import           Data.Map              (Map)
-import qualified Data.Map              as Map
-import           GHC.IO                (unsafePerformIO)
+import           Control.Monad             ((<=<))
+import           Control.Monad.Reader      (MonadReader, Reader, local,
+                                            runReader)
+import           Control.Monad.State       (MonadState, StateT, evalStateT,
+                                            gets, modify)
+import           Data.Foldable             (find)
+import           Data.List                 (intercalate, singleton)
+import           Data.Map                  (Map)
+import qualified Data.Map                  as Map
+import           GHC.IO                    (unsafePerformIO)
 
-import           Agda.Compiler.Backend hiding (Prim, initEnv)
-import           Agda.Llvm.Grin        hiding (freshLoc)
-import           Agda.Syntax.Literal   (Literal (LitNat))
+import           Agda.Compiler.Backend     hiding (Prim, initEnv)
+import           Agda.Llvm.Grin            hiding (freshLoc)
+import           Agda.Syntax.Literal       (Literal (LitNat))
 import           Agda.Utils.Functor
 import           Agda.Utils.Impossible
 import           Agda.Utils.Lens
 import           Agda.Utils.List
 -- import           Agda.Utils.List1                   (List1, pattern (:|), (<|))
 -- import qualified Agda.Utils.List1                   as List1
+import           Agda.Syntax.Common.Pretty
 import           Agda.Utils.Maybe
-import           Agda.Utils.Pretty
+
 
 data Value = BasNat Integer
            | Tag Tag
