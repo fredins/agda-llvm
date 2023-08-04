@@ -64,8 +64,8 @@ import           Agda.Llvm.Utils
 -- TODO
 -- • Refactor H', HCxt, HRet
 
-heapPointsTo :: [GrinDefinition] -> (AbstractContext, Set Gid)
-heapPointsTo defs = (absCxt', shared) where
+heapPointsTo :: [GrinDefinition] -> (AbstractContext, AbstractContext, Set Gid)
+heapPointsTo defs = (absCxt, absCxt', shared) where
   shared = equations.shared'
   absCxt' = sortAbsCxt $ solveEquations defs absCxt
   absCxt = sortAbsCxt $ AbstractContext equations.absHeap' equations.absEnv'
@@ -98,7 +98,7 @@ countMultiplicities def = evalState (go def.gr_term) def.gr_args where
   go (Store _ v) = go v
   go (Unit v) = go v
   go (App v vs) = go v <> (foldl (<>) mempty <$> mapM go vs)
-  go (Fetch v) = go v
+  go (Fetch n) = gets $ (!! n) <&> \abs -> Multiplicities $ Map.singleton abs 1
   go (Update _ n1 n2) = do
     m1 <- gets $ (!! n1) <&> \abs -> Multiplicities $ Map.singleton abs 1
     m2 <- gets $ (!! n2) <&> \abs -> Multiplicities $ Map.singleton abs 1

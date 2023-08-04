@@ -30,12 +30,17 @@ data GrinDefinition = GrinDefinition
   , gr_return :: Maybe Abs
   }
 
+-- TODO refactor
+-- • Maybe seperate terms and values
+-- • Maybe remove Loc from Store
+-- • Maybe change case scrutinee to Term (due to e.g. vectorisation)
+-- • Maybe change second argument of Update to Term if needed
 data Term = Bind Term Alt
           | Case Int Term [Alt]
           | App Term [Term]
           | Unit Term
           | Store Loc Term
-          | Fetch Term
+          | Fetch Int
           | Update (Maybe Tag) Int Int
           | Node Tag [Term]
           | Lit Literal
@@ -69,7 +74,8 @@ applySubstTerm rho term = case term of
 
   Unit t -> Unit (applySubst rho t)
   Store loc t -> Store loc (applySubst rho t)
-  Fetch t -> Fetch (applySubst rho t)
+  Fetch n
+    | Var n' <- lookupS rho n -> Fetch n'
   Update tag n1 n2
     | Var n1' <- lookupS rho n1
     , Var n2' <- lookupS rho n2 -> Update tag n1' n2'
@@ -132,7 +138,7 @@ pattern BindEmpty :: Term -> Term -> Term
 pattern t1 `BindEmpty` t2 = Bind t1 (AltEmpty t2)
 
 newtype Abs = MkAbs{unAbs :: Gid} deriving (Show, Eq, Ord)
-newtype Loc = MkLoc{unLoc :: Gid} deriving (Show, Eq, Ord)
+newtype Loc = MkLoc{unLoc :: Gid} deriving (Show, Eq, Ord, Enum)
 
 altVar :: MonadFresh Int m => Term -> m Alt
 altVar t = (`AltVar` t) <$> freshAbs

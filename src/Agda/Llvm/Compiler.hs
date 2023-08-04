@@ -37,10 +37,12 @@ import           Agda.Utils.Maybe
 import           Agda.Utils.Pretty
 
 import           Agda.Llvm.Grin
+import           Agda.Llvm.GrinInterpreter          (interpretGrin)
 import           Agda.Llvm.HeapPointsTo
 import           Agda.Llvm.TreelessTransform
 import           Agda.Llvm.Utils
 import           Agda.TypeChecking.SizedTypes.Utils (trace)
+import           Agda.Utils.Function                (applyWhen)
 
 
 llvmBackend :: Backend
@@ -112,11 +114,11 @@ llvmPostCompile :: LlvmEnv
 llvmPostCompile _ _ mods = do
   let tl_defs = concatMap (\(LlvmModule xs) -> xs) (Map.elems mods)
   gr_defs <- treelessToGrin tl_defs
-  let (absCxt, share) = heapPointsTo gr_defs
-  gr_defs' <- inlineEval gr_defs absCxt
-  let gr_defs'' = for gr_defs' $ \def -> def{gr_term = normalise def.gr_term}
-  let gr_defs''' = for gr_defs'' $ \def -> def{gr_term = removeUnitBind def.gr_term}
-  let gr_defs'''' = specializeUpdate gr_defs'''
+  let (absCxtEqs, absCxt, share) = heapPointsTo gr_defs
+  defs_evalInlined <- inlineEval gr_defs absCxt
+  let defs_normalised = for defs_evalInlined $ \def -> def{gr_term = normalise def.gr_term}
+  let defs_removeUnit = for defs_normalised $ \def -> def{gr_term = removeUnitBind def.gr_term}
+  let defs_updateSpecialized = specializeUpdate defs_removeUnit
 
   liftIO $ do
     putStrLn "\n------------------------------------------------------------------------"
@@ -130,24 +132,31 @@ llvmPostCompile _ _ mods = do
     putStrLn "\n------------------------------------------------------------------------"
     putStrLn "-- * Heap points-to analysis"
     putStrLn "------------------------------------------------------------------------\n"
+    putStrLn "Equations"
+    putStrLn $ prettyShow absCxtEqs
+    putStrLn ""
     putStrLn $ prettyShow absCxt
     putStrLn $ "\nSharing Heap: " ++ prettyShow share
     putStrLn "\n------------------------------------------------------------------------"
     putStrLn "-- * Inlining Eval"
     putStrLn "------------------------------------------------------------------------\n"
-    putStrLn $ intercalate "\n\n" $ map prettyShow gr_defs'
+    putStrLn $ intercalate "\n\n" $ map prettyShow defs_evalInlined
+    putStrLn $ "\nResult: " ++ show (interpretGrin defs_evalInlined)
     putStrLn "\n------------------------------------------------------------------------"
     putStrLn "-- * Normalise"
     putStrLn "------------------------------------------------------------------------\n"
-    putStrLn $ intercalate "\n\n" $ map prettyShow gr_defs''
+    putStrLn $ intercalate "\n\n" $ map prettyShow defs_normalised
+    putStrLn $ "\nResult: " ++ show (interpretGrin defs_normalised)
     putStrLn "\n------------------------------------------------------------------------"
     putStrLn "-- * Remove `unit n λ xₘ → 〈t 〉`"
     putStrLn "------------------------------------------------------------------------\n"
-    putStrLn $ intercalate "\n\n" $ map prettyShow gr_defs'''
+    putStrLn $ intercalate "\n\n" $ map prettyShow defs_removeUnit
+    putStrLn $ "\nResult: " ++ show (interpretGrin defs_removeUnit)
     putStrLn "\n------------------------------------------------------------------------"
     putStrLn "-- * Specialize Update"
     putStrLn "------------------------------------------------------------------------\n"
-    putStrLn $ intercalate "\n\n" $ map prettyShow gr_defs''''
+    putStrLn $ intercalate "\n\n" $ map prettyShow defs_updateSpecialized
+    putStrLn $ "\nResult: " ++ show (interpretGrin defs_updateSpecialized)
 
 
 -----------------------------------------------------------------------
@@ -215,7 +224,7 @@ rScheme (TApp t as) = do
     --               add @1 @0 ; λ #1 →
     --               unit @0
     appPrim res prim as = do
-        fin <- Bind (App (Prim prim) vs) <$> altVar (res $ Unit $ Var 0)
+        fin <- App (Prim prim) vs `bindVar` res (Unit $ Node natTag [Var 0])
         evals' <- foldrM (\t ts -> Bind t <$> altNode natTag ts) fin evals
         pure $ mkWithOffset (length evals) evals'
       where
@@ -325,18 +334,23 @@ natTag = CTag{tCon = "nat" , tArity = 1}
 eval :: Int -> Term
 eval = App (Def "eval") . singleton . Var
 
-fetch :: Int -> Term
-fetch = Fetch . Var
-
 printf :: Int -> Term
 printf = App (Def "printf") . singleton . Var
 
+-- FIXME
 primStr :: TPrim -> String
-primStr PAdd64 = "Prim.add"
-primStr PAdd   = "Prim.add"
-primStr PSub64 = "Prim.sub"
-primStr PSub   = "Prim.sub"
-primStr p      = error $ "TODO primStr " ++ show p
+-- primStr PAdd64 = "Prim.add"
+primStr PAdd = "Prim.add"
+-- primStr PSub64 = "Prim.sub"
+primStr PSub = "Prim.sub"
+primStr p    = error $ "TODO primStr " ++ show p
+
+strPrim :: String -> TPrim
+-- strPrim "Prim.add" = PAdd64
+strPrim "Prim.add" = PAdd
+-- strPrim "Prim.sub" = PSub64
+strPrim "Prim.sub" = PSub
+strPrim p          = error $ "TODO primStr " ++ show p
 
 data GVarInfo = GVarInfo
   { isEvaluated      :: Bool
@@ -386,7 +400,7 @@ type E = ReaderT [Abs] TCM
 inlineEval :: [GrinDefinition] -> AbstractContext -> TCM [GrinDefinition]
 inlineEval defs absCxt =
     forM defs $ \def -> do
-      t <- runReaderT (go def.gr_term) (returnAbs ++ def.gr_args)
+      t <- runReaderT (go def.gr_term) (def.gr_args ++ returnAbs)
       pure def{gr_term = t}
 
   where
@@ -425,9 +439,9 @@ inlineEval defs absCxt =
 
     genEval :: Int -> Abs -> E Term
     genEval n abs =
-        fetch n    `bindVarR`
+        Fetch n    `bindVarR`
         caseOf     `bindVarL`
-        Update Nothing 2 0 `BindEmpty`
+        Update Nothing (n + 2) 0 `BindEmpty`
         Unit (Var 0)
       where
         caseOf :: E Term
@@ -437,13 +451,17 @@ inlineEval defs absCxt =
 
         genBody :: Tag -> E Term
         genBody FTag{tDef, tArity}
-          | isJust $ find ((tDef==). gr_name) defs = pure app
+          | isJust $ find ((tDef==). gr_name) defs =
+            pure $ App (Def tDef) $ map Var $ downFrom tArity
           -- Wrap primitive values
           | otherwise =
-              app `bindVar`
-              Unit (Node natTag [Var 0])
-          where
-            app = App (Def tDef) $ map Var $ downFrom tArity
+            let prim = Prim $ strPrim tDef
+                ts = (map Var $ downFrom tArity) in
+            App prim ts `bindVar`
+            Unit (Node natTag [Var 0])
+
+
+
         genBody CTag{tArity} = pure $ Unit $ Var tArity
         genBody PTag{} = error "TODO"
 
@@ -525,6 +543,7 @@ splitAlt (AltLit lit t)       = (AltLit lit, t)
 splitAlt (AltEmpty t)         = (AltEmpty, t)
 
 -- TODO Fix returning eval [Boquist 1999, p. 95]
+-- FIXME something wrong because interpreter errors
 specializeUpdate :: [GrinDefinition] -> [GrinDefinition]
 specializeUpdate defs =
     for defs $ \def -> def{gr_term = go def.gr_term}
