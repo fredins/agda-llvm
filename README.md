@@ -4,6 +4,12 @@ An Agda backend which compiles to LLVM via the intermidate representation GRIN [
 
 The goal is to compile Agda to GRIN [Boquist 1996], and to extend GRIN with `dup` and `drop` from Perceus's [Reinking et al. 2020] linear calculus. This will allow precise reference counting and memory reuse.  
 
+### Dependencies
+
+- ghc
+- cabal-install
+- zlib
+
 ### Build from source
 
 The project depends on features from the unreleased Agda 2.6.4, and therefore includes the repository as a submodule. If you already
