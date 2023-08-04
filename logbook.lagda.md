@@ -4,6 +4,64 @@ csl: acm-siggraph.csl
 css: Agda.css
 ---
 
+
+### W.30 & W.31
+
+Did the following:
+
+- Implemented instances for `Subst` and `DeBruijn` for GRIN, which  
+  makes it easier to correctly manipulate DeBruijn indices.  
+
+- Implemented normalisation for GRIN expression, to make the monadic  
+  binds right-skewed.  
+
+  ```markdown
+  store (Cnil) λ x0 →
+  ( store (Cnat #1) ; λ x1 →
+    store (FdownFrom 0) ; λ x2 →
+    unit 0
+  ) ; λ x3 →
+  unit (Ccons 1 0)
+
+  -- >>>
+
+  store (Cnil) λ x0 →
+  store (Cnat #1) ; λ x1 →
+  store (FdownFrom 0) ; λ x2 →
+  unit 0 ; λ x3 →
+  unit (Ccons 3 0)
+  ```
+
+- Set up testing, and tested the normalisation using 'golden testing'.  
+
+- Implemented update specialization transformation, which converts  
+  general (unknown tag) `update` to a tag-specialized operation `updateᶜᶜᵒⁿˢ`.  
+  However, there is currently a small bug in the implementation.
+
+  ```markdown
+  update v₁ v₂ ; λ () →
+  〈m₁ 〉
+  case v₂ of
+    CNil       → 〈m₂ 〉
+    CCons x xs → 〈m₃ 〉
+
+  -- >>>
+
+  〈m₁ 〉
+  case v₂ of
+    CNil       →
+      updateᶜᴺⁱˡ v₁ v₂ ; λ () →
+      〈m₂ 〉
+    CCons x xs →
+      updateᶜᶜᵒⁿˢ v₁ v₂ ; λ () →
+      〈m₃ 〉
+  ```
+
+- Implemented a GRIN interpreter to check that the program produces the expected result,  
+  and to check that the transformations does not change the program semantics. In doing  
+  this, I discovered and fixed multiple bugs. I also gained a better understanding on how  
+  allocations work in GRIN.  
+
 ### W. 29
 
 Read the following papers:
