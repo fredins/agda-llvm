@@ -543,25 +543,24 @@ splitAlt (AltLit lit t)       = (AltLit lit, t)
 splitAlt (AltEmpty t)         = (AltEmpty, t)
 
 -- TODO Fix returning eval [Boquist 1999, p. 95]
--- FIXME something wrong because interpreter errors
 specializeUpdate :: [GrinDefinition] -> [GrinDefinition]
 specializeUpdate defs =
     for defs $ \def -> def{gr_term = go def.gr_term}
   where
 
-    -- update v₁ v₂ ; λ () →
+    -- update n₁ n₂ ; λ () →
     -- 〈m₁ 〉
-    -- case v₂ of
+    -- case n₂ of
     --   CNil       → 〈m₂ 〉
     --   CCons x xs → 〈m₃ 〉
     -- >>>
     -- 〈m₁ 〉
-    -- case v₂ of
+    -- case n₂ of
     --   CNil       →
-    --     updateᶜᴺⁱˡ v₁ v₂ ; λ () →
+    --     updateᶜᴺⁱˡ n₁' n₂' ; λ () →
     --     〈m₂ 〉
     --   CCons x xs →
-    --     updateᶜᶜᵒⁿˢ v₁ v₂ ; λ () →
+    --     updateᶜᶜᵒⁿˢ n₁' n₂' ; λ () →
     --     〈m₃ 〉
     go (caseUpdateView -> Just (Update Nothing n1 n2, m, Case n3 t alts)) =
         go $ m $ Case n3 t alts'
@@ -569,17 +568,19 @@ specializeUpdate defs =
         alts' =
           for alts $ \case
             AltNode tag abss t ->
-              AltNode tag abss $ Update (Just tag) n1 n2 `BindEmpty` t
+              let n1' = n1 + length abss
+                  n2' = n2 + length abss in
+              AltNode tag abss $ Update (Just tag) n1' n2' `BindEmpty` t
             _ -> __IMPOSSIBLE__
 
 
 
-    -- update v₁ v₂ ; λ () →
-    -- unit v₂ ; λ CNat x →
+    -- update n₁ n₂ ; λ () →
+    -- unit n₂ ; λ CNat x →
     -- 〈m 〉
     -- >>>
-    -- updateᶜᴺᵃᵗ v₁ v₂ ; λ () →
-    -- unit v₂ ; λ CNat x →
+    -- updateᶜᴺᵃᵗ n₁ n₂ ; λ () →
+    -- unit n₂ ; λ CNat x →
     -- 〈m 〉
     go (Update Nothing n1 n2 `BindEmpty`
         Unit (Var n2') `Bind` AltNode tag abss t) =
@@ -608,11 +609,14 @@ specializeUpdate defs =
 
 
 
--- update v₁ v₂ ; λ () →
--- 〈m 〉where n₁ ∉ m
--- case v₂ of alts
+-- Preconditions: Normalised
 --
--- Returns: (update v₁ v₂, λ t → 〈m 〉t, case v₂ of alts)
+-- update n₁ n₂ ; λ () →
+-- 〈m 〉where n₁ ∉ m
+-- case n₂ of alts
+--
+-- Returns: (update n₁' n₂', 〈m 〉, case n₂ of alts)
+-- TODO should increase n1 and n2 by length abss if 〈m 〉introduces binds.
 caseUpdateView :: Term -> Maybe (Term, Term -> Term, Term)
 caseUpdateView (Update Nothing n1 n2 `BindEmpty` t) =
     go [] id t <&> \ (m, caseof) -> (Update Nothing n1 n2, m, caseof)
@@ -623,25 +627,22 @@ caseUpdateView (Update Nothing n1 n2 `BindEmpty` t) =
        -> Maybe (Term -> Term, Term)
     go abss m (Case n3 t alts)
       | n3 - length abss == n2 = Just (m, Case n3 t alts)
-      | otherwise =  Nothing
-    go abss m (Bind t alt) = goAlt (m . Bind t) abss alt
-    go abss m t = case t of
-      App{}    -> Nothing
-      Unit{}   -> Nothing
-      Store{}  -> Nothing
-      Fetch{}  -> Nothing
-      Update{} -> Nothing
-      Error{}  -> Nothing
+      | otherwise = Nothing
 
-    goAlt :: (Alt -> Term)
-          -> [Abs]
-          -> Alt
-          -> Maybe (Term -> Term, Term)
-    goAlt m abss (AltVar abs t) = go (abs : abss) (m . AltVar abs) t
-    goAlt m abss1 (AltNode tag abss2 t) =
-      go (reverse abss2 ++ abss1) (m . AltNode tag abss2) t
-    goAlt m abss (AltEmpty t) = go abss (m . AltEmpty) t
-    goAlt _ _ AltLit{} = __IMPOSSIBLE__
+    go abss m (Bind t alt) = goAlt (m . Bind t) abss alt
+      where
+        goAlt :: (Alt -> Term)
+              -> [Abs]
+              -> Alt
+              -> Maybe (Term -> Term, Term)
+        goAlt m abss (AltVar abs t) = go (abs : abss) (m . AltVar abs) t
+        goAlt m abss1 (AltNode tag abss2 t) =
+          go (reverse abss2 ++ abss1) (m . AltNode tag abss2) t
+        goAlt m abss (AltEmpty t) = go abss (m . AltEmpty) t
+        goAlt _ _ AltLit{} = __IMPOSSIBLE__
+
+    go _bss _ _ = Nothing
+
 
 caseUpdateView _                                  = Nothing
 
