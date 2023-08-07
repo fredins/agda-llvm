@@ -30,7 +30,7 @@ import           Agda.Utils.Maybe
 
 
 data Value = BasNat Integer
-           | Tag Tag
+           | VTag Tag
            | VNode Tag [Value]
            | Loc Loc
            | VEmpty
@@ -68,11 +68,11 @@ interpretGrin defs =
     main = fromMaybe __IMPOSSIBLE__ $ find gr_isMain defs
 
     eval :: Term -> Eval mf Value
-    eval (App (Def "printf") [t]) = eval t
+    eval (App (Def "printf") [t]) = evalVal t
 
     -- Use an new (unused) memory location each time
     eval (Store _ t1 `Bind` AltVar abs t2) = do
-      v <- eval t1 <&> \case
+      v <- evalVal t1 <&> \case
              BasNat i -> cnat i
              vn       -> vn
       loc <- heapInsert v
@@ -92,7 +92,7 @@ interpretGrin defs =
       v <- evalApp t1 ts
       stackFrameLocal abs v $ eval t2
 
-    eval (App t1 ts `Bind` AltNode tag1 abss t2) =
+    eval (App t1 ts `Bind` AltConstantNode tag1 abss t2) =
       evalApp t1 ts >>= \case
         VNode tag2 vs | tag2 == tag1 ->
           stackFrameLocals abss vs $ eval t2
@@ -100,19 +100,19 @@ interpretGrin defs =
 
     eval (Update _ n t1 `BindEmpty` t2) = do
       loc <- fromMaybeM __IMPOSSIBLE__ $ stackFrameLookupLoc n
-      eval t1 >>= \v -> case v of
+      evalVal t1 >>= \v -> case v of
         VNode{} -> do
           heapUpdate loc v
           eval t2
         _ -> __IMPOSSIBLE__
 
     eval (Unit t1 `Bind` AltVar abs t2) =
-      eval t1 >>= \v ->
+      evalVal t1 >>= \v ->
         stackFrameLocal abs v $
         eval t2
 
-    eval (Unit t1 `Bind` AltNode tag1 abss t2) = do
-      eval t1 >>= \case
+    eval (Unit v1 `Bind` AltConstantNode tag1 abss t2) = do
+      evalVal v1 >>= \case
         VNode tag2 vs | tag2 == tag1 -> stackFrameLocals abss vs $ eval t2
         _                            -> __IMPOSSIBLE__
 
@@ -120,35 +120,27 @@ interpretGrin defs =
       v <- eval t1
       stackFrameLocal abs v $ eval t2
 
-    eval (t1 `Bind` AltNode tag1 abss t2) =
+    eval (t1 `Bind` AltConstantNode tag1 abss t2) =
       eval t1 >>= \case
         VNode tag2 vs  | tag2 == tag1 -> stackFrameLocals abss vs $ eval t2
         _                             -> __IMPOSSIBLE__
 
     eval (App t ts) = evalApp t ts
-    eval (Case n t alts) = evalCase n t alts
-    eval (Unit t) = eval t
+    eval (Case v t alts) = evalCase v t alts
+    eval (Unit v) = evalVal v
 
-    -- Values
-    eval (Node tag ts) = VNode tag <$> mapM eval ts
-    eval (Var n) = fromMaybeM __IMPOSSIBLE__ $ stackFrameLookup n
 
-    eval (Lit (LitNat i)) = pure $ BasNat i
-    eval Empty = pure VEmpty
 
-    eval t@Prim{} = error $ "TODO " ++ show t
 
     eval Store{} = __IMPOSSIBLE__
     eval Fetch{} = __IMPOSSIBLE__
     eval Update{} = __IMPOSSIBLE__
-    eval Def{} = __IMPOSSIBLE__
     eval Error{} = __IMPOSSIBLE__
-    eval Lit{} = __IMPOSSIBLE__
     eval t@Bind{} = error $ "MISSING: " ++ show t
 
-    evalCase :: Term -> Term -> [Alt] -> Eval mf Value
-    evalCase t1 t2 alts = do
-      v <- eval t1
+    evalCase :: Val -> Term -> [Alt] -> Eval mf Value
+    evalCase v1 t2 alts = do
+      v <- evalVal v1
       case v of
         VNode _ vs ->
           let (abss, t3) = selAlt v alts t2 in
@@ -159,23 +151,38 @@ interpretGrin defs =
           eval t3
         _ -> __IMPOSSIBLE__
 
-    evalApp :: Term -> [Term] -> Eval mf Value
-    evalApp t1 ts
-      | Prim prim <- t1   =
+    evalApp :: Val -> [Val] -> Eval mf Value
+    evalApp v1 vs
+      | Prim prim <- v1   =
         let
           evalNat = \case
               BasNat i -> pure i
               VNode tag [BasNat i] | tag == natTag -> pure i
               Loc loc  -> evalNat . fromMaybe __IMPOSSIBLE__ =<< heapLookup loc
               _        -> __IMPOSSIBLE__ in
-        BasNat . runPrim prim <$> mapM (evalNat <=< eval) ts
+        BasNat . runPrim prim <$> mapM (evalNat <=< evalVal) vs
 
-      | Def name <- t1 =
-        let (abss, t2) = fromMaybe (error $ "can't find " ++ name ++ "\n" ++ prettyShow (App t1 ts)) $ getGlobal name in
-        mapM eval ts >>= \vs ->
+      | Def name <- v1 =
+        let (abss, t2) = fromMaybe (error $ "can't find " ++ name ++ "\n" ++ prettyShow (App v1 vs)) $ getGlobal name in
+        mapM evalVal vs >>= \vs ->
           stackCons (StackFrame $ zip abss vs) $
           eval t2
       | otherwise = __IMPOSSIBLE__
+
+
+    evalVal :: Val -> Eval mf Value
+    evalVal (ConstantNode tag vs) = VNode tag <$> mapM evalVal vs
+    evalVal (VariableNode n vs) = do
+      stackFrameLookup n >>= \mv -> case fromMaybe __IMPOSSIBLE__ mv of
+        VTag tag -> VNode tag <$> mapM evalVal vs
+        _        -> __IMPOSSIBLE__
+    evalVal (Var n) = fromMaybeM __IMPOSSIBLE__ $ stackFrameLookup n
+    evalVal Empty = pure VEmpty
+    evalVal (Lit (LitNat i)) = pure $ BasNat i
+    evalVal Lit{} = __IMPOSSIBLE__
+    evalVal Prim{} = __IMPOSSIBLE__
+    evalVal Def{} = __IMPOSSIBLE__
+    evalVal Tag{} = __IMPOSSIBLE__
 
     -- Not used right now (Don't remove)
     -- sel :: Int -> Value -> Value
@@ -186,12 +193,12 @@ interpretGrin defs =
     selAlt :: Value -> [Alt] -> Term -> ([Abs], Term)
     selAlt v alts t
       | VNode tag _ <- v = go tag
-      | Tag tag <- v = go tag
+      | VTag tag <- v = go tag
       where
         go tag1 =
           headWithDefault ([], t) $
           forMaybe alts $ \case
-            AltNode tag2 abss t -> boolToMaybe (tag2 == tag1) (abss, t)
+            AltConstantNode tag2 abss t -> boolToMaybe (tag2 == tag1) (abss, t)
             t                   -> error $ "ALT " ++ show t ++ "  v:  " ++ show v
 
     selAlt (BasNat n1) alts t =
@@ -284,7 +291,7 @@ instance Pretty StackFrame where
 
 instance Pretty Value where
   pretty (BasNat n) = pretty n
-  pretty (Tag tag) = pretty tag
+  pretty (VTag tag) = pretty tag
   pretty (VNode tag vs) =
     pretty tag <+> text ("[" ++ intercalate ", " (map prettyShow vs) ++ "]")
   pretty VEmpty = text "()"

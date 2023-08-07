@@ -61,6 +61,7 @@ import           Agda.Utils.Maybe
 
 import           Agda.Llvm.Grin
 import           Agda.Llvm.Utils
+import           Data.Foldable             (foldrM)
 
 -- TODO
 -- • Refactor H', HCxt, HRet
@@ -93,29 +94,35 @@ instance Pretty Multiplicities where
 countMultiplicities :: GrinDefinition -> Multiplicities
 countMultiplicities def = evalState (go def.gr_term) def.gr_args where
   go :: Term -> State [Abs] Multiplicities
-  go (Case t1 t2 alts) =
-    go t1 <> (foldl (<>) mempty <$> mapM goAlt alts) <> go t2
+  go (Case v t alts) =
+    goVal v <> foldrM (\alt m -> pure m <> goAlt alt) mempty alts <> go t
   go (Bind t alt) = go t <> goAlt alt
-  go (Store _ v) = go v
-  go (Unit v) = go v
-  go (App v vs) = go v <> (foldl (<>) mempty <$> mapM go vs)
+  go (Store _ v) = goVal v
+  go (Unit v) = goVal v
+  go (App v vs) = goVal v <> foldrM (\v m -> pure m <> goVal v) mempty vs
   go (Fetch n) = gets $ (!! n) <&> \abs -> Multiplicities $ Map.singleton abs 1
-  go (Update _ n t) = do
+  go (Update _ n v) = do
     m <- gets $ (!! n) <&> \abs -> Multiplicities $ Map.singleton abs 1
-    pure m <> go t
+    pure m <> goVal v
   go (Error _) = pure mempty
-  go (Var n) = gets $ (!! n) <&> \abs -> Multiplicities $ Map.singleton abs 1
-  go (Lit _) = pure mempty
-  go (Node _ vs) = foldl (<>) mempty <$> mapM go vs
-  go (Def _) = pure mempty
-  go (Prim _) = pure mempty
-  go Empty = pure mempty
 
   goAlt :: Alt -> State [Abs] Multiplicities
-  goAlt (AltVar abs t)     = modify (abs:) *> go t
-  goAlt (AltNode _ abss t) = modify (reverse abss ++) *> go t
-  goAlt (AltLit _ t)       = go t
-  goAlt (AltEmpty t)       = go t
+  goAlt (AltVar abs t)             = modify (abs:) *> go t
+  goAlt (AltConstantNode _ abss t) = modify (reverse abss ++) *> go t
+  goAlt (AltLit _ t)               = go t
+  goAlt (AltEmpty t)               = go t
+
+  goVal :: Val -> State [Abs] Multiplicities
+  goVal (ConstantNode _ vs) = foldrM (\v m -> pure m <> goVal v) mempty vs
+  goVal (VariableNode n vs) = do
+    m <- gets $ (!! n) <&> \abs -> Multiplicities $ Map.singleton abs 1
+    pure m <> foldrM (\v m -> pure m <> goVal v) mempty vs
+  goVal (Tag _) = pure mempty
+  goVal (Var n) = gets $ (!! n) <&> \abs -> Multiplicities $ Map.singleton abs 1
+  goVal (Lit _) = pure mempty
+  goVal (Def _) = pure mempty
+  goVal (Prim _) = pure mempty
+  goVal Empty = pure mempty
 
 
 sortAbsCxt :: AbstractContext -> AbstractContext
@@ -337,44 +344,47 @@ localAbssEnv = foldl (.: localAbsEnv) id
 deriveEquations :: Term -> H' HRet
 deriveEquations term = case term of
 
-    Bind (Store loc (Node tag vs)) (AltVar abs t) -> do
-        vs' <- mapM argToValue vs
-        defs <- asks defs
-        case findName defs tag of
-          Nothing ->
-            localLoc loc $
-            localAbs abs $
-            localAbsEnv (abs, Loc loc) $
-            localAbsHeap (loc, VNode tag vs') $
-            deriveEquations t
-
-          -- non-primitve F-tag or P-tag
-          Just def -> do
-            h <- localLoc loc $
-                 localAbs abs $
-                 localAbsEnv (abs, Loc loc) $
-                 localAbsHeap (loc, VNode tag vs'  ) $
-                 localAbssEnv (zip def.gr_args vs') $
-                 deriveEquations t
-
-            if Set.member (unLoc loc) h.shared' then
+    Bind (Store loc v) (AltVar abs t)
+      | ConstantNode tag vs <- v -> go tag vs
+      where
+        go tag vs = do
+          vs' <- mapM valToValue vs
+          defs <- asks defs
+          case findName defs tag of
+            Nothing ->
               localLoc loc $
               localAbs abs $
               localAbsEnv (abs, Loc loc) $
-              localAbsHeap (loc, VNode tag vs' `mkUnion` Abs (fromMaybe __IMPOSSIBLE__ def.gr_return)) $
-              localAbssEnv (zip def.gr_args vs') $
+              localAbsHeap (loc, VNode tag vs') $
               deriveEquations t
-            else
-              pure h
-      where
+
+            -- non-primitve F-tag or P-tag
+            Just def -> do
+              h <- localLoc loc $
+                   localAbs abs $
+                   localAbsEnv (abs, Loc loc) $
+                   localAbsHeap (loc, VNode tag vs'  ) $
+                   localAbssEnv (zip def.gr_args vs') $
+                   deriveEquations t
+
+              if Set.member (unLoc loc) h.shared' then
+                localLoc loc $
+                localAbs abs $
+                localAbsEnv (abs, Loc loc) $
+                localAbsHeap (loc, VNode tag vs' `mkUnion` Abs (fromMaybe __IMPOSSIBLE__ def.gr_return)) $
+                localAbssEnv (zip def.gr_args vs') $
+                deriveEquations t
+              else
+                pure h
+
         findName defs FTag{tDef} = find ((==tDef) . gr_name) defs
         findName defs PTag{tDef} = find ((==tDef) . gr_name) defs
         findName _ _             = Nothing
 
-        argToValue :: MonadReader HCxt m => Term -> m Value
-        argToValue (Var n) = Abs . fromMaybe __IMPOSSIBLE__ <$> deBruijnLookup n
-        argToValue (Lit _) = pure Bas
-        argToValue  _      = __IMPOSSIBLE__
+        valToValue :: MonadReader HCxt m => Val -> m Value
+        valToValue (Var n) = Abs . fromMaybe __IMPOSSIBLE__ <$> deBruijnLookup n
+        valToValue (Lit _) = pure Bas
+        valToValue  _      = __IMPOSSIBLE__
 
     Bind (App (Def "eval") [Var n]) (AltVar abs (Case (Var 0) t alts)) ->
       deBruijnLookup n <&> EVAL . FETCH . Abs . fromMaybe __IMPOSSIBLE__ >>= \v ->
@@ -385,7 +395,7 @@ deriveEquations term = case term of
           pure $ foldl (<>) h hs
       where
         deriveEquationsAlt :: Abs -> Alt -> H' HRet
-        deriveEquationsAlt abs (AltNode tag abss t) =
+        deriveEquationsAlt abs (AltConstantNode tag abss t) =
           localAbss abss $
           localAbssEnv (zip abss $ map (Pick (Abs abs) tag) [0 ..]) $
           deriveEquations t
@@ -393,17 +403,17 @@ deriveEquations term = case term of
         deriveEquationsAlt _ AltVar{}     = __IMPOSSIBLE__ -- TODO investigate if this is possible (thesis indicate it is not)
         deriveEquationsAlt _ AltLit{}     = __IMPOSSIBLE__
 
-    Bind (App (Def "eval") [Var _]) (AltNode tag [abs] (Case (Var 0) t alts)) | tag == natTag ->
+    Bind (App (Def "eval") [Var _]) (AltConstantNode tag [abs] (Case (Var 0) t alts)) | tag == natTag ->
         localAbs abs $
         localAbsEnv (abs, Bas) $ do
           hs <- mapM deriveEquationsAlt alts
           h <- deriveEquations t
           pure $ foldl (<>) h hs
       where
-        deriveEquationsAlt (AltLit _ t) = deriveEquations t
-        deriveEquationsAlt (AltEmpty t) = deriveEquations t
-        deriveEquationsAlt AltVar{}     = __IMPOSSIBLE__ -- TODO investigate if this is possible (thesis indicate it is not)
-        deriveEquationsAlt AltNode{}    = __IMPOSSIBLE__
+        deriveEquationsAlt (AltLit _ t)      = deriveEquations t
+        deriveEquationsAlt (AltEmpty t)      = deriveEquations t
+        deriveEquationsAlt AltVar{}          = __IMPOSSIBLE__ -- TODO investigate if this is possible (thesis indicate it is not)
+        deriveEquationsAlt AltConstantNode{} = __IMPOSSIBLE__
 
     Bind (App (Def "eval") [Var n]) (AltVar abs t) ->
       deBruijnLookup n <&> EVAL . FETCH . Abs . fromMaybe __IMPOSSIBLE__  >>= \v ->
@@ -411,37 +421,37 @@ deriveEquations term = case term of
         localAbsEnv (abs, v) $
         deriveEquations t
 
-    Bind (App (Def "eval") [Var _]) (AltNode tag [abs] t) | tag == natTag ->
+    Bind (App (Def "eval") [Var _]) (AltConstantNode tag [abs] t) | tag == natTag ->
       localAbs abs $
       localAbsEnv (abs, Bas) $
       deriveEquations t
 
     Bind (App (Def defName) vs) (AltVar abs t) -> do
       def <- asks $ fromMaybe __IMPOSSIBLE__ . find ((defName==) . gr_name) . defs
-      mapM argToValue vs >>= \vs' ->
+      mapM valToValue vs >>= \vs' ->
         localAbs abs $
         localAbsEnv (abs, maybe __IMPOSSIBLE__ Abs def.gr_return) $
         localAbssEnv (zip def.gr_args vs') $
         deriveEquations t
       where
-        argToValue :: MonadReader HCxt m => Term -> m Value
-        argToValue (Var n) = Abs . fromMaybe __IMPOSSIBLE__ <$> deBruijnLookup n
-        argToValue (Lit _) = pure Bas
-        argToValue  _      = __IMPOSSIBLE__
+        valToValue :: MonadReader HCxt m => Val -> m Value
+        valToValue (Var n) = Abs . fromMaybe __IMPOSSIBLE__ <$> deBruijnLookup n
+        valToValue (Lit _) = pure Bas
+        valToValue  _      = __IMPOSSIBLE__
 
-    Bind (App (Def defName) vs) (AltNode tag abss t) -> do
+    Bind (App (Def defName) vs) (AltConstantNode tag abss t) -> do
       def <- asks $ fromMaybe __IMPOSSIBLE__ . find ((defName==) . gr_name) . defs
       let gr_return = maybe __IMPOSSIBLE__ Abs def.gr_return
-      mapM argToValue vs >>= \vs' ->
+      mapM valToValue vs >>= \vs' ->
         localAbss abss $
         localAbssEnv (zip abss $ map (Pick gr_return tag) [0 ..]) $
         localAbssEnv (zip def.gr_args vs') $
         deriveEquations t
       where
-        argToValue :: MonadReader HCxt m => Term -> m Value
-        argToValue (Var n) = Abs . fromMaybe __IMPOSSIBLE__ <$> deBruijnLookup n
-        argToValue (Lit _) = pure Bas
-        argToValue  _      = __IMPOSSIBLE__
+        valToValue :: MonadReader HCxt m => Val -> m Value
+        valToValue (Var n) = Abs . fromMaybe __IMPOSSIBLE__ <$> deBruijnLookup n
+        valToValue (Lit _) = pure Bas
+        valToValue  _      = __IMPOSSIBLE__
 
 
     Bind (App (Prim _) _) (AltVar abs t)  ->
@@ -449,21 +459,21 @@ deriveEquations term = case term of
       localAbsEnv (abs, cnat) $
       deriveEquations t
 
-    Bind (App (Prim _) _) (AltNode tag [abs] t) | tag == natTag ->
+    Bind (App (Prim _) _) (AltConstantNode tag [abs] t) | tag == natTag ->
       localAbs abs $
       localAbsEnv (abs, Bas) $
       deriveEquations t
 
     Unit v -> do
         abs <- asks $ fromMaybe __IMPOSSIBLE__ . gr_return . currentDef
-        v' <- argToValue v
+        v' <- valToValue v
         localAbs abs $ localAbsEnv (abs, v') retHCxt
       where
-        argToValue :: MonadReader HCxt m => Term -> m Value
-        argToValue (Var n) = Abs . fromMaybe __IMPOSSIBLE__ <$> deBruijnLookup n
-        argToValue (Node tag vs) = VNode tag <$> mapM argToValue vs
-        argToValue (Lit _) = pure Bas
-        argToValue _ = __IMPOSSIBLE__
+        valToValue :: MonadReader HCxt m => Val -> m Value
+        valToValue (Var n) = Abs . fromMaybe __IMPOSSIBLE__ <$> deBruijnLookup n
+        valToValue (ConstantNode tag vs) = VNode tag <$> mapM valToValue vs
+        valToValue (Lit _) = pure Bas
+        valToValue _ = __IMPOSSIBLE__
 
     App (Def "printf") _ -> retHCxt
     Error _ -> retHCxt

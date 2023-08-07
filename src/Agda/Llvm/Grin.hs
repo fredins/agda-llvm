@@ -6,7 +6,7 @@
 {-# LANGUAGE TypeFamilies        #-}
 
 
-module Agda.Llvm.Grin where
+module Agda.Llvm.Grin (module Agda.Llvm.Grin) where
 
 import           Control.Monad                (replicateM)
 
@@ -42,63 +42,29 @@ updateGrTerm = over lensGrTerm
 
 
 -- TODO refactor
--- • Maybe seperate terms and values
 -- • Maybe remove Loc from Store
--- • Maybe change case scrutinee to Term (due to e.g. vectorisation)
--- • Maybe change second argument of Update to Term if needed
 data Term = Bind Term Alt
-          | Case Term Term [Alt]
-          | App Term [Term]
-          | Unit Term
-          | Store Loc Term
+          | Case Val Term [Alt]
+          | App Val [Val] -- List1
+          | Unit Val
+          | Store Loc Val
           | Fetch Int
-          | Update (Maybe Tag) Int Term
-          | Node Tag [Term]
-          | Lit Literal
-          | Empty
-          | Var Int
-          | Def String
-          | Prim TPrim
+          | Update (Maybe Tag) Int Val
           | Error TError
             deriving (Show, Eq)
 
+data Val = ConstantNode Tag [Val]
+         | VariableNode Int [Val]
+         | Tag Tag
+         | Empty
+         | Lit Literal
+         | Var Int
+         | Def String
+         | Prim TPrim
+           deriving (Show, Eq)
 
-
-
-instance DeBruijn Term where
-  deBruijnVar = Var
-  deBruijnView (Var n) = Just n
-  deBruijnView _       = Nothing
-
--- TODO
-instance Subst Term where
-  type SubstArg Term = Term
-  applySubst = applySubstTerm
-
-applySubstTerm :: Substitution' (SubstArg Term) -> Term -> Term
-applySubstTerm IdS term = term
-applySubstTerm rho term = case term of
-  Var n         -> lookupS rho n
-  App t ts      -> App (applySubst rho t) (applySubst rho ts)
-  Bind t alt    -> Bind (applySubst rho t) (applySubst rho alt)
-  Case t1 t2 alts -> Case (applySubst rho t1) (applySubst rho t2) (applySubst rho alts)
-  Unit t -> Unit (applySubst rho t)
-  Store loc t -> Store loc (applySubst rho t)
-  Fetch n
-    | Var n' <- lookupS rho n -> Fetch n'
-    | otherwise -> __IMPOSSIBLE__
-  Update tag n t
-    | Var n' <- lookupS rho n -> Update tag n' (applySubst rho t)
-    | otherwise -> __IMPOSSIBLE__
-  Node tag ts -> Node tag (applySubst rho ts)
-  Lit{} -> term
-  Empty -> term
-  Prim{} -> term
-  Error{} -> term
-  Def{} -> term
-
-store :: MonadFresh Int m => Term -> m Term
-store v = (`Store` v) <$> freshLoc
+store :: MonadFresh Int m => Val -> m Term
+store t = (`Store` t) <$> freshLoc
 
 instance Unreachable Term where
   isUnreachable (Error TUnreachable) = True
@@ -124,23 +90,15 @@ freshLoc = MkLoc <$> freshGid
 freshGid :: MonadFresh Int m => m Gid
 freshGid = Gid <$> fresh
 
-data Alt = AltNode Tag [Abs] Term
+-- TODO seperate into CAlt and LAlt
+data Alt = AltConstantNode Tag [Abs] Term
+         | AltVariableNode Abs [Abs] Term
          | AltLit Literal Term
          | AltVar Abs Term
          | AltEmpty Term
            deriving (Show, Eq)
 
-instance Subst Alt where
-  type SubstArg Alt = Term
-  applySubst = applySubstAlt
 
-applySubstAlt :: Substitution' (SubstArg Alt) -> Alt -> Alt
-applySubstAlt IdS alt            = alt
-applySubstAlt rho (AltVar abs t) = AltVar abs $ applySubst (liftS 1 rho) t
-applySubstAlt rho (AltNode tag abss t) =
-  AltNode tag abss $ applySubst (liftS (length abss) rho) t
-applySubstAlt rho (AltLit lit t) = AltLit lit $ applySubst rho t
-applySubstAlt rho (AltEmpty t) = AltEmpty $ applySubst rho t
 
 
 infixr 0 `BindEmpty`, `Bind`
@@ -163,17 +121,18 @@ lensAbs f abs = f (unGid $ unAbs abs) <&> \n -> MkAbs (Gid n)
 altVar :: MonadFresh Int m => Term -> m Alt
 altVar t = (`AltVar` t) <$> freshAbs
 
-altNode :: MonadFresh Int m => Tag -> Term -> m Alt
-altNode tag t = do
+altConstantNode :: MonadFresh Int m => Tag -> Term -> m Alt
+altConstantNode tag t = do
   abss <- replicateM (tagArity tag) freshAbs
-  pure $ AltNode tag abss t
+  pure $ AltConstantNode tag abss t
 
 altBody :: Alt -> Term
 altBody = \case
-  AltNode _ _ t -> t
-  AltLit _ t    -> t
-  AltVar _ t    -> t
-  AltEmpty t    -> t
+  AltConstantNode _ _ t -> t
+  AltVariableNode _ _ t -> t
+  AltLit _ t            -> t
+  AltVar _ t            -> t
+  AltEmpty t            -> t
 
 tagArity :: Tag -> Int
 tagArity = \case
@@ -208,6 +167,64 @@ bindEmptyM t1 t2 = (Bind <$> t1) <*> (AltEmpty <$> t2)
 
 
 -----------------------------------------------------------------------
+-- * Substitute instances
+-----------------------------------------------------------------------
+
+-- TODO
+instance Subst Term where
+  type SubstArg Term = Val
+  applySubst = applySubstTerm
+
+applySubstTerm :: Substitution' (SubstArg Term) -> Term -> Term
+applySubstTerm IdS term = term
+applySubstTerm rho term = case term of
+  App t ts      -> App (applySubst rho t) (applySubst rho ts)
+  Bind t alt    -> Bind (applySubst rho t) (applySubst rho alt)
+  Case t1 t2 alts -> Case (applySubst rho t1) (applySubst rho t2) (applySubst rho alts)
+  Unit t -> Unit (applySubst rho t)
+  Store loc t -> Store loc (applySubst rho t)
+  Fetch n
+    | Var n' <- lookupS rho n -> Fetch n'
+    | otherwise -> __IMPOSSIBLE__
+  Update tag n t
+    | Var n' <- lookupS rho n -> Update tag n' (applySubst rho t)
+    | otherwise -> __IMPOSSIBLE__
+  Error{} -> term
+
+instance Subst Alt where
+  type SubstArg Alt = Val
+  applySubst = applySubstAlt
+
+applySubstAlt :: Substitution' (SubstArg Alt) -> Alt -> Alt
+applySubstAlt IdS alt            = alt
+applySubstAlt rho (AltVar abs t) = AltVar abs $ applySubst (liftS 1 rho) t
+applySubstAlt rho (AltConstantNode tag abss t) =
+  AltConstantNode tag abss $ applySubst (liftS (length abss) rho) t
+applySubstAlt rho (AltVariableNode abs abss t) =
+  AltVariableNode abs abss $ applySubst (liftS (1 + length abss) rho) t
+applySubstAlt rho (AltLit lit t) = AltLit lit $ applySubst rho t
+applySubstAlt rho (AltEmpty t) = AltEmpty $ applySubst rho t
+
+instance DeBruijn Val where
+  deBruijnVar = Var
+  deBruijnView (Var n) = Just n
+  deBruijnView _       = Nothing
+
+instance Subst Val where
+  type SubstArg Val = Val
+  applySubst = applySubstVal
+
+applySubstVal :: Substitution' Val -> Val -> Val
+applySubstVal rho (ConstantNode tag vs) = ConstantNode tag $ applySubst rho vs
+applySubstVal rho (VariableNode n vs)   = VariableNode n $ applySubst rho vs
+applySubstVal _   (Tag tag)             = Tag tag
+applySubstVal _   Empty                 = Empty
+applySubstVal _   (Lit lit)             = Lit lit
+applySubstVal rho (Var n)               = lookupS rho n
+applySubstVal _   (Def s)               = Def s
+applySubstVal _   (Prim prim)           = Prim prim
+
+-----------------------------------------------------------------------
 -- * Pretty printing instances
 -----------------------------------------------------------------------
 
@@ -235,10 +252,11 @@ instance Pretty Term where
         , pretty $ altBody alt
         ]
     where
-      go (AltNode tag abss _) = pretty tag <+> sep (map pretty abss)
-      go (AltLit lit _)       = pretty lit
-      go (AltVar abs _)       = pretty abs
-      go (AltEmpty _)         = text "()"
+      go (AltConstantNode tag abss _) = pretty tag <+> sep (map pretty abss)
+      go (AltVariableNode abs abss _) = pretty abs <+> sep (map pretty abss)
+      go (AltLit lit _)               = pretty lit
+      go (AltVar abs _)               = pretty abs
+      go (AltEmpty _)                 = text "()"
 
       isComplicated = case t of
         Bind{} -> True
@@ -247,11 +265,12 @@ instance Pretty Term where
 
 
   pretty (Unit v)
-        | Node{} <- v = text "unit" <+> parens (pretty v)
+        | ConstantNode{} <- v = text "unit" <+> parens (pretty v)
+        | VariableNode{} <- v = text "unit" <+> parens (pretty v)
         | otherwise   = text "unit" <+> pretty v
 
   pretty (Store l v) = (text "store" <> pretty l) <+> parens (pretty v)
-  pretty (App v vs) = sep $ map pretty (v : vs)
+  pretty (App v vs) = sep $ pretty v : map pretty vs
   pretty (Case n def alts) =
     vcat
       [ text "case" <+> pretty n <+> text "of"
@@ -265,12 +284,16 @@ instance Pretty Term where
   pretty (Update (Just tag) v1 v2) = (text "update" <> pretty tag) <+> pretty v1 <+> pretty v2
   pretty (Error TUnreachable) = text "unreachable"
   pretty (Error (TMeta _)) = __IMPOSSIBLE__
-  pretty Empty = text "()"
-  pretty (Lit lit) = text "#" <> pretty lit
-  pretty (Node tag vs) = sep (pretty tag : map pretty vs)
-  pretty (Var n) = pretty n
-  pretty (Def q) = pretty q
-  pretty (Prim prim) = text $ show prim -- FIXME
+
+instance Pretty Val where
+  pretty (VariableNode tag vs) = sep (pretty tag : map pretty vs)
+  pretty (ConstantNode n vs)   = sep (pretty n : map pretty vs)
+  pretty (Tag tag)             = pretty tag
+  pretty Empty                 = text "()"
+  pretty (Lit lit)             = text "#" <> pretty lit
+  pretty (Var n)               = pretty n
+  pretty (Def q)               = pretty q
+  pretty (Prim prim)           = text $ show prim -- FIXME
 
 instance Pretty Abs where
   pretty (MkAbs gid) = text "x" <> pretty gid
@@ -282,8 +305,12 @@ instance Pretty Gid where
   pretty (Gid n) = pretty n
 
 instance Pretty Alt where
-  pretty (AltNode tag gids t) =
+  pretty (AltConstantNode tag gids t) =
     sep [ pretty tag <+> sep (map pretty gids) <+> text "→"
+        ,  nest 2 $ pretty t
+        ]
+  pretty (AltVariableNode x gids t) =
+    sep [ pretty x <+> sep (map pretty gids) <+> text "→"
         ,  nest 2 $ pretty t
         ]
   pretty (AltLit lit t) =
