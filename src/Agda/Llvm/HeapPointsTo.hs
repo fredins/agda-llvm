@@ -95,8 +95,8 @@ countMultiplicities :: GrinDefinition -> Multiplicities
 countMultiplicities def = evalState (go def.gr_term) def.gr_args where
   go :: Term -> State [Abs] Multiplicities
   go (Case v t alts) =
-    goVal v <> foldrM (\alt m -> pure m <> goAlt alt) mempty alts <> go t
-  go (Bind t alt) = go t <> goAlt alt
+    goVal v <> foldrM (\alt m -> pure m <> goCalt alt) mempty alts <> go t
+  go (Bind t alt) = go t <> goLalt alt
   go (Store _ v) = goVal v
   go (Unit v) = goVal v
   go (App v vs) = goVal v <> foldrM (\v m -> pure m <> goVal v) mempty vs
@@ -106,11 +106,18 @@ countMultiplicities def = evalState (go def.gr_term) def.gr_args where
     pure m <> goVal v
   go (Error _) = pure mempty
 
-  goAlt :: Alt -> State [Abs] Multiplicities
-  goAlt (AltVar abs t)             = modify (abs:) *> go t
-  goAlt (AltConstantNode _ abss t) = modify (reverse abss ++) *> go t
-  goAlt (AltLit _ t)               = go t
-  goAlt (AltEmpty t)               = go t
+  goLalt :: LAlt -> State [Abs] Multiplicities
+  goLalt (LAltVar abs t)             = modify (abs:) *> go t
+  goLalt (LAltConstantNode _ abss t) = modify (reverse abss ++) *> go t
+  goLalt (LAltLit _ t)               = go t
+  goLalt (LAltEmpty t)               = go t
+
+
+  goCalt :: CAlt -> State [Abs] Multiplicities
+  goCalt (CAltConstantNode _ abss t) = modify (reverse abss ++) *> go t
+  goCalt (CAltLit _ t)               = go t
+
+
 
   goVal :: Val -> State [Abs] Multiplicities
   goVal (ConstantNode _ vs) = foldrM (\v m -> pure m <> goVal v) mempty vs
@@ -344,7 +351,7 @@ localAbssEnv = foldl (.: localAbsEnv) id
 deriveEquations :: Term -> H' HRet
 deriveEquations term = case term of
 
-    Bind (Store loc v) (AltVar abs t)
+    Bind (Store loc v) (LAltVar abs t)
       | ConstantNode tag vs <- v -> go tag vs
       where
         go tag vs = do
@@ -386,7 +393,7 @@ deriveEquations term = case term of
         valToValue (Lit _) = pure Bas
         valToValue  _      = __IMPOSSIBLE__
 
-    Bind (App (Def "eval") [Var n]) (AltVar abs (Case (Var 0) t alts)) ->
+    Bind (App (Def "eval") [Var n]) (LAltVar abs (Case (Var 0) t alts)) ->
       deBruijnLookup n <&> EVAL . FETCH . Abs . fromMaybe __IMPOSSIBLE__ >>= \v ->
         localAbs abs $
         localAbsEnv (abs, v) $ do
@@ -394,39 +401,35 @@ deriveEquations term = case term of
           h <- deriveEquations t
           pure $ foldl (<>) h hs
       where
-        deriveEquationsAlt :: Abs -> Alt -> H' HRet
-        deriveEquationsAlt abs (AltConstantNode tag abss t) =
+        deriveEquationsAlt :: Abs -> CAlt -> H' HRet
+        deriveEquationsAlt abs (CAltConstantNode tag abss t) =
           localAbss abss $
           localAbssEnv (zip abss $ map (Pick (Abs abs) tag) [0 ..]) $
           deriveEquations t
-        deriveEquationsAlt _ (AltEmpty t) = deriveEquations t
-        deriveEquationsAlt _ AltVar{}     = __IMPOSSIBLE__ -- TODO investigate if this is possible (thesis indicate it is not)
-        deriveEquationsAlt _ AltLit{}     = __IMPOSSIBLE__
+        deriveEquationsAlt _ CAltLit{}      = __IMPOSSIBLE__
 
-    Bind (App (Def "eval") [Var _]) (AltConstantNode tag [abs] (Case (Var 0) t alts)) | tag == natTag ->
+    Bind (App (Def "eval") [Var _]) (LAltConstantNode tag [abs] (Case (Var 0) t alts)) | tag == natTag ->
         localAbs abs $
         localAbsEnv (abs, Bas) $ do
           hs <- mapM deriveEquationsAlt alts
           h <- deriveEquations t
           pure $ foldl (<>) h hs
       where
-        deriveEquationsAlt (AltLit _ t)      = deriveEquations t
-        deriveEquationsAlt (AltEmpty t)      = deriveEquations t
-        deriveEquationsAlt AltVar{}          = __IMPOSSIBLE__ -- TODO investigate if this is possible (thesis indicate it is not)
-        deriveEquationsAlt AltConstantNode{} = __IMPOSSIBLE__
+        deriveEquationsAlt (CAltLit _ t)      = deriveEquations t
+        deriveEquationsAlt CAltConstantNode{} = __IMPOSSIBLE__
 
-    Bind (App (Def "eval") [Var n]) (AltVar abs t) ->
+    Bind (App (Def "eval") [Var n]) (LAltVar abs t) ->
       deBruijnLookup n <&> EVAL . FETCH . Abs . fromMaybe __IMPOSSIBLE__  >>= \v ->
         localAbs abs $
         localAbsEnv (abs, v) $
         deriveEquations t
 
-    Bind (App (Def "eval") [Var _]) (AltConstantNode tag [abs] t) | tag == natTag ->
+    Bind (App (Def "eval") [Var _]) (LAltConstantNode tag [abs] t) | tag == natTag ->
       localAbs abs $
       localAbsEnv (abs, Bas) $
       deriveEquations t
 
-    Bind (App (Def defName) vs) (AltVar abs t) -> do
+    Bind (App (Def defName) vs) (LAltVar abs t) -> do
       def <- asks $ fromMaybe __IMPOSSIBLE__ . find ((defName==) . gr_name) . defs
       mapM valToValue vs >>= \vs' ->
         localAbs abs $
@@ -439,7 +442,7 @@ deriveEquations term = case term of
         valToValue (Lit _) = pure Bas
         valToValue  _      = __IMPOSSIBLE__
 
-    Bind (App (Def defName) vs) (AltConstantNode tag abss t) -> do
+    Bind (App (Def defName) vs) (LAltConstantNode tag abss t) -> do
       def <- asks $ fromMaybe __IMPOSSIBLE__ . find ((defName==) . gr_name) . defs
       let gr_return = maybe __IMPOSSIBLE__ Abs def.gr_return
       mapM valToValue vs >>= \vs' ->
@@ -454,12 +457,12 @@ deriveEquations term = case term of
         valToValue  _      = __IMPOSSIBLE__
 
 
-    Bind (App (Prim _) _) (AltVar abs t)  ->
+    Bind (App (Prim _) _) (LAltVar abs t)  ->
       localAbs abs $
       localAbsEnv (abs, cnat) $
       deriveEquations t
 
-    Bind (App (Prim _) _) (AltConstantNode tag [abs] t) | tag == natTag ->
+    Bind (App (Prim _) _) (LAltConstantNode tag [abs] t) | tag == natTag ->
       localAbs abs $
       localAbsEnv (abs, Bas) $
       deriveEquations t

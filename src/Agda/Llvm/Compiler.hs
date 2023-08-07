@@ -203,12 +203,12 @@ rScheme :: TTerm -> G Term
 rScheme (TCase n CaseInfo{caseType=CTNat} def alts) = do
   alts' <- mapM (aScheme . raise 1) alts
   def' <- rScheme (raise 1 def)
-  Bind (eval n) <$> altConstantNode natTag (Case (Var 0) def' alts')
+  Bind (eval n) <$> laltConstantNode natTag (Case (Var 0) def' alts')
 
 rScheme (TCase n CaseInfo{caseType=CTData _} def alts) = do
   alts' <- mapM (aScheme . raise 1) alts
   def' <- rScheme (raise 1 def)
-  Bind (eval n) <$> altVar (Case (Var 0) def' alts')
+  Bind (eval n) <$> laltVar (Case (Var 0) def' alts')
 
 -- | 𝓡 [_[]_] = unit (C_[]_)
 rScheme (TCon q) = pure $ Unit $ ConstantNode tag [] where
@@ -218,7 +218,7 @@ rScheme (TError TUnreachable) = pure $ Error TUnreachable
 
 rScheme (TApp t as) = do
     isMain <- gets isMain
-    alt <- altConstantNode natTag (printf 0)
+    alt <- laltConstantNode natTag (printf 0)
     let res t
           | isMain = Bind t alt
           | otherwise = t
@@ -234,7 +234,7 @@ rScheme (TApp t as) = do
     --               unit @0
     appPrim res prim as = do
         fin <- App (Prim prim) vs `bindVar` res (Unit $ ConstantNode natTag [Var 0])
-        evals' <- foldrM (\t ts -> Bind t <$> altConstantNode natTag ts) fin evals
+        evals' <- foldrM (\t ts -> Bind t <$> laltConstantNode natTag ts) fin evals
         pure $ mkWithOffset (length evals) evals'
       where
         (evals, vs) =  foldr f ([], []) as
@@ -256,7 +256,7 @@ rScheme (TApp t as) = do
 
       (stores, vs) <- foldrM f ([], []) as
       let fin = res $ App (Def $ prettyShow q) vs
-      stores' <- foldrM (\t ts -> Bind t <$> altVar ts) fin stores
+      stores' <- foldrM (\t ts -> Bind t <$> laltVar ts) fin stores
 
       pure $ mkWithOffset nLits stores'
 
@@ -273,7 +273,7 @@ rScheme (TApp t as) = do
 
         (stores, vs) <- foldrM f ([], []) as
         let fin = res $ Unit $ ConstantNode tag vs
-        stores' <- foldrM (\t ts -> Bind t <$> altVar ts) fin stores
+        stores' <- foldrM (\t ts -> Bind t <$> laltVar ts) fin stores
 
         pure $ mkWithOffset (length stores) stores'
       where
@@ -289,18 +289,18 @@ rScheme (TLet t1 t2)
   | TLet t1 t2 <- t1 = do
     t1' <- cScheme t1
     t2' <- rScheme t2
-    Bind t1' <$> altVar t2'
+    Bind t1' <$> laltVar t2'
 
 rScheme t = error $ "TODO rScheme " ++ show t
 
-aScheme :: TAlt -> G Alt
+aScheme :: TAlt -> G CAlt
 aScheme TALit{aLit, aBody} = do
   aBody' <- rScheme aBody
-  pure $ AltLit aLit aBody'
+  pure $ CAltLit aLit aBody'
 
 aScheme TACon{aCon, aArity, aBody} = do
     aBody' <- rScheme aBody
-    altConstantNode tag aBody'
+    caltConstantNode tag aBody'
   where
     tag = CTag{tCon = prettyShow aCon, tArity = aArity}
 
@@ -328,8 +328,8 @@ cSchemeApp t as = do
     -- let fin' = res $ Unit $ Node tag vs
     t <- store $ ConstantNode tag vs
     abs <- freshAbs
-    let fin = Bind t . AltVar abs
-    stores' <- foldrM (\t ts -> (\abs -> Bind t . AltVar abs . ts) <$> freshAbs) fin stores
+    let fin = Bind t . LAltVar abs
+    stores' <- foldrM (\t ts -> (\abs -> Bind t . LAltVar abs . ts) <$> freshAbs) fin stores
     pure $ mkWithOffset nLits stores'
   where
   tag
@@ -430,8 +430,8 @@ inlineEval defs absCxt =
     go :: Term -> E Term
     go term = case term of
       App (Def "eval") [Var n] -> genEval n =<< deBruijnLookup n
-      Case i t alts            -> liftA2 (Case i) (go t) (mapM goAlt alts)
-      Bind t alt               -> liftA2 Bind (go t) (goAlt alt)
+      Case i t alts            -> liftA2 (Case i) (go t) (mapM goCalt alts)
+      Bind t alt               -> liftA2 Bind (go t) (goLalt alt)
       App _ _                  -> pure term
       Store _ _                -> pure term
       Unit _                   -> pure term
@@ -440,11 +440,15 @@ inlineEval defs absCxt =
       Error _                  -> pure term
       -- TODO missing
 
-    goAlt :: Alt -> E Alt
-    goAlt (AltEmpty t)         = AltEmpty <$> go t
-    goAlt (AltVar abs t)       = AltVar abs <$> localAbs abs (go t)
-    goAlt (AltConstantNode tag abss t) = AltConstantNode tag abss <$> localAbss abss (go t)
-    goAlt (AltLit lit t)       = AltLit lit <$> go t
+    goLalt :: LAlt -> E LAlt
+    goLalt (LAltEmpty t)         = LAltEmpty <$> go t
+    goLalt (LAltVar abs t)       = LAltVar abs <$> localAbs abs (go t)
+    goLalt (LAltConstantNode tag abss t) = LAltConstantNode tag abss <$> localAbss abss (go t)
+    goLalt (LAltLit lit t)       = LAltLit lit <$> go t
+
+    goCalt :: CAlt -> E CAlt
+    goCalt (CAltConstantNode tag abss t) = CAltConstantNode tag abss <$> localAbss abss (go t)
+    goCalt (CAltLit lit t)       = CAltLit lit <$> go t
 
     genEval :: Int -> Abs -> E Term
     genEval n abs =
@@ -456,7 +460,7 @@ inlineEval defs absCxt =
         caseOf :: E Term
         caseOf =
           Case (Var 0) unreachable . toList <$>
-          forM (collectTags abs) (\tag -> altConstantNode tag =<< genBody tag)
+          forM (collectTags abs) (\tag -> caltConstantNode tag =<< genBody tag)
 
         genBody :: Tag -> E Term
         genBody FTag{tDef, tArity}
@@ -490,13 +494,13 @@ inlineEval defs absCxt =
 -- >>>
 -- 〈t 〉[n / m]
 removeUnitBind :: Term -> Term
-removeUnitBind (Unit (Var n) `Bind` AltVar abs t) =
+removeUnitBind (Unit (Var n) `Bind` LAltVar abs t) =
     applySubst rho t
   where
     rho = strengthenS __IMPOSSIBLE__ 1 `composeS` singletonS 0 (Var $ n + 1)
 removeUnitBind term = case term of
-  Bind t alt    -> Bind (removeUnitBind t) (removeUnitBindAlt alt)
-  Case n t alts -> Case n (removeUnitBind t) (map removeUnitBindAlt alts)
+  Bind t alt    -> Bind (removeUnitBind t) (removeUnitBindLalt alt)
+  Case n t alts -> Case n (removeUnitBind t) (map removeUnitBindCalt alts)
   App{}         -> term
   Unit{}        -> term
   Store{}       -> term
@@ -505,24 +509,29 @@ removeUnitBind term = case term of
   Error{}       -> term
   _             -> error "TODO"
 
-removeUnitBindAlt :: Alt -> Alt
-removeUnitBindAlt (AltVar abs t)       = AltVar abs $ removeUnitBind t
-removeUnitBindAlt (AltConstantNode tag abss t) = AltConstantNode tag abss $ removeUnitBind t
-removeUnitBindAlt (AltLit lit t)       = AltLit lit $ removeUnitBind t
-removeUnitBindAlt (AltEmpty t)         = AltEmpty $ removeUnitBind t
+removeUnitBindLalt :: LAlt -> LAlt
+removeUnitBindLalt (LAltVar abs t)       = LAltVar abs $ removeUnitBind t
+removeUnitBindLalt (LAltConstantNode tag abss t) = LAltConstantNode tag abss $ removeUnitBind t
+removeUnitBindLalt (LAltLit lit t)       = LAltLit lit $ removeUnitBind t
+removeUnitBindLalt (LAltEmpty t)         = LAltEmpty $ removeUnitBind t
+
+removeUnitBindCalt :: CAlt -> CAlt
+removeUnitBindCalt (CAltConstantNode tag abss t) = CAltConstantNode tag abss $ removeUnitBind t
+removeUnitBindCalt (CAltLit lit t)       = CAltLit lit $ removeUnitBind t
+
 
 
 -- | Normalise the GRIN expression by making the expression right-skewed.
 normalise :: Term -> Term
 normalise (Bind t1 alt1)
   | Bind t2 alt2 <- normalise t1 =
-    let alt1' = raise (countBinders alt2) $ normaliseAlt alt1
-        (mkAlt2, t_alt2) = splitAlt alt2 in
+    let alt1' = raise (countBinders alt2) $ normaliseLalt alt1
+        (mkAlt2, t_alt2) = splitLalt alt2 in
     normalise $ Bind t2 (mkAlt2 (Bind t_alt2 alt1'))
 
 normalise term = case term of
-  Bind t alt    -> Bind (normalise t) (normaliseAlt alt)
-  Case n t alts -> Case n (normalise t) (map normaliseAlt alts)
+  Bind t alt    -> Bind (normalise t) (normaliseLalt alt)
+  Case n t alts -> Case n (normalise t) (map normaliseCalt alts)
   App{}         -> term
   Unit{}        -> term
   Store{}       -> term
@@ -531,23 +540,28 @@ normalise term = case term of
   Error{}       -> term
   -- TODO missing
 
-normaliseAlt :: Alt -> Alt
-normaliseAlt (AltVar abs t)       = AltVar abs $ normalise t
-normaliseAlt (AltConstantNode tag abss t) = AltConstantNode tag abss $ normalise t
-normaliseAlt (AltLit lit t)       = AltLit lit $ normalise t
-normaliseAlt (AltEmpty t)         = AltEmpty $ normalise t
+normaliseLalt :: LAlt -> LAlt
+normaliseLalt (LAltVar abs t)       = LAltVar abs $ normalise t
+normaliseLalt (LAltConstantNode tag abss t) = LAltConstantNode tag abss $ normalise t
+normaliseLalt (LAltLit lit t)       = LAltLit lit $ normalise t
+normaliseLalt (LAltEmpty t)         = LAltEmpty $ normalise t
 
-countBinders :: Alt -> Int
-countBinders (AltConstantNode _ abss _) = length abss
-countBinders AltVar{}                   = 1
-countBinders AltLit{}                   = 0
-countBinders AltEmpty{}                 = 0
 
-splitAlt :: Alt -> (Term -> Alt, Term)
-splitAlt (AltVar abs t)               = (AltVar abs, t)
-splitAlt (AltConstantNode tag abss t) = (AltConstantNode tag abss, t)
-splitAlt (AltLit lit t)               = (AltLit lit, t)
-splitAlt (AltEmpty t)                 = (AltEmpty, t)
+normaliseCalt :: CAlt -> CAlt
+normaliseCalt (CAltConstantNode tag abss t) = CAltConstantNode tag abss $ normalise t
+normaliseCalt (CAltLit lit t)       = CAltLit lit $ normalise t
+
+countBinders :: LAlt -> Int
+countBinders (LAltConstantNode _ abss _) = length abss
+countBinders LAltVar{}                   = 1
+countBinders LAltLit{}                   = 0
+countBinders LAltEmpty{}                 = 0
+
+splitLalt :: LAlt -> (Term -> LAlt, Term)
+splitLalt (LAltVar abs t)               = (LAltVar abs, t)
+splitLalt (LAltConstantNode tag abss t) = (LAltConstantNode tag abss, t)
+splitLalt (LAltLit lit t)               = (LAltLit lit, t)
+splitLalt (LAltEmpty t)                 = (LAltEmpty, t)
 
 -- TODO Fix returning eval [Boquist 1999, p. 95]
 specializeUpdate :: Term -> Term
@@ -571,9 +585,9 @@ specializeUpdate (caseUpdateView -> Just (mkUpdate, m, Case t1 t2 alts)) =
   where
     alts' =
       for alts $ \case
-        AltConstantNode tag abss t3 ->
+        CAltConstantNode tag abss t3 ->
           let update = raise tag.tArity $ mkUpdate tag in
-          AltConstantNode tag abss $ update `BindEmpty` t3
+          CAltConstantNode tag abss $ update `BindEmpty` t3
         _ -> __IMPOSSIBLE__
 
 -- update n₁ n₂ ; λ () →
@@ -585,25 +599,30 @@ specializeUpdate (caseUpdateView -> Just (mkUpdate, m, Case t1 t2 alts)) =
 -- 〈m 〉
 specializeUpdate (
   Update Nothing n1 n2 `BindEmpty`
-  Unit (Var n2') `Bind` AltConstantNode tag abss t) =
+  Unit (Var n2') `Bind` LAltConstantNode tag abss t) =
   -- >>>
   Update (Just tag) n1 n2 `BindEmpty`
-  Unit (Var n2') `Bind` AltConstantNode tag abss (specializeUpdate t)
+  Unit (Var n2') `Bind` LAltConstantNode tag abss (specializeUpdate t)
 
 specializeUpdate (Bind t alt) =
-  specializeUpdate t `Bind` specializeUpdateAlt alt
+  specializeUpdate t `Bind` specializeUpdateLalt alt
 specializeUpdate (Case n t alts) =
-  Case n (specializeUpdate t) (map specializeUpdateAlt alts)
+  Case n (specializeUpdate t) (map specializeUpdateCalt alts)
 specializeUpdate (Update mtag n1 n2)
   | Nothing <- mtag = __IMPOSSIBLE__
   | otherwise = Update mtag n1 n2
 specializeUpdate t = t
 
-specializeUpdateAlt :: Alt -> Alt
-specializeUpdateAlt (AltVar abs t)       = AltVar abs $ specializeUpdate t
-specializeUpdateAlt (AltConstantNode tag abss t) = AltConstantNode tag abss $ specializeUpdate t
-specializeUpdateAlt (AltEmpty t)         = AltEmpty $ specializeUpdate t
-specializeUpdateAlt (AltLit lit t)       = AltLit lit $ specializeUpdate t
+specializeUpdateCalt :: CAlt -> CAlt
+specializeUpdateCalt (CAltConstantNode tag abss t) = CAltConstantNode tag abss $ specializeUpdate t
+specializeUpdateCalt (CAltLit lit t)       = CAltLit lit $ specializeUpdate t
+
+
+specializeUpdateLalt :: LAlt -> LAlt
+specializeUpdateLalt (LAltVar abs t)       = LAltVar abs $ specializeUpdate t
+specializeUpdateLalt (LAltConstantNode tag abss t) = LAltConstantNode tag abss $ specializeUpdate t
+specializeUpdateLalt (LAltEmpty t)         = LAltEmpty $ specializeUpdate t
+specializeUpdateLalt (LAltLit lit t)       = LAltLit lit $ specializeUpdate t
 
 
 
@@ -629,18 +648,18 @@ caseUpdateView (Update Nothing n t1 `BindEmpty` t) = go IdS id t where
                  _     -> __IMPOSSIBLE__ in
       Just (\tag -> Update (Just tag) n' t1', m , Case t2 t3 alts)
     | otherwise = Nothing
-  go rho m (Bind t alt) = goAlt rho (m . Bind t) alt
+  go rho m (Bind t alt) = goLalt rho (m . Bind t) alt
   go _ _ _ = Nothing
 
-  goAlt :: Substitution' Val
-        -> (Alt -> Term)
-        -> Alt
+  goLalt :: Substitution' Val
+        -> (LAlt -> Term)
+        -> LAlt
         -> Maybe (Tag -> Term, Term -> Term, Term)
-  goAlt rho m (AltVar abs t) = go (raiseS 1 `composeS` rho) (m . AltVar abs) t
-  goAlt rho m (AltConstantNode tag abss t) =
-    go (raiseS tag.tArity `composeS` rho) (m . AltConstantNode tag abss) t
-  goAlt rho m (AltEmpty t) = go rho (m . AltEmpty) t
-  goAlt _ _ AltLit{} = __IMPOSSIBLE__
+  goLalt rho m (LAltVar abs t) = go (raiseS 1 `composeS` rho) (m . LAltVar abs) t
+  goLalt rho m (LAltConstantNode tag abss t) =
+    go (raiseS tag.tArity `composeS` rho) (m . LAltConstantNode tag abss) t
+  goLalt rho m (LAltEmpty t) = go rho (m . LAltEmpty) t
+  goLalt _ _ LAltLit{} = __IMPOSSIBLE__
 
 
 caseUpdateView _ = Nothing
@@ -659,7 +678,7 @@ caseUpdateView _ = Nothing
 vectorize :: forall mf. MonadFresh Int mf => Term -> mf Term
 
 
-vectorize (t1 `Bind` AltVar x1 t2) = do
+vectorize (t1 `Bind` LAltVar x1 t2) = do
   tag <- freshAbs
   x2 <- freshAbs
   x3 <- freshAbs

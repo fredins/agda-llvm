@@ -71,28 +71,28 @@ interpretGrin defs =
     eval (App (Def "printf") [t]) = evalVal t
 
     -- Use an new (unused) memory location each time
-    eval (Store _ t1 `Bind` AltVar abs t2) = do
+    eval (Store _ t1 `Bind` LAltVar abs t2) = do
       v <- evalVal t1 <&> \case
              BasNat i -> cnat i
              vn       -> vn
       loc <- heapInsert v
       stackFrameLocal abs (Loc loc) $ eval t2
 
-    eval (Fetch n `Bind` AltVar abs t) = do
+    eval (Fetch n `Bind` LAltVar abs t) = do
       heap <- use lensHeap
       v <- fromMaybeM (error $ "here is heap:\n" ++ prettyShow heap) . heapLookup =<<
            fromMaybeM __IMPOSSIBLE__ (stackFrameLookupLoc n)
       stackFrameLocal abs v $ eval t
 
-    eval (Case t1 t2 alts `Bind` AltVar abs t3) = do
+    eval (Case t1 t2 alts `Bind` LAltVar abs t3) = do
       v <- evalCase t1 t2 alts
       stackFrameLocal abs v $ eval t3
 
-    eval (App t1 ts `Bind` AltVar abs t2) = do
+    eval (App t1 ts `Bind` LAltVar abs t2) = do
       v <- evalApp t1 ts
       stackFrameLocal abs v $ eval t2
 
-    eval (App t1 ts `Bind` AltConstantNode tag1 abss t2) =
+    eval (App t1 ts `Bind` LAltConstantNode tag1 abss t2) =
       evalApp t1 ts >>= \case
         VNode tag2 vs | tag2 == tag1 ->
           stackFrameLocals abss vs $ eval t2
@@ -106,21 +106,21 @@ interpretGrin defs =
           eval t2
         _ -> __IMPOSSIBLE__
 
-    eval (Unit t1 `Bind` AltVar abs t2) =
+    eval (Unit t1 `Bind` LAltVar abs t2) =
       evalVal t1 >>= \v ->
         stackFrameLocal abs v $
         eval t2
 
-    eval (Unit v1 `Bind` AltConstantNode tag1 abss t2) = do
+    eval (Unit v1 `Bind` LAltConstantNode tag1 abss t2) = do
       evalVal v1 >>= \case
         VNode tag2 vs | tag2 == tag1 -> stackFrameLocals abss vs $ eval t2
         _                            -> __IMPOSSIBLE__
 
-    eval (t1 `Bind` AltVar abs t2) = do
+    eval (t1 `Bind` LAltVar abs t2) = do
       v <- eval t1
       stackFrameLocal abs v $ eval t2
 
-    eval (t1 `Bind` AltConstantNode tag1 abss t2) =
+    eval (t1 `Bind` LAltConstantNode tag1 abss t2) =
       eval t1 >>= \case
         VNode tag2 vs  | tag2 == tag1 -> stackFrameLocals abss vs $ eval t2
         _                             -> __IMPOSSIBLE__
@@ -138,7 +138,7 @@ interpretGrin defs =
     eval Error{} = __IMPOSSIBLE__
     eval t@Bind{} = error $ "MISSING: " ++ show t
 
-    evalCase :: Val -> Term -> [Alt] -> Eval mf Value
+    evalCase :: Val -> Term -> [CAlt] -> Eval mf Value
     evalCase v1 t2 alts = do
       v <- evalVal v1
       case v of
@@ -190,7 +190,7 @@ interpretGrin defs =
     -- sel i (VNode _ vs) | Just v <- vs !!! i = v
     -- sel _ _ = __IMPOSSIBLE__
 
-    selAlt :: Value -> [Alt] -> Term -> ([Abs], Term)
+    selAlt :: Value -> [CAlt] -> Term -> ([Abs], Term)
     selAlt v alts t
       | VNode tag _ <- v = go tag
       | VTag tag <- v = go tag
@@ -198,13 +198,13 @@ interpretGrin defs =
         go tag1 =
           headWithDefault ([], t) $
           forMaybe alts $ \case
-            AltConstantNode tag2 abss t -> boolToMaybe (tag2 == tag1) (abss, t)
+            CAltConstantNode tag2 abss t -> boolToMaybe (tag2 == tag1) (abss, t)
             t                   -> error $ "ALT " ++ show t ++ "  v:  " ++ show v
 
     selAlt (BasNat n1) alts t =
       ([], ) $ headWithDefault t $
       forMaybe alts $ \case
-        AltLit lit t
+        CAltLit lit t
           | LitNat n2 <- lit
           , n2 == n1 -> Just t
           | otherwise -> Nothing

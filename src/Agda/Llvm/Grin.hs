@@ -43,8 +43,8 @@ updateGrTerm = over lensGrTerm
 
 -- TODO refactor
 -- • Maybe remove Loc from Store
-data Term = Bind Term Alt
-          | Case Val Term [Alt]
+data Term = Bind Term LAlt
+          | Case Val Term [CAlt]
           | App Val [Val] -- List1
           | Unit Val
           | Store Loc Val
@@ -90,20 +90,24 @@ freshLoc = MkLoc <$> freshGid
 freshGid :: MonadFresh Int m => m Gid
 freshGid = Gid <$> fresh
 
--- TODO seperate into CAlt and LAlt
-data Alt = AltConstantNode Tag [Abs] Term
-         | AltVariableNode Abs [Abs] Term
-         | AltLit Literal Term
-         | AltVar Abs Term
-         | AltEmpty Term
-           deriving (Show, Eq)
+data LAlt = LAltConstantNode Tag [Abs] Term
+          | LAltVariableNode Abs [Abs] Term
+          | LAltTag Tag Term
+          | LAltEmpty Term
+          | LAltLit Literal Term
+          | LAltVar Abs Term
+            deriving (Show, Eq)
 
+data CAlt = CAltConstantNode Tag [Abs] Term
+          | CAltTag Tag Term
+          | CAltLit Literal Term
+            deriving (Show, Eq)
 
 
 
 infixr 0 `BindEmpty`, `Bind`
 pattern BindEmpty :: Term -> Term -> Term
-pattern t1 `BindEmpty` t2 = Bind t1 (AltEmpty t2)
+pattern t1 `BindEmpty` t2 = Bind t1 (LAltEmpty t2)
 
 newtype Abs = MkAbs{unAbs :: Gid} deriving (Show, Eq, Ord)
 newtype Loc = MkLoc{unLoc :: Gid} deriving (Show, Eq, Ord, Enum)
@@ -118,21 +122,26 @@ intFromAbs = unGid . unAbs
 lensAbs :: Lens' Abs Int
 lensAbs f abs = f (unGid $ unAbs abs) <&> \n -> MkAbs (Gid n)
 
-altVar :: MonadFresh Int m => Term -> m Alt
-altVar t = (`AltVar` t) <$> freshAbs
+laltVar :: MonadFresh Int m => Term -> m LAlt
+laltVar t = (`LAltVar` t) <$> freshAbs
 
-altConstantNode :: MonadFresh Int m => Tag -> Term -> m Alt
-altConstantNode tag t = do
+caltConstantNode :: MonadFresh Int m => Tag -> Term -> m CAlt
+caltConstantNode tag t = do
   abss <- replicateM (tagArity tag) freshAbs
-  pure $ AltConstantNode tag abss t
+  pure $ CAltConstantNode tag abss t
 
-altBody :: Alt -> Term
-altBody = \case
-  AltConstantNode _ _ t -> t
-  AltVariableNode _ _ t -> t
-  AltLit _ t            -> t
-  AltVar _ t            -> t
-  AltEmpty t            -> t
+laltConstantNode :: MonadFresh Int m => Tag -> Term -> m LAlt
+laltConstantNode tag t = do
+  abss <- replicateM (tagArity tag) freshAbs
+  pure $ LAltConstantNode tag abss t
+
+laltBody :: LAlt -> Term
+laltBody = \case
+  LAltConstantNode _ _ t -> t
+  LAltVariableNode _ _ t -> t
+  LAltLit _ t            -> t
+  LAltVar _ t            -> t
+  LAltEmpty t            -> t
 
 tagArity :: Tag -> Int
 tagArity = \case
@@ -144,25 +153,25 @@ infixr 0 `bindVar`, `bindVarL`, `bindVarR`, `bindVarM`
        , `bindEmptyL`, `bindEmptyR`, `bindEmptyM`
 
 bindVar :: MonadFresh Int m => Term -> Term -> m Term
-bindVar t1 t2 = Bind t1 <$> altVar t2
+bindVar t1 t2 = Bind t1 <$> laltVar t2
 
 bindVarL :: MonadFresh Int m => m Term -> Term -> m Term
-bindVarL t1 t2 = (Bind <$> t1) <*> altVar t2
+bindVarL t1 t2 = (Bind <$> t1) <*> laltVar t2
 
 bindVarR :: MonadFresh Int m => Term -> m Term -> m Term
-bindVarR t1 t2 = Bind t1 <$> (altVar =<< t2)
+bindVarR t1 t2 = Bind t1 <$> (laltVar =<< t2)
 
 bindVarM :: MonadFresh Int m => m Term -> m Term -> m Term
-bindVarM t1 t2 = (Bind <$> t1) <*> (altVar =<< t2)
+bindVarM t1 t2 = (Bind <$> t1) <*> (laltVar =<< t2)
 
 bindEmptyL :: MonadFresh Int m => m Term -> Term -> m Term
-bindEmptyL t1 t2 = (Bind <$> t1) ?? AltEmpty t2
+bindEmptyL t1 t2 = (Bind <$> t1) ?? LAltEmpty t2
 
 bindEmptyR :: MonadFresh Int m => Term -> m Term -> m Term
-bindEmptyR t1 t2 = Bind t1 . AltEmpty <$> t2
+bindEmptyR t1 t2 = Bind t1 . LAltEmpty <$> t2
 
 bindEmptyM :: MonadFresh Int m => m Term -> m Term -> m Term
-bindEmptyM t1 t2 = (Bind <$> t1) <*> (AltEmpty <$> t2)
+bindEmptyM t1 t2 = (Bind <$> t1) <*> (LAltEmpty <$> t2)
 
 
 
@@ -191,19 +200,32 @@ applySubstTerm rho term = case term of
     | otherwise -> __IMPOSSIBLE__
   Error{} -> term
 
-instance Subst Alt where
-  type SubstArg Alt = Val
-  applySubst = applySubstAlt
+instance Subst LAlt where
+  type SubstArg LAlt = Val
+  applySubst = applySubstLAlt
 
-applySubstAlt :: Substitution' (SubstArg Alt) -> Alt -> Alt
-applySubstAlt IdS alt            = alt
-applySubstAlt rho (AltVar abs t) = AltVar abs $ applySubst (liftS 1 rho) t
-applySubstAlt rho (AltConstantNode tag abss t) =
-  AltConstantNode tag abss $ applySubst (liftS (length abss) rho) t
-applySubstAlt rho (AltVariableNode abs abss t) =
-  AltVariableNode abs abss $ applySubst (liftS (1 + length abss) rho) t
-applySubstAlt rho (AltLit lit t) = AltLit lit $ applySubst rho t
-applySubstAlt rho (AltEmpty t) = AltEmpty $ applySubst rho t
+applySubstLAlt :: Substitution' (SubstArg LAlt) -> LAlt -> LAlt
+applySubstLAlt IdS alt            = alt
+applySubstLAlt rho (LAltVar abs t) = LAltVar abs $ applySubst (liftS 1 rho) t
+applySubstLAlt rho (LAltConstantNode tag abss t) =
+  LAltConstantNode tag abss $ applySubst (liftS (length abss) rho) t
+applySubstLAlt rho (LAltVariableNode abs abss t) =
+  LAltVariableNode abs abss $ applySubst (liftS (1 + length abss) rho) t
+applySubstLAlt rho (LAltTag tag t) = LAltTag tag $ applySubst rho t
+applySubstLAlt rho (LAltLit lit t) = LAltLit lit $ applySubst rho t
+applySubstLAlt rho (LAltEmpty t) = LAltEmpty $ applySubst rho t
+
+instance Subst CAlt where
+  type SubstArg CAlt = Val
+  applySubst = applySubstCAlt
+
+applySubstCAlt :: Substitution' (SubstArg CAlt) -> CAlt -> CAlt
+applySubstCAlt IdS alt            = alt
+applySubstCAlt rho (CAltConstantNode tag abss t) =
+  CAltConstantNode tag abss $ applySubst (liftS (length abss) rho) t
+applySubstCAlt rho (CAltTag tag t) = CAltTag tag $ applySubst rho t
+applySubstCAlt rho (CAltLit lit t) = CAltLit lit $ applySubst rho t
+
 
 instance DeBruijn Val where
   deBruijnVar = Var
@@ -244,19 +266,19 @@ instance Pretty Term where
       vcat
         [ text "(" <> pretty t
         , text ") ; λ" <+> go alt <+> text "→"
-        , pretty $ altBody alt
+        , pretty $ laltBody alt
         ]
     | otherwise =
       vcat
         [ pretty t <+> text "; λ" <+> go alt <+> text "→"
-        , pretty $ altBody alt
+        , pretty $ laltBody alt
         ]
     where
-      go (AltConstantNode tag abss _) = pretty tag <+> sep (map pretty abss)
-      go (AltVariableNode abs abss _) = pretty abs <+> sep (map pretty abss)
-      go (AltLit lit _)               = pretty lit
-      go (AltVar abs _)               = pretty abs
-      go (AltEmpty _)                 = text "()"
+      go (LAltConstantNode tag abss _) = pretty tag <+> sep (map pretty abss)
+      go (LAltVariableNode abs abss _) = pretty abs <+> sep (map pretty abss)
+      go (LAltLit lit _)               = pretty lit
+      go (LAltVar abs _)               = pretty abs
+      go (LAltEmpty _)                 = text "()"
 
       isComplicated = case t of
         Bind{} -> True
@@ -304,25 +326,37 @@ instance Pretty Loc where
 instance Pretty Gid where
   pretty (Gid n) = pretty n
 
-instance Pretty Alt where
-  pretty (AltConstantNode tag gids t) =
+instance Pretty LAlt where
+  pretty (LAltConstantNode tag gids t) =
     sep [ pretty tag <+> sep (map pretty gids) <+> text "→"
         ,  nest 2 $ pretty t
         ]
-  pretty (AltVariableNode x gids t) =
+  pretty (LAltVariableNode x gids t) =
     sep [ pretty x <+> sep (map pretty gids) <+> text "→"
         ,  nest 2 $ pretty t
         ]
-  pretty (AltLit lit t) =
+  pretty (LAltTag tag t) = sep [pretty tag <+> text "→", nest 2 $ pretty t]
+  pretty (LAltLit lit t) =
     sep [ pretty lit <+> text "→"
         , nest 2 $ pretty t
         ]
-  pretty (AltVar abs t) =
+  pretty (LAltVar abs t) =
     sep [ pretty abs <+> text "→"
         , nest 2 $ pretty t
         ]
-  pretty (AltEmpty t) =
+  pretty (LAltEmpty t) =
     sep [ text "()" <+> text "→"
+        , nest 2 $ pretty t
+        ]
+
+instance Pretty CAlt where
+  pretty (CAltConstantNode tag gids t) =
+    sep [ pretty tag <+> sep (map pretty gids) <+> text "→"
+        ,  nest 2 $ pretty t
+        ]
+  pretty (CAltTag tag t) = sep [pretty tag <+> text "→", nest 2 $ pretty t]
+  pretty (CAltLit lit t) =
+    sep [ pretty lit <+> text "→"
         , nest 2 $ pretty t
         ]
 
