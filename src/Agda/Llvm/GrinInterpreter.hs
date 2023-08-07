@@ -1,10 +1,12 @@
 {-# OPTIONS_GHC -Wno-name-shadowing #-}
 {-# LANGUAGE OverloadedRecordDot #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 
 module Agda.Llvm.GrinInterpreter (module Agda.Llvm.GrinInterpreter) where
 
 import           Control.Monad             ((<=<))
-import           Control.Monad.Reader      (MonadReader, Reader, local,
+import           Control.Monad.Reader      (MonadReader, Reader,
+                                            ReaderT (runReaderT), local,
                                             runReader)
 import           Control.Monad.State       (MonadState, StateT, evalStateT,
                                             gets, modify)
@@ -15,7 +17,7 @@ import qualified Data.Map                  as Map
 import           GHC.IO                    (unsafePerformIO)
 
 import           Agda.Compiler.Backend     hiding (Prim, initEnv)
-import           Agda.Llvm.Grin            hiding (freshLoc)
+import           Agda.Llvm.Grin
 import           Agda.Syntax.Literal       (Literal (LitNat))
 import           Agda.Utils.Functor
 import           Agda.Utils.Impossible
@@ -41,13 +43,12 @@ newtype StackFrame = StackFrame{unStackFrame :: [(Abs, Value)]}
 
 type Stack = [StackFrame]
 
-data Env = Env
+newtype Env = Env
   { heap     :: Heap
-  , freshLoc :: Loc
   }
 
 initEnv :: Env
-initEnv = Env {heap = Heap mempty, freshLoc = MkLoc $ Gid 0}
+initEnv = Env {heap = Heap mempty}
 
 lensHeap :: Lens' Env (Map Loc Value)
 lensHeap f env = f (unHeap env.heap) <&> \heap -> env{heap = Heap heap}
@@ -57,16 +58,16 @@ lensStackFrame f stack =
   f (unStackFrame $ headWithDefault __IMPOSSIBLE__ stack) <&>
   \sf -> StackFrame sf : tail stack
 
-newtype Eval a = Eval{runEval :: StateT Env (Reader Stack) a}
-  deriving (Functor, Applicative, Monad, MonadState Env, MonadReader Stack)
 
-interpretGrin :: [GrinDefinition] -> Value
+type Eval m = StateT Env (ReaderT Stack m)
+
+interpretGrin :: forall mf. MonadFresh Int mf => [GrinDefinition] -> mf Value
 interpretGrin defs =
-    runReader (evalStateT (runEval $ eval main.gr_term) initEnv) [StackFrame []]
+    runReaderT (evalStateT (eval main.gr_term) initEnv) [StackFrame []]
   where
     main = fromMaybe __IMPOSSIBLE__ $ find gr_isMain defs
 
-    eval :: Term -> Eval Value
+    eval :: Term -> Eval mf Value
     eval (App (Def "printf") [t]) = eval t
 
     -- Use an new (unused) memory location each time
@@ -83,9 +84,9 @@ interpretGrin defs =
            fromMaybeM __IMPOSSIBLE__ (stackFrameLookupLoc n)
       stackFrameLocal abs v $ eval t
 
-    eval (Case n t1 alts `Bind` AltVar abs t2) = do
-      v <- evalCase n t1 alts
-      stackFrameLocal abs v $ eval t2
+    eval (Case t1 t2 alts `Bind` AltVar abs t3) = do
+      v <- evalCase t1 t2 alts
+      stackFrameLocal abs v $ eval t3
 
     eval (App t1 ts `Bind` AltVar abs t2) = do
       v <- evalApp t1 ts
@@ -97,13 +98,12 @@ interpretGrin defs =
           stackFrameLocals abss vs $ eval t2
         _ -> __IMPOSSIBLE__
 
-    eval (Update _ n1 n2 `BindEmpty` t) = do
-      loc <- fromMaybeM __IMPOSSIBLE__ $ stackFrameLookupLoc n1
-      v <- fromMaybeM __IMPOSSIBLE__ $ stackFrameLookup n2
-      case v of
+    eval (Update _ n t1 `BindEmpty` t2) = do
+      loc <- fromMaybeM __IMPOSSIBLE__ $ stackFrameLookupLoc n
+      eval t1 >>= \v -> case v of
         VNode{} -> do
           heapUpdate loc v
-          eval t
+          eval t2
         _ -> __IMPOSSIBLE__
 
     eval (Unit t1 `Bind` AltVar abs t2) =
@@ -146,26 +146,27 @@ interpretGrin defs =
     eval Lit{} = __IMPOSSIBLE__
     eval t@Bind{} = error $ "MISSING: " ++ show t
 
-    evalCase :: Int -> Term -> [Alt] -> Eval Value
-    evalCase n t1 alts = do
-      v <- fromMaybeM __IMPOSSIBLE__ $ stackFrameLookup n
+    evalCase :: Term -> Term -> [Alt] -> Eval mf Value
+    evalCase t1 t2 alts = do
+      v <- eval t1
       case v of
         VNode _ vs ->
-          let (abss, t2) = selAlt v alts t1 in
+          let (abss, t3) = selAlt v alts t2 in
           stackFrameLocals abss vs $
-          eval t2
+          eval t3
         BasNat _ ->
-          let t2 = snd $ selAlt v alts t1 in
-          eval t2
+          let t3 = snd $ selAlt v alts t2 in
+          eval t3
         _ -> __IMPOSSIBLE__
 
-    evalApp :: Term -> [Term] -> Eval Value
+    evalApp :: Term -> [Term] -> Eval mf Value
     evalApp t1 ts
       | Prim prim <- t1   =
-        let evalNat = \case
+        let
+          evalNat = \case
               BasNat i -> pure i
               VNode tag [BasNat i] | tag == natTag -> pure i
-              Loc loc  -> evalNat =<< fromMaybeM __IMPOSSIBLE__ (heapLookup loc)
+              Loc loc  -> evalNat . fromMaybe __IMPOSSIBLE__ =<< heapLookup loc
               _        -> __IMPOSSIBLE__ in
         BasNat . runPrim prim <$> mapM (evalNat <=< eval) ts
 
@@ -237,9 +238,9 @@ interpretGrin defs =
     heapLookup :: MonadState Env m => Loc -> m (Maybe Value)
     heapLookup loc = Map.lookup loc <$> use lensHeap
 
-    heapInsert :: (MonadFresh Loc m, MonadState Env m) => Value -> m Loc
+    heapInsert :: (MonadFresh Int m, MonadState Env m) => Value -> m Loc
     heapInsert v = do
-      loc <- fresh
+      loc <- freshLoc
       lensHeap %= Map.insert loc v
       pure loc
 
@@ -289,9 +290,3 @@ instance Pretty Value where
   pretty VEmpty = text "()"
   pretty Undefined = text "⊥"
   pretty (Loc loc) = pretty loc
-
-instance MonadFresh Loc Eval where
-  fresh = do
-    loc <- gets freshLoc
-    modify $ \env -> env{freshLoc = succ env.freshLoc}
-    pure loc

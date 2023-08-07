@@ -93,17 +93,16 @@ instance Pretty Multiplicities where
 countMultiplicities :: GrinDefinition -> Multiplicities
 countMultiplicities def = evalState (go def.gr_term) def.gr_args where
   go :: Term -> State [Abs] Multiplicities
-  go (Case i t alts) =
-    go (Var i) <> (foldl (<>) mempty <$> mapM goAlt alts) <> go t
+  go (Case t1 t2 alts) =
+    go t1 <> (foldl (<>) mempty <$> mapM goAlt alts) <> go t2
   go (Bind t alt) = go t <> goAlt alt
   go (Store _ v) = go v
   go (Unit v) = go v
   go (App v vs) = go v <> (foldl (<>) mempty <$> mapM go vs)
   go (Fetch n) = gets $ (!! n) <&> \abs -> Multiplicities $ Map.singleton abs 1
-  go (Update _ n1 n2) = do
-    m1 <- gets $ (!! n1) <&> \abs -> Multiplicities $ Map.singleton abs 1
-    m2 <- gets $ (!! n2) <&> \abs -> Multiplicities $ Map.singleton abs 1
-    pure $ m1 <> m2
+  go (Update _ n t) = do
+    m <- gets $ (!! n) <&> \abs -> Multiplicities $ Map.singleton abs 1
+    pure m <> go t
   go (Error _) = pure mempty
   go (Var n) = gets $ (!! n) <&> \abs -> Multiplicities $ Map.singleton abs 1
   go (Lit _) = pure mempty
@@ -377,7 +376,7 @@ deriveEquations term = case term of
         argToValue (Lit _) = pure Bas
         argToValue  _      = __IMPOSSIBLE__
 
-    Bind (App (Def "eval") [Var n]) (AltVar abs (Case 0 t alts)) ->
+    Bind (App (Def "eval") [Var n]) (AltVar abs (Case (Var 0) t alts)) ->
       deBruijnLookup n <&> EVAL . FETCH . Abs . fromMaybe __IMPOSSIBLE__ >>= \v ->
         localAbs abs $
         localAbsEnv (abs, v) $ do
@@ -394,7 +393,7 @@ deriveEquations term = case term of
         deriveEquationsAlt _ AltVar{}     = __IMPOSSIBLE__ -- TODO investigate if this is possible (thesis indicate it is not)
         deriveEquationsAlt _ AltLit{}     = __IMPOSSIBLE__
 
-    Bind (App (Def "eval") [Var _]) (AltNode tag [abs] (Case 0 t alts)) | tag == natTag ->
+    Bind (App (Def "eval") [Var _]) (AltNode tag [abs] (Case (Var 0) t alts)) | tag == natTag ->
         localAbs abs $
         localAbsEnv (abs, Bas) $ do
           hs <- mapM deriveEquationsAlt alts

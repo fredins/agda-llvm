@@ -1,8 +1,9 @@
 {-# OPTIONS_GHC -Wno-name-shadowing #-}
 
-{-# LANGUAGE LambdaCase      #-}
-{-# LANGUAGE RecordWildCards #-}
-{-# LANGUAGE TypeFamilies    #-}
+{-# LANGUAGE LambdaCase          #-}
+{-# LANGUAGE OverloadedRecordDot #-}
+{-# LANGUAGE RecordWildCards     #-}
+{-# LANGUAGE TypeFamilies        #-}
 
 
 module Agda.Llvm.Grin where
@@ -17,6 +18,7 @@ import           Agda.Syntax.Literal
 import           Agda.TypeChecking.Substitute hiding (applySubstTerm)
 import           Agda.Utils.Function          (applyWhen)
 import           Agda.Utils.Impossible        (__IMPOSSIBLE__)
+import           Agda.Utils.Lens
 import           Agda.Utils.Maybe             (ifJust)
 
 
@@ -31,18 +33,26 @@ data GrinDefinition = GrinDefinition
   , gr_return :: Maybe Abs
   }
 
+lensGrTerm :: Lens' GrinDefinition Term
+lensGrTerm f def = f def.gr_term <&> \t -> def{gr_term = t}
+
+updateGrTerm :: LensMap GrinDefinition Term
+updateGrTerm = over lensGrTerm
+
+
+
 -- TODO refactor
 -- • Maybe seperate terms and values
 -- • Maybe remove Loc from Store
 -- • Maybe change case scrutinee to Term (due to e.g. vectorisation)
 -- • Maybe change second argument of Update to Term if needed
 data Term = Bind Term Alt
-          | Case Int Term [Alt]
+          | Case Term Term [Alt]
           | App Term [Term]
           | Unit Term
           | Store Loc Term
           | Fetch Int
-          | Update (Maybe Tag) Int Int
+          | Update (Maybe Tag) Int Term
           | Node Tag [Term]
           | Lit Literal
           | Empty
@@ -51,6 +61,9 @@ data Term = Bind Term Alt
           | Prim TPrim
           | Error TError
             deriving (Show, Eq)
+
+
+
 
 instance DeBruijn Term where
   deBruijnVar = Var
@@ -68,18 +81,14 @@ applySubstTerm rho term = case term of
   Var n         -> lookupS rho n
   App t ts      -> App (applySubst rho t) (applySubst rho ts)
   Bind t alt    -> Bind (applySubst rho t) (applySubst rho alt)
-  Case n t alts
-    | Var n' <- lookupS rho n ->
-      Case n' (applySubst rho t) (applySubst rho alts)
-    | otherwise -> __IMPOSSIBLE__
-
+  Case t1 t2 alts -> Case (applySubst rho t1) (applySubst rho t2) (applySubst rho alts)
   Unit t -> Unit (applySubst rho t)
   Store loc t -> Store loc (applySubst rho t)
   Fetch n
     | Var n' <- lookupS rho n -> Fetch n'
-  Update tag n1 n2
-    | Var n1' <- lookupS rho n1
-    , Var n2' <- lookupS rho n2 -> Update tag n1' n2'
+    | otherwise -> __IMPOSSIBLE__
+  Update tag n t
+    | Var n' <- lookupS rho n -> Update tag n' (applySubst rho t)
     | otherwise -> __IMPOSSIBLE__
   Node tag ts -> Node tag (applySubst rho ts)
   Lit{} -> term
@@ -140,6 +149,16 @@ pattern t1 `BindEmpty` t2 = Bind t1 (AltEmpty t2)
 
 newtype Abs = MkAbs{unAbs :: Gid} deriving (Show, Eq, Ord)
 newtype Loc = MkLoc{unLoc :: Gid} deriving (Show, Eq, Ord, Enum)
+
+-- lensGetLoc :: LensGet Loc Int
+intFromLoc :: LensGet Loc Int
+intFromLoc = unGid . unLoc
+
+intFromAbs :: LensGet Abs Int
+intFromAbs = unGid . unAbs
+
+lensAbs :: Lens' Abs Int
+lensAbs f abs = f (unGid $ unAbs abs) <&> \n -> MkAbs (Gid n)
 
 altVar :: MonadFresh Int m => Term -> m Alt
 altVar t = (`AltVar` t) <$> freshAbs

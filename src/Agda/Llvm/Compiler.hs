@@ -15,7 +15,9 @@ import           Control.Monad                      (forM, replicateM)
 import           Control.Monad.IO.Class             (liftIO)
 import           Control.Monad.Reader               (MonadReader (local),
                                                      ReaderT (runReaderT), asks)
-import           Control.Monad.State                (StateT, evalStateT, gets)
+import           Control.Monad.State                (MonadState, State, StateT,
+                                                     evalState, evalStateT,
+                                                     gets)
 import           Data.Foldable                      (find, foldrM, toList)
 import           Data.Function                      (on)
 import           Data.List                          (intercalate, singleton)
@@ -43,6 +45,7 @@ import           Agda.Llvm.TreelessTransform
 import           Agda.Llvm.Utils
 import           Agda.TypeChecking.SizedTypes.Utils (trace)
 import           Agda.Utils.Function                (applyWhen)
+import           Agda.Utils.Lens
 
 
 llvmBackend :: Backend
@@ -116,9 +119,15 @@ llvmPostCompile _ _ mods = do
   gr_defs <- treelessToGrin tl_defs
   let (absCxtEqs, absCxt, share) = heapPointsTo gr_defs
   defs_evalInlined <- inlineEval gr_defs absCxt
-  let defs_normalised = for defs_evalInlined $ \def -> def{gr_term = normalise def.gr_term}
-  let defs_removeUnit = for defs_normalised $ \def -> def{gr_term = removeUnitBind def.gr_term}
-  let defs_updateSpecialized = specializeUpdate defs_removeUnit
+  res_evalInlined <- interpretGrin defs_evalInlined
+
+  let defs_normalised = map (updateGrTerm normalise) defs_evalInlined
+
+  res_normalised <- interpretGrin defs_normalised
+  let defs_removeUnit = map (updateGrTerm removeUnitBind) defs_normalised
+  res_removeUnit <- interpretGrin defs_removeUnit
+  let defs_updateSpecialized = map (updateGrTerm specializeUpdate) defs_removeUnit
+  res_updateSpecialized <- interpretGrin defs_updateSpecialized
 
   liftIO $ do
     putStrLn "\n------------------------------------------------------------------------"
@@ -141,22 +150,22 @@ llvmPostCompile _ _ mods = do
     putStrLn "-- * Inlining Eval"
     putStrLn "------------------------------------------------------------------------\n"
     putStrLn $ intercalate "\n\n" $ map prettyShow defs_evalInlined
-    putStrLn $ "\nResult: " ++ show (interpretGrin defs_evalInlined)
+    putStrLn $ "\nResult: " ++ show res_evalInlined
     putStrLn "\n------------------------------------------------------------------------"
     putStrLn "-- * Normalise"
     putStrLn "------------------------------------------------------------------------\n"
     putStrLn $ intercalate "\n\n" $ map prettyShow defs_normalised
-    putStrLn $ "\nResult: " ++ show (interpretGrin defs_normalised)
+    putStrLn $ "\nResult: " ++ show res_normalised
     putStrLn "\n------------------------------------------------------------------------"
-    putStrLn "-- * Remove `unit n λ xₘ → 〈t 〉`"
+    putStrLn "-- * Remove `unit n ; λ xₘ → 〈t 〉`"
     putStrLn "------------------------------------------------------------------------\n"
     putStrLn $ intercalate "\n\n" $ map prettyShow defs_removeUnit
-    putStrLn $ "\nResult: " ++ show (interpretGrin defs_removeUnit)
+    putStrLn $ "\nResult: " ++ show res_removeUnit
     putStrLn "\n------------------------------------------------------------------------"
     putStrLn "-- * Specialize Update"
     putStrLn "------------------------------------------------------------------------\n"
     putStrLn $ intercalate "\n\n" $ map prettyShow defs_updateSpecialized
-    putStrLn $ "\nResult: " ++ show (interpretGrin defs_updateSpecialized)
+    putStrLn $ "\nResult: " ++ show res_updateSpecialized
 
 
 -----------------------------------------------------------------------
@@ -194,12 +203,12 @@ rScheme :: TTerm -> G Term
 rScheme (TCase n CaseInfo{caseType=CTNat} def alts) = do
   alts' <- mapM (aScheme . raise 1) alts
   def' <- rScheme (raise 1 def)
-  Bind (eval n) <$> altNode natTag (Case 0 def' alts')
+  Bind (eval n) <$> altNode natTag (Case (Var 0) def' alts')
 
 rScheme (TCase n CaseInfo{caseType=CTData _} def alts) = do
   alts' <- mapM (aScheme . raise 1) alts
   def' <- rScheme (raise 1 def)
-  Bind (eval n) <$> altVar (Case 0 def' alts')
+  Bind (eval n) <$> altVar (Case (Var 0) def' alts')
 
 -- | 𝓡 [_[]_] = unit (C_[]_)
 rScheme (TCon q) = pure $ Unit $ Node tag [] where
@@ -441,12 +450,12 @@ inlineEval defs absCxt =
     genEval n abs =
         Fetch n    `bindVarR`
         caseOf     `bindVarL`
-        Update Nothing (n + 2) 0 `BindEmpty`
+        Update Nothing (n + 2) (Var 0) `BindEmpty`
         Unit (Var 0)
       where
         caseOf :: E Term
         caseOf =
-          Case 0 unreachable . toList <$>
+          Case (Var 0) unreachable . toList <$>
           forM (collectTags abs) (\tag -> altNode tag =<< genBody tag)
 
         genBody :: Tag -> E Term
@@ -459,8 +468,6 @@ inlineEval defs absCxt =
                 ts = (map Var $ downFrom tArity) in
             App prim ts `bindVar`
             Unit (Node natTag [Var 0])
-
-
 
         genBody CTag{tArity} = pure $ Unit $ Var tArity
         genBody PTag{} = error "TODO"
@@ -543,10 +550,7 @@ splitAlt (AltLit lit t)       = (AltLit lit, t)
 splitAlt (AltEmpty t)         = (AltEmpty, t)
 
 -- TODO Fix returning eval [Boquist 1999, p. 95]
-specializeUpdate :: [GrinDefinition] -> [GrinDefinition]
-specializeUpdate defs =
-    for defs $ \def -> def{gr_term = go def.gr_term}
-  where
+specializeUpdate :: Term -> Term
 
     -- update n₁ n₂ ; λ () →
     -- 〈m₁ 〉
@@ -562,50 +566,44 @@ specializeUpdate defs =
     --   CCons x xs →
     --     updateᶜᶜᵒⁿˢ n₁' n₂' ; λ () →
     --     〈m₃ 〉
-    go (caseUpdateView -> Just (Update Nothing n1 n2, m, Case n3 t alts)) =
-        go $ m $ Case n3 t alts'
-      where
-        alts' =
-          for alts $ \case
-            AltNode tag abss t ->
-              let n1' = n1 + length abss
-                  n2' = n2 + length abss in
-              AltNode tag abss $ Update (Just tag) n1' n2' `BindEmpty` t
-            _ -> __IMPOSSIBLE__
+specializeUpdate (caseUpdateView -> Just (mkUpdate, m, Case t1 t2 alts)) =
+    specializeUpdate $ m $ Case t1 t2 alts'
+  where
+    alts' =
+      for alts $ \case
+        AltNode tag abss t3 ->
+          let update = raise tag.tArity $ mkUpdate tag in
+          AltNode tag abss $ update `BindEmpty` t3
+        _ -> __IMPOSSIBLE__
 
+-- update n₁ n₂ ; λ () →
+-- unit n₂ ; λ CNat x →
+-- 〈m 〉
+-- >>>
+-- updateᶜᴺᵃᵗ n₁ n₂ ; λ () →
+-- unit n₂ ; λ CNat x →
+-- 〈m 〉
+specializeUpdate (
+  Update Nothing n1 n2 `BindEmpty`
+  Unit (Var n2') `Bind` AltNode tag abss t) =
+  -- >>>
+  Update (Just tag) n1 n2 `BindEmpty`
+  Unit (Var n2') `Bind` AltNode tag abss (specializeUpdate t)
 
+specializeUpdate (Bind t alt) =
+  specializeUpdate t `Bind` specializeUpdateAlt alt
+specializeUpdate (Case n t alts) =
+  Case n (specializeUpdate t) (map specializeUpdateAlt alts)
+specializeUpdate (Update mtag n1 n2)
+  | Nothing <- mtag = __IMPOSSIBLE__
+  | otherwise = Update mtag n1 n2
+specializeUpdate t = t
 
-    -- update n₁ n₂ ; λ () →
-    -- unit n₂ ; λ CNat x →
-    -- 〈m 〉
-    -- >>>
-    -- updateᶜᴺᵃᵗ n₁ n₂ ; λ () →
-    -- unit n₂ ; λ CNat x →
-    -- 〈m 〉
-    go (Update Nothing n1 n2 `BindEmpty`
-        Unit (Var n2') `Bind` AltNode tag abss t) =
-
-      Update (Just tag) n1 n2 `BindEmpty`
-      Unit (Var n2') `Bind` AltNode tag abss
-      (go t)
-
-    go (Bind t alt) = Bind (go t) (goAlt alt)
-    go (Case n t alts) = Case n (go t) (map goAlt alts)
-    go (Update mtag n1 n2)
-      | Nothing <- mtag = __IMPOSSIBLE__
-      | otherwise = Update mtag n1 n2
-    go (App v1 v2) = App v1 v2
-    go (Store loc v) = Store loc v
-    go (Fetch v) = Fetch v
-    go (Unit v) = Unit v
-    go (Error err) = Error err
-    go _ = error "TODO"
-    -- TODO missing
-
-    goAlt (AltVar abs t)       = AltVar abs $ go t
-    goAlt (AltNode tag abss t) = AltNode tag abss $ go t
-    goAlt (AltEmpty t)         = AltEmpty $ go t
-    goAlt (AltLit lit t)       = AltLit lit $ go t
+specializeUpdateAlt :: Alt -> Alt
+specializeUpdateAlt (AltVar abs t)       = AltVar abs $ specializeUpdate t
+specializeUpdateAlt (AltNode tag abss t) = AltNode tag abss $ specializeUpdate t
+specializeUpdateAlt (AltEmpty t)         = AltEmpty $ specializeUpdate t
+specializeUpdateAlt (AltLit lit t)       = AltLit lit $ specializeUpdate t
 
 
 
@@ -617,34 +615,67 @@ specializeUpdate defs =
 --
 -- Returns: (update n₁' n₂', 〈m 〉, case n₂ of alts)
 -- TODO should increase n1 and n2 by length abss if 〈m 〉introduces binds.
-caseUpdateView :: Term -> Maybe (Term, Term -> Term, Term)
-caseUpdateView (Update Nothing n1 n2 `BindEmpty` t) =
-    go [] id t <&> \ (m, caseof) -> (Update Nothing n1 n2, m, caseof)
-  where
-    go :: [Abs]
-       -> (Term -> Term)
-       -> Term
-       -> Maybe (Term -> Term, Term)
-    go abss m (Case n3 t alts)
-      | n3 - length abss == n2 = Just (m, Case n3 t alts)
-      | otherwise = Nothing
+caseUpdateView :: Term -> Maybe (Tag -> Term, Term -> Term, Term)
+caseUpdateView (Update Nothing n t1 `BindEmpty` t) = go IdS id t where
+  go :: Substitution' Term
+     -> (Term -> Term)
+     -> Term
+     -> Maybe (Tag -> Term,Term -> Term, Term)
+  go rho m (Case t2 t3 alts)
+    | t1' <- applySubst rho t1
+    , t1' == t2 =
+      let n' = case lookupS rho n of
+                 Var n -> n
+                 _     -> __IMPOSSIBLE__ in
+      Just (\tag -> Update (Just tag) n' t1', m , Case t2 t3 alts)
+    | otherwise = Nothing
+  go rho m (Bind t alt) = goAlt rho (m . Bind t) alt
+  go _ _ _ = Nothing
 
-    go abss m (Bind t alt) = goAlt (m . Bind t) abss alt
-      where
-        goAlt :: (Alt -> Term)
-              -> [Abs]
-              -> Alt
-              -> Maybe (Term -> Term, Term)
-        goAlt m abss (AltVar abs t) = go (abs : abss) (m . AltVar abs) t
-        goAlt m abss1 (AltNode tag abss2 t) =
-          go (reverse abss2 ++ abss1) (m . AltNode tag abss2) t
-        goAlt m abss (AltEmpty t) = go abss (m . AltEmpty) t
-        goAlt _ _ AltLit{} = __IMPOSSIBLE__
-
-    go _bss _ _ = Nothing
+  goAlt :: Substitution' Term
+        -> (Alt -> Term)
+        -> Alt
+        -> Maybe (Tag -> Term, Term -> Term, Term)
+  goAlt rho m (AltVar abs t) = go (raiseS 1 `composeS` rho) (m . AltVar abs) t
+  goAlt rho m (AltNode tag abss t) =
+    go (raiseS tag.tArity `composeS` rho) (m . AltNode tag abss) t
+  goAlt rho m (AltEmpty t) = go rho (m . AltEmpty) t
+  goAlt _ _ AltLit{} = __IMPOSSIBLE__
 
 
-caseUpdateView _                                  = Nothing
+caseUpdateView _ = Nothing
+
+
+
+
+
+--
+-- <t1> ; λ x₁ →
+-- <t2>
+-- >>>
+-- <t1> ; λ tag x₂ x₃ →
+-- <t2> [tag x₂ x₃ / x₁]
+--
+vectorize :: forall mf. MonadFresh Int mf => Term -> mf Term
+
+
+vectorize (t1 `Bind` AltVar abs t2) = do
+  let tag = undefined
+  abs1 <- freshAbs
+  abs2 <- freshAbs
+
+  let t2' = subst 0 (Node tag [Var 0, Var 1]) t2
+  undefined
+
+vectorize _                         = undefined
+
+
+
+
+
+
+
+
 
 -----------------------------------------------------------------------
 -- * LLVM code generation
