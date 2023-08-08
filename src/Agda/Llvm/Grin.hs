@@ -145,6 +145,7 @@ laltBody :: LensGet LAlt Term
 laltBody = \case
   LAltConstantNode _ _ t -> t
   LAltVariableNode _ _ t -> t
+  LAltTag _ t            -> t
   LAltLit _ t            -> t
   LAltVar _ t            -> t
   LAltEmpty t            -> t
@@ -152,11 +153,14 @@ laltBody = \case
 splitLalt :: LAlt -> (Term -> LAlt, Term)
 splitLalt (LAltVar abs t)               = (LAltVar abs, t)
 splitLalt (LAltConstantNode tag abss t) = (LAltConstantNode tag abss, t)
+splitLalt (LAltVariableNode n xs t)     = (LAltVariableNode n xs, t)
+splitLalt (LAltTag tag t)               = (LAltTag tag, t)
 splitLalt (LAltLit lit t)               = (LAltLit lit, t)
 splitLalt (LAltEmpty t)                 = (LAltEmpty, t)
 
 splitCalt :: CAlt -> (Term -> CAlt, Term)
 splitCalt (CAltConstantNode tag abss t) = (CAltConstantNode tag abss, t)
+splitCalt (CAltTag tag t)               = (CAltTag tag, t)
 splitCalt (CAltLit lit t)               = (CAltLit lit, t)
 
 tagArity :: Tag -> Int
@@ -167,7 +171,6 @@ tagArity = \case
 
 infixr 2 `bindVar`, `bindVarL`, `bindVarR`, `bindVarM`
        , `bindEmptyL`, `bindEmptyR`, `bindEmptyM`
-       -- , `bindVariableNode`
 
 bindVar :: MonadFresh Int m => Term -> Term -> m Term
 bindVar t1 t2 = Bind t1 <$> laltVar t2
@@ -190,9 +193,6 @@ bindEmptyR t1 t2 = Bind t1 . LAltEmpty <$> t2
 bindEmptyM :: MonadFresh Int m => m Term -> m Term -> m Term
 bindEmptyM t1 t2 = (Bind <$> t1) <*> (LAltEmpty <$> t2)
 
--- bindVariableNode :: MonadFresh Int m => Term -> Term -> m Term
--- bindVariableNode t1 t2 = Bind t1 <$> laltVariableNode t2
-
 -----------------------------------------------------------------------
 -- * Substitute instances
 -----------------------------------------------------------------------
@@ -209,10 +209,9 @@ applySubstTerm rho term = case term of
   Bind t alt    -> Bind (applySubst rho t) (applySubst rho alt)
   Case t1 t2 alts -> Case (applySubst rho t1) (applySubst rho t2) (applySubst rho alts)
   Unit t -> Unit (applySubst rho t)
-  Store loc t -> Store loc (applySubst rho t)
+  Store loc v -> Store loc (applySubst rho v)
   Fetch n
     | Var n' <- lookupS rho n -> Fetch n'
-    | v <- lookupS rho n -> error $ "BAD: " ++ show v
     | otherwise -> __IMPOSSIBLE__
   Update tag n t
     | Var n' <- lookupS rho n -> Update tag n' (applySubst rho t)
@@ -297,6 +296,7 @@ instance Pretty Term where
     where
       go (LAltConstantNode tag abss _) = pretty tag <+> sep (map pretty abss)
       go (LAltVariableNode abs abss _) = pretty abs <+> sep (map pretty abss)
+      go (LAltTag tag _)               = pretty tag
       go (LAltLit lit _)               = pretty lit
       go (LAltVar abs _)               = pretty abs
       go (LAltEmpty _)                 = text "()"

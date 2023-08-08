@@ -151,6 +151,9 @@ interpretGrin defs =
         BasNat _ ->
           let t3 = snd $ selAlt v alts t2 in
           eval t3
+        VTag _ ->
+          let (_, t3) = selAlt v alts t2 in
+          eval t3
         _ -> __IMPOSSIBLE__
 
     evalApp :: Val -> [Val] -> Eval mf Value
@@ -208,6 +211,7 @@ interpretGrin defs =
           headWithDefault ([], t) $
           forMaybe alts $ \case
             CAltConstantNode tag2 abss t -> boolToMaybe (tag2 == tag1) (abss, t)
+            CAltTag tag2 t -> boolToMaybe (tag2 == tag1) ([], t)
             t                   -> error $ "ALT " ++ show t ++ "  v:  " ++ show v
 
     selAlt (BasNat n1) alts t =

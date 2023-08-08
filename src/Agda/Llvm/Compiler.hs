@@ -200,6 +200,17 @@ llvmPostCompile _ _ mods = do
   liftIO $ putStrLn $ "\nResult: " ++ show res_vectorized
 
 
+  let defs_caseSimplified = map (updateGrTerm simplifyCase) defs_vectorized
+  liftIO $ do
+    putStrLn "\n------------------------------------------------------------------------"
+    putStrLn "-- * Simplify case"
+    putStrLn "------------------------------------------------------------------------\n"
+    putStrLn $ intercalate "\n\n" $ map prettyShow defs_caseSimplified
+
+  res_caseSimplified <- interpretGrin defs_caseSimplified
+  liftIO $ putStrLn $ "\nResult: " ++ show res_caseSimplified
+
+
 -----------------------------------------------------------------------
 -- * GRIN code generation
 -----------------------------------------------------------------------
@@ -828,7 +839,40 @@ vectorize absCxt (Case v t alts) = do
 vectorize _ t = pure t
 
 
+--
+-- <t1>
+-- case tag x₁ x₂ of
+--   Cnil        → <t2>
+--   Ccons x₃ x₄ → <t3>
+-- >>>
+-- <t1>
+-- case tag of
+--   Cnil        → <t2>
+--   Ccons x₃ x₄ → <t3> [x₁ / x₃, x₂ / x₄]
+simplifyCase :: Term -> Term
+simplifyCase (Case v t alts)
+  | ConstantNode tag vs <- v = Case (Tag tag) t' $ map (mkAlt vs) alts
+  | VariableNode n vs <- v = Case (Var n) t' $ map (mkAlt vs) alts
+  | otherwise =
+    let go = (\(mkAlt, t) -> mkAlt $ simplifyCase t) . splitCalt in
+    Case v t' $ map go alts
+  where
+    t' = simplifyCase t
 
+    mkAlt vs (CAltConstantNode tag xs t)
+      | arity <- tagArity tag
+      , arity > 0 =
+        let rho =
+              foldr composeS IdS $ zipWith (liftS 2 .: singletonS) [0 ..] $ reverse vs in
+           CAltTag tag $ applySubst rho $ simplifyCase t
+    mkAlt _ alt = alt
+
+simplifyCase (t1 `Bind` alt) =
+    simplifyCase t1 `Bind` mkAlt (simplifyCase t2)
+  where
+    (mkAlt, t2) = splitLalt alt
+
+simplifyCase term = term
 
 -----------------------------------------------------------------------
 -- * LLVM code generation
