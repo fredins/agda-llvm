@@ -10,10 +10,10 @@ data List {a} (A : Set a) : Set a where
 
 downFrom : ℕ → List ℕ
 downFrom zero = []
-downFrom (suc n) = suc n ∷ downFrom n 
+downFrom (suc n) = n ∷ downFrom n 
 
 sum : List ℕ → ℕ
 sum [] = 0
 sum (x ∷ xs) = x + sum xs
 
-main = sum (downFrom 4)
+main = sum (downFrom 100) -- 4950
