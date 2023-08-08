@@ -257,7 +257,9 @@ instance Subst Val where
 
 applySubstVal :: Substitution' Val -> Val -> Val
 applySubstVal rho (ConstantNode tag vs) = ConstantNode tag $ applySubst rho vs
-applySubstVal rho (VariableNode n vs)   = VariableNode n $ applySubst rho vs
+applySubstVal rho (VariableNode n vs)
+  | Var n' <- lookupS rho n  = VariableNode n' $ applySubst rho vs
+  | otherwise = __IMPOSSIBLE__
 applySubstVal _   (Tag tag)             = Tag tag
 applySubstVal _   Empty                 = Empty
 applySubstVal _   (Lit lit)             = Lit lit

@@ -6,9 +6,9 @@ module Agda.Llvm.GrinInterpreter (module Agda.Llvm.GrinInterpreter) where
 
 import           Control.Monad             ((<=<))
 import           Control.Monad.Reader      (MonadReader, Reader,
-                                            ReaderT (runReaderT), local,
-                                            runReader)
-import           Control.Monad.State       (MonadState, StateT, evalStateT,
+                                            ReaderT (runReaderT), ask, asks,
+                                            local, runReader)
+import           Control.Monad.State       (MonadState, StateT, evalStateT, get,
                                             gets, modify)
 import           Data.Foldable             (find)
 import           Data.List                 (intercalate, singleton)
@@ -81,7 +81,7 @@ interpretGrin defs =
 
     eval (Fetch n `Bind` LAltVar abs t) = do
       heap <- use lensHeap
-      v <- fromMaybeM (error $ "here is heap:\n" ++ prettyShow heap) . heapLookup =<<
+      v <- fromMaybeM __IMPOSSIBLE__ . heapLookup =<<
            fromMaybeM __IMPOSSIBLE__ (stackFrameLookupLoc n)
       stackFrameLocal abs v $ eval t
 
@@ -147,13 +147,11 @@ interpretGrin defs =
       case v of
         VNode _ vs ->
           let (abss, t3) = selAlt v alts t2 in
-          case t3 of
-            Error _ -> error $ "HERE " ++ show t3 ++ "\nCASE\n" ++ prettyShow (Case v1 t2 alts) ++ "\nALTS\n" ++ prettyShow alts ++ "\nVAL: " ++ prettyShow v
-            _       -> stackFrameLocals abss vs $ eval t3
+          stackFrameLocals abss vs $ eval t3
         BasNat _ ->
           let t3 = snd $ selAlt v alts t2 in
           eval t3
-        _ -> error $ "EVALCASE: " ++ show v
+        _ -> __IMPOSSIBLE__
 
     evalApp :: Val -> [Val] -> Eval mf Value
     evalApp v1 vs
@@ -182,11 +180,11 @@ interpretGrin defs =
     evalVal' (ConstantNode tag vs) =
       fmap (VNode tag) <$> allJustM (map evalVal' vs)
     evalVal' (VariableNode n vs) = do
-      x <- deBruijnLookup n
       forMM (stackFrameLookup n) $ \case
         VTag tag ->
           VNode tag <$> mapM (fmap (fromMaybe Undefined) . evalVal') vs
-        v -> error $ "EVALVAL' variable pointer: " ++ prettyShow x ++ " → " ++ prettyShow v
+        _ -> __IMPOSSIBLE__
+
     evalVal' (Tag tag) = pure $ Just $ VTag tag
     evalVal' Empty   = pure $ Just VEmpty
     evalVal' (Lit lit)
