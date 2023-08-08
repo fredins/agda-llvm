@@ -31,7 +31,11 @@
 module Agda.Llvm.HeapPointsTo
   ( heapPointsTo
   , AbstractContext(..)
+  , lensAbsHeap
+  , lensAbsEnv
   , Value(..)
+  , valueToList
+  , listToValue
   , AbsHeap(..)
   , AbsEnv(..)
   ) where
@@ -39,6 +43,7 @@ module Agda.Llvm.HeapPointsTo
 import           Control.Monad.Reader      (MonadReader (ask, local), Reader,
                                             asks, runReader)
 import           Control.Monad.State       (State, evalState, gets, modify)
+import           Data.Foldable             (foldrM)
 import           Data.Function             (on)
 import           Data.List                 (find, insert, intercalate,
                                             intersectBy, nub, partition, sortOn,
@@ -50,31 +55,54 @@ import           Data.Set                  (Set)
 import qualified Data.Set                  as Set
 import           Prelude                   hiding ((!!))
 
+import           Agda.Llvm.Grin
+import           Agda.Llvm.Utils
 import           Agda.Syntax.Common.Pretty
 import           Agda.Utils.Function       (applyWhen)
 import           Agda.Utils.Functor
 import           Agda.Utils.Impossible
+import           Agda.Utils.Lens
 import           Agda.Utils.List
 import           Agda.Utils.List1          (List1, pattern (:|))
 import qualified Agda.Utils.List1          as List1
 import           Agda.Utils.Maybe
-
-import           Agda.Llvm.Grin
-import           Agda.Llvm.Utils
-import           Data.Foldable             (foldrM)
+import           Control.Arrow             (Arrow (second))
 
 -- TODO
 -- • Refactor H', HCxt, HRet
 
+-- FIXME
+-- PAdd 3 0 ; λ x13 →
+-- >>>
+-- x13 → Cnat [BAS]
+--
+
 heapPointsTo :: [GrinDefinition] -> (AbstractContext, AbstractContext, Set Gid)
-heapPointsTo defs = (absCxt, absCxt', shared) where
-  shared = equations.shared'
+heapPointsTo defs = (set lensAbsHeap equations.absHeap'.unAbsHeap absCxt, absCxt', shared) where
   absCxt' = sortAbsCxt $ solveEquations defs absCxt
-  absCxt = sortAbsCxt $ AbstractContext equations.absHeap' equations.absEnv'
+  absCxt = sortAbsCxt $ AbstractContext absHeap equations.absEnv'
+  absHeap = applySharingAnalyis shared equations.absHeap'
+  shared = equations.shared'
   equations =
     foldl1 (<>) $ for defs $ \def ->
       runReader (deriveEquations def.gr_term) $
       initHCxt defs def
+
+applySharingAnalyis :: Set Gid -> AbsHeap -> AbsHeap
+applySharingAnalyis shared = over lensUnAbsHeap (map go) where
+    go (loc, v)
+      | Set.member loc.unLoc shared = (loc, v)
+      | otherwise = (loc, removeVariables v)
+
+    removeVariables v =
+      caseList (List1.filter notVariable $ valueToList v)
+        __IMPOSSIBLE__
+        (\v vs -> listToValue $ v :| vs)
+
+    notVariable = \case
+      Abs{}   -> False
+      Union{} -> __IMPOSSIBLE__
+      _       -> True
 
 newtype Multiplicities = Multiplicities{unMultiplicities :: Map Abs Int}
 
@@ -354,35 +382,46 @@ deriveEquations term = case term of
     Bind (Store loc v) (LAltVar abs t)
       | ConstantNode tag vs <- v -> go tag vs
       where
+        -- FIXME ugly
         go tag vs = do
           vs' <- mapM valToValue vs
           defs <- asks defs
           case findName defs tag of
+            -- C-tag or primitive function (F-tag or P-tag)
             Nothing ->
+              case tag of
+                CTag{} ->
+                  localLoc loc $
+                  localAbs abs $
+                  localAbsEnv (abs, Loc loc) $
+                  localAbsHeap (loc, VNode tag vs') $
+                  deriveEquations t
+                _ ->
+                  localLoc loc $
+                  localAbs abs $
+                  localAbsEnv (abs, Loc loc) $
+                  localAbsHeap (loc, VNode tag vs' `mkUnion` cnat) $
+                  deriveEquations t
+
+            -- non-primitve F-tag or P-tag
+            Just def ->
+              -- h <- localLoc loc $
+              --      localAbs abs $
+              --      localAbsEnv (abs, Loc loc) $
+              --      localAbsHeap (loc, VNode tag vs'  ) $
+              --      localAbssEnv (zip def.gr_args vs') $
+              --      deriveEquations t
+
+              -- Pessimistically add return varaible
+        --      if Set.member (unLoc loc) h.shared' then
               localLoc loc $
               localAbs abs $
               localAbsEnv (abs, Loc loc) $
-              localAbsHeap (loc, VNode tag vs') $
+              localAbsHeap (loc, VNode tag vs' `mkUnion` Abs (fromMaybe __IMPOSSIBLE__ def.gr_return)) $
+              localAbssEnv (zip def.gr_args vs') $
               deriveEquations t
-
-            -- non-primitve F-tag or P-tag
-            Just def -> do
-              h <- localLoc loc $
-                   localAbs abs $
-                   localAbsEnv (abs, Loc loc) $
-                   localAbsHeap (loc, VNode tag vs'  ) $
-                   localAbssEnv (zip def.gr_args vs') $
-                   deriveEquations t
-
-              if Set.member (unLoc loc) h.shared' then
-                localLoc loc $
-                localAbs abs $
-                localAbsEnv (abs, Loc loc) $
-                localAbsHeap (loc, VNode tag vs' `mkUnion` Abs (fromMaybe __IMPOSSIBLE__ def.gr_return)) $
-                localAbssEnv (zip def.gr_args vs') $
-                deriveEquations t
-              else
-                pure h
+              -- else
+              --   pure h
 
         findName defs FTag{tDef} = find ((==tDef) . gr_name) defs
         findName defs PTag{tDef} = find ((==tDef) . gr_name) defs
@@ -459,12 +498,12 @@ deriveEquations term = case term of
 
     Bind (App (Prim _) _) (LAltVar abs t)  ->
       localAbs abs $
-      localAbsEnv (abs, cnat) $
+      localAbsEnv (abs, Bas) $
       deriveEquations t
 
     Bind (App (Prim _) _) (LAltConstantNode tag [abs] t) | tag == natTag ->
       localAbs abs $
-      localAbsEnv (abs, Bas) $
+      localAbsEnv (abs, cnat) $
       deriveEquations t
 
     Unit v -> do
@@ -495,6 +534,15 @@ data AbstractContext = AbstractContext
   { fHeap :: AbsHeap
   , fEnv  :: AbsEnv
   } deriving Eq
+
+lensAbsHeap :: Lens' AbstractContext [(Loc, Value)]
+lensAbsHeap f absCxt = f (unAbsHeap absCxt.fHeap) <&> \heap -> absCxt{fHeap = AbsHeap heap}
+
+lensUnAbsHeap :: Lens' AbsHeap [(Loc, Value)]
+lensUnAbsHeap f absHeap = AbsHeap <$> f absHeap.unAbsHeap
+
+lensAbsEnv :: Lens' AbstractContext [(Abs, Value)]
+lensAbsEnv f absCxt = f (unAbsEnv absCxt.fEnv) <&> \env -> absCxt{fEnv = AbsEnv env}
 
 instance Pretty AbstractContext where
   pretty (AbstractContext {fHeap, fEnv}) =
@@ -628,8 +676,8 @@ simplify defs AbstractContext{fHeap, fEnv} = go where
     -- Gather node values of same tag
     -- {... tag [v₁,...,vᵢ,...],...} ∪ {... tag [w₁,...,wᵢ,...],...} =
     -- {... tag [v₁ ∪ w₁,...,vᵢ ∪ wᵢ,...],...}
-    | (n1:n1s, v1s) <- mapMaybeAndRest vnodeView $ valueToList v1
-    , (n2:n2s, v2s) <- mapMaybeAndRest vnodeView $ valueToList v2
+    | (n1:n1s, v1s) <- mapMaybeAndRest vnodeView $ List1.toList $ valueToList v1
+    , (n2:n2s, v2s) <- mapMaybeAndRest vnodeView $ List1.toList $ valueToList v2
     , _:_ <- intersectBy (on (==) fst) (n1 : n1s) (n2 : n2s) =
       let nodes = gatherEntriesBy1 (zipWith mkUnion) (n1 :| n1s) (n2 :| n2s)
           nodes' = List1.map (uncurry VNode) nodes in
@@ -657,12 +705,12 @@ simplify defs AbstractContext{fHeap, fEnv} = go where
 
     -- Filter everything which is confirmed wrong
     | Union{} <- v1
-    , (_:_, v2 : v2s) <- partition isWrong $ valueToList v1 =
+    , (_:_, v2 : v2s) <- List1.partition isWrong $ valueToList v1 =
       Pick (listToValue $ v2 :| v2s) tag1 i
 
     -- Solve correct tags
     | Union{} <- v1
-    , (v2 : v2s, v3s) <- mapMaybeAndRest isCorrect $ valueToList v1 =
+    , (v2 : v2s, v3s) <- mapMaybeAndRest isCorrect $ List1.toList $ valueToList v1 =
       caseList v3s
         (listToValue $ v2 :| v2s)
         (\v3 v3s ->
@@ -694,7 +742,7 @@ simplify defs AbstractContext{fHeap, fEnv} = go where
 
     -- Solve locations
     | Union{} <- v1
-    , (loc : locs, v2s) <- mapMaybeAndRest isLocation $ valueToList v1 =
+    , (loc : locs, v2s) <- mapMaybeAndRest isLocation $ List1.toList $ valueToList v1 =
       let v3s = List1.map (fromMaybe __IMPOSSIBLE__ . heapLookup) $ loc :| locs in
       caseList v2s
         (listToValue v3s)
@@ -728,14 +776,14 @@ simplify defs AbstractContext{fHeap, fEnv} = go where
 
     -- Solve C nodes
     | Union{} <- v1
-    , (v2:v2s, v3s) <- mapMaybeAndRest isCNode $ valueToList v1 =
+    , (v2:v2s, v3s) <- mapMaybeAndRest isCNode $ List1.toList $ valueToList v1 =
       caseList v3s
         (listToValue $ v2 :| v2s)
         (\v3 v3s -> listToValue (v2 :| v2s) `mkUnion` EVAL (listToValue $ v3 :| v3s))
 
     -- Solve F and P nodes
     | Union{} <- v1
-    , (v2 : v2s, v3s) <- mapMaybeAndRest hasDefName $ valueToList v1 =
+    , (v2 : v2s, v3s) <- mapMaybeAndRest hasDefName $ List1.toList $ valueToList v1 =
       let v2s' = List1.map (maybe cnat Abs . defReturnLookup) (v2 :| v2s) in
       caseList v3s
         (listToValue v2s')
@@ -779,9 +827,9 @@ absEnvUpdate abs v cxt =
 envInsert :: (Abs, Value) -> AbstractContext -> AbstractContext
 envInsert entry cxt = cxt{fEnv = AbsEnv $ insert entry $ unAbsEnv cxt.fEnv}
 
-valueToList :: Value -> [Value]
-valueToList (Union a b) = on (++) valueToList a b
-valueToList a           = [a]
+valueToList :: Value -> List1 Value
+valueToList (Union a b) = on (<>) valueToList a b
+valueToList a           = a :| []
 
 listToValue :: List1 Value -> Value
 listToValue = foldr1 mkUnion

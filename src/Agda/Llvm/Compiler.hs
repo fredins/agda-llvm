@@ -11,18 +11,21 @@ module Agda.Llvm.Compiler (module Agda.Llvm.Compiler) where
 
 import           Control.Applicative                (Applicative (liftA2))
 import           Control.DeepSeq                    (NFData)
-import           Control.Monad                      (forM, replicateM)
+import           Control.Monad                      (forM, replicateM, (<=<))
 import           Control.Monad.IO.Class             (liftIO)
 import           Control.Monad.Reader               (MonadReader (local),
                                                      ReaderT (runReaderT), asks)
-import           Control.Monad.State                (MonadState, State, StateT,
+import           Control.Monad.State                (MonadState, State,
+                                                     StateT (runStateT),
                                                      evalState, evalStateT,
-                                                     gets)
+                                                     gets, modify)
 import           Data.Foldable                      (find, foldrM, toList)
 import           Data.Function                      (on)
 import           Data.List                          (intercalate, singleton)
 import           Data.Map                           (Map)
 import qualified Data.Map                           as Map
+import           Data.Set                           (Set)
+import qualified Data.Set                           as Set
 import           GHC.Generics                       (Generic)
 import           Prelude                            hiding ((!!))
 
@@ -46,6 +49,8 @@ import           Agda.Llvm.Utils
 import           Agda.TypeChecking.SizedTypes.Utils (trace)
 import           Agda.Utils.Function                (applyWhen)
 import           Agda.Utils.Lens
+import           Agda.Utils.Monad                   (forMM)
+import           GHC.IO                             (unsafePerformIO)
 
 
 llvmBackend :: Backend
@@ -115,29 +120,24 @@ llvmPostCompile :: LlvmEnv
                 -> Map TopLevelModuleName LlvmModule
                 -> TCM ()
 llvmPostCompile _ _ mods = do
+
   let tl_defs = concatMap (\(LlvmModule xs) -> xs) (Map.elems mods)
-  gr_defs <- treelessToGrin tl_defs
-  let (absCxtEqs, absCxt, share) = heapPointsTo gr_defs
-  defs_evalInlined <- inlineEval gr_defs absCxt
-  res_evalInlined <- interpretGrin defs_evalInlined
-
-  let defs_normalised = map (updateGrTerm normalise) defs_evalInlined
-
-  res_normalised <- interpretGrin defs_normalised
-  let defs_removeUnit = map (updateGrTerm removeUnitBind) defs_normalised
-  res_removeUnit <- interpretGrin defs_removeUnit
-  let defs_updateSpecialized = map (updateGrTerm specializeUpdate) defs_removeUnit
-  res_updateSpecialized <- interpretGrin defs_updateSpecialized
-
   liftIO $ do
     putStrLn "\n------------------------------------------------------------------------"
     putStrLn "-- * Treeless"
     putStrLn "------------------------------------------------------------------------\n"
     putStrLn $ intercalate "\n\n" $ map prettyShow tl_defs
+
+  gr_defs <- treelessToGrin tl_defs
+  liftIO $ do
     putStrLn "\n------------------------------------------------------------------------"
     putStrLn "-- * GRIN"
     putStrLn "------------------------------------------------------------------------\n"
     putStrLn $ intercalate "\n\n" $ map prettyShow gr_defs
+
+  let (absCxtEqs, absCxt, share) = heapPointsTo gr_defs
+  let tagInfo_pointsTo = initTagInfo absCxt
+  liftIO $ do
     putStrLn "\n------------------------------------------------------------------------"
     putStrLn "-- * Heap points-to analysis"
     putStrLn "------------------------------------------------------------------------\n"
@@ -146,26 +146,58 @@ llvmPostCompile _ _ mods = do
     putStrLn ""
     putStrLn $ prettyShow absCxt
     putStrLn $ "\nSharing Heap: " ++ prettyShow share
+    putStrLn $ "\nTag Info:\n" ++ prettyShow tagInfo_pointsTo
+
+  (defs_evalInlined, tagInfo_inlineEval) <- inlineEval gr_defs absCxt tagInfo_pointsTo
+  liftIO $ do
     putStrLn "\n------------------------------------------------------------------------"
     putStrLn "-- * Inlining Eval"
     putStrLn "------------------------------------------------------------------------\n"
     putStrLn $ intercalate "\n\n" $ map prettyShow defs_evalInlined
-    putStrLn $ "\nResult: " ++ show res_evalInlined
+    putStrLn $ "\nTag Info:\n" ++ prettyShow tagInfo_inlineEval
+
+  res_evalInlined <- interpretGrin defs_evalInlined
+  liftIO $ putStrLn $ "\nResult: " ++ show res_evalInlined
+
+  let defs_normalised = map (updateGrTerm normalise) defs_evalInlined
+  liftIO $ do
     putStrLn "\n------------------------------------------------------------------------"
     putStrLn "-- * Normalise"
     putStrLn "------------------------------------------------------------------------\n"
     putStrLn $ intercalate "\n\n" $ map prettyShow defs_normalised
-    putStrLn $ "\nResult: " ++ show res_normalised
+
+  res_normalised <- interpretGrin defs_normalised
+  liftIO $ putStrLn $ "\nResult: " ++ show res_normalised
+
+  let defs_removeUnit = map (updateGrTerm removeUnitBind) defs_normalised
+  liftIO $ do
     putStrLn "\n------------------------------------------------------------------------"
     putStrLn "-- * Remove `unit n ; λ xₘ → 〈t 〉`"
     putStrLn "------------------------------------------------------------------------\n"
     putStrLn $ intercalate "\n\n" $ map prettyShow defs_removeUnit
-    putStrLn $ "\nResult: " ++ show res_removeUnit
+
+  res_removeUnit <- interpretGrin defs_removeUnit
+  liftIO $ putStrLn $ "\nResult: " ++ show res_removeUnit
+
+  let defs_updateSpecialized = map (updateGrTerm specializeUpdate) defs_removeUnit
+  liftIO $ do
     putStrLn "\n------------------------------------------------------------------------"
     putStrLn "-- * Specialize Update"
     putStrLn "------------------------------------------------------------------------\n"
     putStrLn $ intercalate "\n\n" $ map prettyShow defs_updateSpecialized
-    putStrLn $ "\nResult: " ++ show res_updateSpecialized
+
+  res_updateSpecialized <- interpretGrin defs_updateSpecialized
+  liftIO $ putStrLn $ "\nResult: " ++ show res_updateSpecialized
+
+  defs_vectorized <- mapM (lensGrTerm $ vectorize tagInfo_inlineEval) defs_updateSpecialized
+  liftIO $ do
+    putStrLn "\n------------------------------------------------------------------------"
+    putStrLn "-- * Vectorization"
+    putStrLn "------------------------------------------------------------------------\n"
+    putStrLn $ intercalate "\n\n" $ map prettyShow defs_vectorized
+
+  res_vectorized <- interpretGrin defs_vectorized
+  liftIO $ putStrLn $ "\nResult: " ++ show res_vectorized
 
 
 -----------------------------------------------------------------------
@@ -392,7 +424,67 @@ mkWithOffset n a = WithOffset{offset = n, value = a}
 -----------------------------------------------------------------------
 
 
-type E = ReaderT [Abs] TCM
+newtype TagInfo = TagInfo{unTagInfo :: Map Abs (Set Tag)}
+
+lensTagInfo :: Lens' TagInfo (Map Abs (Set Tag))
+lensTagInfo f tagInfo = TagInfo <$> f tagInfo.unTagInfo
+
+tagInfoInsert :: Abs -> Set Tag -> TagInfo -> TagInfo
+tagInfoInsert = over lensTagInfo .: Map.insert
+
+lookupMaxArity :: Abs -> TagInfo -> Maybe Int
+lookupMaxArity abs tagInfo =
+  maximum . map tArity . Set.toList <$> Map.lookup abs tagInfo.unTagInfo
+
+instance Pretty TagInfo where
+  pretty (TagInfo tagInfo) =
+      vcat $ map prettyEntry $ Map.toList tagInfo
+    where
+      prettyEntry :: (Abs, Set Tag) -> Doc
+      prettyEntry (x, tags) =
+            pretty x
+        <+> text "→"
+        <+> pretty tags
+
+initTagInfo :: AbstractContext -> TagInfo
+initTagInfo absCxt =
+  TagInfo $ Map.fromList $ forMaybe (absCxt ^. lensAbsEnv) $ \(abs, v) ->
+    case v of
+      VNode tag _ -> Just (abs, Set.singleton tag)
+      v@Union{} ->
+        let tags = flip List1.mapMaybe (valueToList v) $ \case
+                   VNode tag _ -> Just tag
+                   _           -> Nothing in
+        caseList tags Nothing $ \t ts -> Just (abs, Set.fromList $ t : ts)
+      Loc _ -> Nothing
+      Bas -> Nothing
+      _ -> __IMPOSSIBLE__
+
+valueToTags :: Value -> Maybe (Set Tag)
+valueToTags = \case
+      VNode tag _ -> Just $ Set.singleton tag
+      v@Union{} ->
+        let tags = flip List1.mapMaybe (valueToList v) $ \case
+                   VNode tag _ -> Just tag
+                   _           -> Nothing in
+        caseList tags Nothing $ \t ts -> Just $ Set.fromList $ t : ts
+      Loc _ -> Nothing
+      Bas -> Nothing
+      _ -> __IMPOSSIBLE__
+
+
+    -- lookupTagArity = lookup x1 (absCxt ^. lensAbsEnv) >>= \case
+    --   VNode tag _ -> Just tag.tArity
+    --   v@Union{} ->
+    --     let ns = forMaybe (valueToList v) $ \case
+    --                VNode tag _ -> Just tag.tArity
+    --                _           -> Nothing in
+    --     caseList ns Nothing $ \n ns -> Just $ maximum $ n : ns
+    --   Loc _ -> Nothing
+    --   Bas -> Nothing
+    --   _ -> __IMPOSSIBLE__
+
+type E m = ReaderT [Abs] (StateT TagInfo m)
 
 -- | Specialize and inline calls to eval
 --
@@ -406,19 +498,23 @@ type E = ReaderT [Abs] TCM
 --  update 2 0 ; λ () →
 --  unit 0
 -- ) ; λ x14 →
-inlineEval :: [GrinDefinition] -> AbstractContext -> TCM [GrinDefinition]
-inlineEval defs absCxt =
-    forM defs $ \def -> do
+-- TODO need to update TagInformation
+inlineEval :: forall mf. MonadFresh Int mf
+           => [GrinDefinition]
+           -> AbstractContext
+           -> TagInfo
+           -> mf ([GrinDefinition], TagInfo)
+inlineEval defs absCxt tagInfo =
+    flip runStateT tagInfo $ forM defs $ \def -> do
       t <- runReaderT (go def.gr_term) (def.gr_args ++ returnAbs)
       pure def{gr_term = t}
-
   where
     returnAbs = mapMaybe gr_return defs
 
-    localAbs :: Abs -> E a -> E a
+    localAbs :: Abs -> E mf a -> E mf a
     localAbs abs = local (abs :)
 
-    localAbss :: [Abs] -> E a -> E a
+    localAbss :: [Abs] -> E mf a -> E mf a
     localAbss = foldl (.: localAbs) id
 
     heapLookup :: Loc -> Maybe Value
@@ -427,9 +523,31 @@ inlineEval defs absCxt =
     envLookup :: Abs -> Maybe Value
     envLookup abs = lookup abs $ unAbsEnv absCxt.fEnv
 
-    go :: Term -> E Term
+    -- ugly
+    mkTagSet :: Abs -> Set Tag
+    mkTagSet x = flip foldMap (collectTags x) $ \case
+      FTag{tDef} ->
+        let xs =
+              forMaybe defs $ \def ->
+                boolToMaybe (tDef == def.gr_name) =<< def.gr_return in
+        caseList xs (Set.singleton natTag) $ \x _ ->
+          fromMaybe __IMPOSSIBLE__ $ valueToTags =<< envLookup x
+      PTag{} -> error "TODO"
+      ctag -> Set.singleton ctag
+
+
+    go :: Term -> E mf Term
     go term = case term of
-      App (Def "eval") [Var n] -> genEval n =<< deBruijnLookup n
+      App (Def "eval") [Var n] `Bind` LAltVar x1 t1 -> do
+          x2 <- deBruijnLookup n
+          let tagSet = mkTagSet x2
+          modify (tagInfoInsert x1 tagSet)
+          t2 <- genEval n x2 tagSet
+          t1' <- localAbs x1 $ go t1
+          pure $ t2 `Bind` LAltVar x1 t1'
+      App (Def "eval") [Var n] -> do
+        x <- deBruijnLookup n
+        genEval n x $ mkTagSet x
       Case i t alts            -> liftA2 (Case i) (go t) (mapM goCalt alts)
       Bind t alt               -> liftA2 Bind (go t) (goLalt alt)
       App _ _                  -> pure term
@@ -438,31 +556,38 @@ inlineEval defs absCxt =
       Fetch _                  -> pure term
       Update{}                 -> pure term
       Error _                  -> pure term
-      -- TODO missing
 
-    goLalt :: LAlt -> E LAlt
+    goLalt :: LAlt -> E mf LAlt
     goLalt (LAltEmpty t)         = LAltEmpty <$> go t
-    goLalt (LAltVar abs t)       = LAltVar abs <$> localAbs abs (go t)
+    goLalt (LAltVar abs t)       = LAltVar abs <$> localAbs abs (go t) -- FIXME need to assign this abs
     goLalt (LAltConstantNode tag abss t) = LAltConstantNode tag abss <$> localAbss abss (go t)
     goLalt (LAltLit lit t)       = LAltLit lit <$> go t
 
-    goCalt :: CAlt -> E CAlt
+    goCalt :: CAlt -> E mf CAlt
     goCalt (CAltConstantNode tag abss t) = CAltConstantNode tag abss <$> localAbss abss (go t)
     goCalt (CAltLit lit t)       = CAltLit lit <$> go t
 
-    genEval :: Int -> Abs -> E Term
-    genEval n abs =
-        Fetch n    `bindVarR`
-        caseOf     `bindVarL`
-        Update Nothing (n + 2) (Var 0) `BindEmpty`
-        Unit (Var 0)
+    genEval :: Int -> Abs -> Set Tag -> E mf Term
+    genEval n x1 tagSet = do
+        x2 <- freshAbs
+        let
+          infixr 2 `bindVarL'`
+          bindVarL' t1 t2 = t1 <&> \t1' ->  Bind t1' (LAltVar x2 t2)
+          term =
+            Fetch n    `bindVarR`
+            caseOf    `bindVarL'`
+            Update Nothing (n + 2) (Var 0) `BindEmpty`
+            Unit (Var 0)
+        modify (tagInfoInsert x2 tagSet)
+        term
+
       where
-        caseOf :: E Term
+        caseOf :: E mf Term
         caseOf =
           Case (Var 0) unreachable . toList <$>
-          forM (collectTags abs) (\tag -> caltConstantNode tag =<< genBody tag)
+          forM (collectTags x1) (\tag -> caltConstantNode tag =<< genBody tag)
 
-        genBody :: Tag -> E Term
+        genBody :: Tag -> E mf Term
         genBody FTag{tDef, tArity}
           | isJust $ find ((tDef==). gr_name) defs =
             pure $ App (Def tDef) $ map Var $ downFrom tArity
@@ -482,10 +607,11 @@ inlineEval defs absCxt =
       where
         go (Loc loc)     = go $ fromMaybe __IMPOSSIBLE__ $ heapLookup loc
         go (Union v1 v2) = List1.nub $ on (<>) go v1 v2
-        go (VNode tag _) = List1.singleton tag
+        go (VNode tag _) =
+          List1.singleton tag
         go _             = __IMPOSSIBLE__
 
-    deBruijnLookup :: Int -> E Abs
+    deBruijnLookup :: Int -> E mf Abs
     deBruijnLookup n = asks $ fromMaybe __IMPOSSIBLE__ . (!!! n)
 
 
@@ -557,11 +683,6 @@ countBinders LAltVar{}                   = 1
 countBinders LAltLit{}                   = 0
 countBinders LAltEmpty{}                 = 0
 
-splitLalt :: LAlt -> (Term -> LAlt, Term)
-splitLalt (LAltVar abs t)               = (LAltVar abs, t)
-splitLalt (LAltConstantNode tag abss t) = (LAltConstantNode tag abss, t)
-splitLalt (LAltLit lit t)               = (LAltLit lit, t)
-splitLalt (LAltEmpty t)                 = (LAltEmpty, t)
 
 -- TODO Fix returning eval [Boquist 1999, p. 95]
 specializeUpdate :: Term -> Term
@@ -633,7 +754,6 @@ specializeUpdateLalt (LAltLit lit t)       = LAltLit lit $ specializeUpdate t
 -- case n₂ of alts
 --
 -- Returns: (update n₁' n₂', 〈m 〉, case n₂ of alts)
--- TODO should increase n1 and n2 by length abss if 〈m 〉introduces binds.
 caseUpdateView :: Term -> Maybe (Tag -> Term, Term -> Term, Term)
 caseUpdateView (Update Nothing n t1 `BindEmpty` t) = go IdS id t where
   go :: Substitution' Val
@@ -674,24 +794,42 @@ caseUpdateView _ = Nothing
 -- >>>
 -- <t1> ; λ tag x₂ x₃ →
 -- <t2> [tag x₂ x₃ / x₁]
---
-vectorize :: forall mf. MonadFresh Int mf => Term -> mf Term
+vectorize :: forall mf. MonadFresh Int mf => TagInfo -> Term -> mf Term
+vectorize tagInfo (t1 `Bind` LAltVar x1 t2)
+  | Just n <- lookupMaxArity x1 tagInfo =
+    let
+      -- FIXME!!!
+      rho' =
+        singletonS 0 (VariableNode n $ map Var $ downFrom n) `composeS`
+        raiseFromS 1 n
+
+      rho =
+        inplaceS 0 (VariableNode n $ map Var $ downFrom n) `composeS`
+        raiseFromS 1 n
+
+      t2' =
+        subst 0 (VariableNode n $ map Var $ downFrom n) $
+        -- raiseFrom 1 n
+       t2
+    in
 
 
-vectorize (t1 `Bind` LAltVar x1 t2) = do
-  tag <- freshAbs
-  x2 <- freshAbs
-  x3 <- freshAbs
-  let t2' = subst 0 (VariableNode 0 [Var 1, Var 2]) t2
+    Bind t1 <$> laltVariableNode n (applySubst rho t2)
 
-  undefined
+vectorize absCxt (t1 `Bind` alt) =
+  let (mkAlt, t2) = splitLalt alt in do
+  t1' <- vectorize absCxt t1
+  t2' <- vectorize absCxt t2
+  pure $ t1' `Bind` mkAlt t2'
 
-vectorize _                         = undefined
+vectorize absCxt (Case v t alts) = do
+  t' <- vectorize absCxt t
+  alts' <- forM alts $ \alt ->
+    let (mkAlt, t) = splitCalt alt in
+    mkAlt <$> vectorize absCxt t
+  pure $ Case v t' alts'
 
-
-
-
-
+vectorize _ t = pure t
 
 
 
@@ -1182,3 +1320,8 @@ vectorize _                         = undefined
 --   pure Nothing
 --
 -- llvmCompileDef env menv isMain def = pure Nothing
+--
+
+
+trace' :: String -> a -> a
+trace' s = unsafePerformIO . (putStrLn s $>)

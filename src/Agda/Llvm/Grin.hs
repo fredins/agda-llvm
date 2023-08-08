@@ -105,7 +105,7 @@ data CAlt = CAltConstantNode Tag [Abs] Term
 
 
 
-infixr 0 `BindEmpty`, `Bind`
+infixr 2 `BindEmpty`, `Bind`
 pattern BindEmpty :: Term -> Term -> Term
 pattern t1 `BindEmpty` t2 = Bind t1 (LAltEmpty t2)
 
@@ -135,7 +135,13 @@ laltConstantNode tag t = do
   abss <- replicateM (tagArity tag) freshAbs
   pure $ LAltConstantNode tag abss t
 
-laltBody :: LAlt -> Term
+laltVariableNode :: MonadFresh Int m => Int -> Term -> m LAlt
+laltVariableNode n t = do
+  tag <- freshAbs
+  xs  <- replicateM n freshAbs
+  pure $ LAltVariableNode tag xs t
+
+laltBody :: LensGet LAlt Term
 laltBody = \case
   LAltConstantNode _ _ t -> t
   LAltVariableNode _ _ t -> t
@@ -143,14 +149,25 @@ laltBody = \case
   LAltVar _ t            -> t
   LAltEmpty t            -> t
 
+splitLalt :: LAlt -> (Term -> LAlt, Term)
+splitLalt (LAltVar abs t)               = (LAltVar abs, t)
+splitLalt (LAltConstantNode tag abss t) = (LAltConstantNode tag abss, t)
+splitLalt (LAltLit lit t)               = (LAltLit lit, t)
+splitLalt (LAltEmpty t)                 = (LAltEmpty, t)
+
+splitCalt :: CAlt -> (Term -> CAlt, Term)
+splitCalt (CAltConstantNode tag abss t) = (CAltConstantNode tag abss, t)
+splitCalt (CAltLit lit t)               = (CAltLit lit, t)
+
 tagArity :: Tag -> Int
 tagArity = \case
   CTag{..} -> tArity
   FTag{..} -> tArity
   PTag{..} -> tArity
 
-infixr 0 `bindVar`, `bindVarL`, `bindVarR`, `bindVarM`
+infixr 2 `bindVar`, `bindVarL`, `bindVarR`, `bindVarM`
        , `bindEmptyL`, `bindEmptyR`, `bindEmptyM`
+       -- , `bindVariableNode`
 
 bindVar :: MonadFresh Int m => Term -> Term -> m Term
 bindVar t1 t2 = Bind t1 <$> laltVar t2
@@ -173,7 +190,8 @@ bindEmptyR t1 t2 = Bind t1 . LAltEmpty <$> t2
 bindEmptyM :: MonadFresh Int m => m Term -> m Term -> m Term
 bindEmptyM t1 t2 = (Bind <$> t1) <*> (LAltEmpty <$> t2)
 
-
+-- bindVariableNode :: MonadFresh Int m => Term -> Term -> m Term
+-- bindVariableNode t1 t2 = Bind t1 <$> laltVariableNode t2
 
 -----------------------------------------------------------------------
 -- * Substitute instances
@@ -194,6 +212,7 @@ applySubstTerm rho term = case term of
   Store loc t -> Store loc (applySubst rho t)
   Fetch n
     | Var n' <- lookupS rho n -> Fetch n'
+    | v <- lookupS rho n -> error $ "BAD: " ++ show v
     | otherwise -> __IMPOSSIBLE__
   Update tag n t
     | Var n' <- lookupS rho n -> Update tag n' (applySubst rho t)
@@ -302,8 +321,14 @@ instance Pretty Term where
       ]
 
   pretty (Fetch v) = text "fetch" <+> pretty v
-  pretty (Update Nothing v1 v2) = text "update" <+> pretty v1 <+> pretty v2
-  pretty (Update (Just tag) v1 v2) = (text "update" <> pretty tag) <+> pretty v1 <+> pretty v2
+  pretty (Update Nothing v1 v2)
+    | ConstantNode{} <- v2 = text "update" <+> pretty v1 <+> parens (pretty v2)
+    | VariableNode{} <- v2 = text "update" <+> pretty v1 <+> parens (pretty v2)
+    | otherwise = text "update" <+> pretty v1 <+> pretty v2
+  pretty (Update (Just tag) v1 v2)
+    | ConstantNode{} <- v2 = (text "update" <> pretty tag) <+> pretty v1 <+> parens (pretty v2)
+    | VariableNode{} <- v2 = (text "update" <> pretty tag) <+> pretty v1 <+> parens (pretty v2)
+    | otherwise = (text "update" <> pretty tag) <+> pretty v1 <+> pretty v2
   pretty (Error TUnreachable) = text "unreachable"
   pretty (Error (TMeta _)) = __IMPOSSIBLE__
 

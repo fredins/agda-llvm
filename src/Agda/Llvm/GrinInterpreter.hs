@@ -27,6 +27,7 @@ import           Agda.Utils.List
 -- import qualified Agda.Utils.List1                   as List1
 import           Agda.Syntax.Common.Pretty
 import           Agda.Utils.Maybe
+import           Agda.Utils.Monad          (forMM)
 
 
 data Value = BasNat Integer
@@ -125,18 +126,20 @@ interpretGrin defs =
         VNode tag2 vs  | tag2 == tag1 -> stackFrameLocals abss vs $ eval t2
         _                             -> __IMPOSSIBLE__
 
+    eval (t1 `Bind` LAltVariableNode x xs t2) =
+      eval t1 >>= \case
+        VNode tag vs -> stackFrameLocals (x : xs) (VTag tag : vs) $ eval t2
+        _            -> __IMPOSSIBLE__
+
     eval (App t ts) = evalApp t ts
     eval (Case v t alts) = evalCase v t alts
     eval (Unit v) = evalVal v
-
-
-
 
     eval Store{} = __IMPOSSIBLE__
     eval Fetch{} = __IMPOSSIBLE__
     eval Update{} = __IMPOSSIBLE__
     eval Error{} = __IMPOSSIBLE__
-    eval t@Bind{} = error $ "MISSING: " ++ show t
+    eval t@Bind{} = error $ "MISSING: " ++ prettyShow t
 
     evalCase :: Val -> Term -> [CAlt] -> Eval mf Value
     evalCase v1 t2 alts = do
@@ -144,12 +147,13 @@ interpretGrin defs =
       case v of
         VNode _ vs ->
           let (abss, t3) = selAlt v alts t2 in
-          stackFrameLocals abss vs $
-          eval t3
+          case t3 of
+            Error _ -> error $ "HERE " ++ show t3 ++ "\nCASE\n" ++ prettyShow (Case v1 t2 alts) ++ "\nALTS\n" ++ prettyShow alts ++ "\nVAL: " ++ prettyShow v
+            _       -> stackFrameLocals abss vs $ eval t3
         BasNat _ ->
           let t3 = snd $ selAlt v alts t2 in
           eval t3
-        _ -> __IMPOSSIBLE__
+        _ -> error $ "EVALCASE: " ++ show v
 
     evalApp :: Val -> [Val] -> Eval mf Value
     evalApp v1 vs
@@ -171,18 +175,25 @@ interpretGrin defs =
 
 
     evalVal :: Val -> Eval mf Value
-    evalVal (ConstantNode tag vs) = VNode tag <$> mapM evalVal vs
-    evalVal (VariableNode n vs) = do
-      stackFrameLookup n >>= \mv -> case fromMaybe __IMPOSSIBLE__ mv of
-        VTag tag -> VNode tag <$> mapM evalVal vs
-        _        -> __IMPOSSIBLE__
-    evalVal (Var n) = fromMaybeM __IMPOSSIBLE__ $ stackFrameLookup n
-    evalVal Empty = pure VEmpty
-    evalVal (Lit (LitNat i)) = pure $ BasNat i
-    evalVal Lit{} = __IMPOSSIBLE__
-    evalVal Prim{} = __IMPOSSIBLE__
-    evalVal Def{} = __IMPOSSIBLE__
-    evalVal Tag{} = __IMPOSSIBLE__
+    evalVal = fromMaybeM __IMPOSSIBLE__ . evalVal'
+
+    evalVal' :: Val -> Eval mf (Maybe Value)
+    evalVal' (Var n) = stackFrameLookup n
+    evalVal' (ConstantNode tag vs) =
+      fmap (VNode tag) <$> allJustM (map evalVal' vs)
+    evalVal' (VariableNode n vs) = do
+      x <- deBruijnLookup n
+      forMM (stackFrameLookup n) $ \case
+        VTag tag ->
+          VNode tag <$> mapM (fmap (fromMaybe Undefined) . evalVal') vs
+        v -> error $ "EVALVAL' variable pointer: " ++ prettyShow x ++ " → " ++ prettyShow v
+    evalVal' (Tag tag) = pure $ Just $ VTag tag
+    evalVal' Empty   = pure $ Just VEmpty
+    evalVal' (Lit lit)
+      | LitNat i <- lit = pure $ Just $ BasNat i
+      | otherwise = __IMPOSSIBLE__
+    evalVal' Prim{} = __IMPOSSIBLE__
+    evalVal' Def{} = __IMPOSSIBLE__ -- TODO CAF
 
     -- Not used right now (Don't remove)
     -- sel :: Int -> Value -> Value
@@ -240,7 +251,8 @@ interpretGrin defs =
     stackFrameLocal abs v = locally lensStackFrame ((abs, v) :)
 
     stackFrameLocals :: MonadReader Stack m => [Abs] -> [Value] -> m a -> m a
-    stackFrameLocals abss vs = foldl (.) id $ zipWith stackFrameLocal abss vs
+    stackFrameLocals abss vs =
+      foldl (.) id $ zipWith stackFrameLocal abss $ vs ++ repeat Undefined
 
     heapLookup :: MonadState Env m => Loc -> m (Maybe Value)
     heapLookup loc = Map.lookup loc <$> use lensHeap
