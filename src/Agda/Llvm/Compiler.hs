@@ -436,6 +436,11 @@ lookupMaxArity :: Abs -> TagInfo -> Maybe Int
 lookupMaxArity abs tagInfo =
   maximum . map tArity . Set.toList <$> Map.lookup abs tagInfo.unTagInfo
 
+singletonTag :: Abs -> TagInfo -> Maybe Tag
+singletonTag abs tagInfo =
+  Map.lookup abs tagInfo.unTagInfo >>= \set ->
+    boolToMaybe (Set.size set == 1) (Set.elemAt 0 set)
+
 instance Pretty TagInfo where
   pretty (TagInfo tagInfo) =
       vcat $ map prettyEntry $ Map.toList tagInfo
@@ -785,35 +790,26 @@ caseUpdateView (Update Nothing n t1 `BindEmpty` t) = go IdS id t where
 caseUpdateView _ = Nothing
 
 
-
-
-
+-- | Replace all node variables by explicit nodes.
 --
 -- <t1> ; λ x₁ →
 -- <t2>
 -- >>>
 -- <t1> ; λ tag x₂ x₃ →
 -- <t2> [tag x₂ x₃ / x₁]
+-- TODO update taginfo
 vectorize :: forall mf. MonadFresh Int mf => TagInfo -> Term -> mf Term
 vectorize tagInfo (t1 `Bind` LAltVar x1 t2)
+  | Just tag <- singletonTag x1 tagInfo =
+    let n = tagArity tag
+        rho =
+          inplaceS 0 (ConstantNode tag $ map Var $ downFrom n) `composeS`
+          raiseFromS 1 (n - 1) in
+    Bind t1 <$> laltConstantNode tag (applySubst rho t2)
   | Just n <- lookupMaxArity x1 tagInfo =
-    let
-      -- FIXME!!!
-      rho' =
-        singletonS 0 (VariableNode n $ map Var $ downFrom n) `composeS`
-        raiseFromS 1 n
-
-      rho =
-        inplaceS 0 (VariableNode n $ map Var $ downFrom n) `composeS`
-        raiseFromS 1 n
-
-      t2' =
-        subst 0 (VariableNode n $ map Var $ downFrom n) $
-        -- raiseFrom 1 n
-       t2
-    in
-
-
+    let rho =
+          inplaceS 0 (VariableNode n $ map Var $ downFrom n) `composeS`
+          raiseFromS 1 n in
     Bind t1 <$> laltVariableNode n (applySubst rho t2)
 
 vectorize absCxt (t1 `Bind` alt) =
