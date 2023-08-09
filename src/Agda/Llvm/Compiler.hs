@@ -167,7 +167,7 @@ llvmPostCompile _ _ mods = do
   let defs_removeUnit = map (updateGrTerm removeUnitBind) defs_normalised
   liftIO $ do
     putStrLn "\n------------------------------------------------------------------------"
-    putStrLn "-- * Remove `unit n ; λ xₘ → 〈t 〉`"
+    putStrLn "-- * Remove unit binds"
     putStrLn "------------------------------------------------------------------------\n"
     putStrLn $ intercalate "\n\n" $ map prettyShow defs_removeUnit
 
@@ -194,7 +194,6 @@ llvmPostCompile _ _ mods = do
   res_vectorized <- interpretGrin defs_vectorized
   liftIO $ putStrLn $ "\nResult: " ++ show res_vectorized
 
-
   let defs_caseSimplified = map (updateGrTerm simplifyCase) defs_vectorized
   liftIO $ do
     putStrLn "\n------------------------------------------------------------------------"
@@ -214,6 +213,17 @@ llvmPostCompile _ _ mods = do
 
   res_fetchSplit <- interpretGrin defs_fetchSplit
   liftIO $ putStrLn $ "\nResult: " ++ show res_fetchSplit
+
+  let defs_removeUnit = map (updateGrTerm removeUnitBind) defs_fetchSplit
+  liftIO $ do
+    putStrLn "\n------------------------------------------------------------------------"
+    putStrLn "-- * Remove unit binds"
+    putStrLn "------------------------------------------------------------------------\n"
+    putStrLn $ intercalate "\n\n" $ map prettyShow defs_removeUnit
+
+  res_removeUnit <- interpretGrin defs_removeUnit
+  liftIO $ putStrLn $ "\nResult: " ++ show res_removeUnit
+
 
 
 -----------------------------------------------------------------------
@@ -621,29 +631,58 @@ inlineEval defs absCxt tagInfo =
     deBruijnLookup n = asks $ fromMaybe __IMPOSSIBLE__ . (!!! n)
 
 
+removeUnitBind :: Term -> Term
 -- unit n ; λ xₘ →
 -- 〈t 〉
 -- >>>
 -- 〈t 〉[n / m]
-removeUnitBind :: Term -> Term
 removeUnitBind (Unit (Var n) `Bind` LAltVar abs t) =
-    applySubst rho t
+    applySubst rho $ removeUnitBind t
   where
     rho = strengthenS __IMPOSSIBLE__ 1 `composeS` singletonS 0 (Var $ n + 1)
+
+-- unit (tag v₁ v₂) ; λ tag x₁ x₂ →
+-- 〈t 〉
+-- >>>
+-- 〈t 〉[v₁ / 1, v₂ / 0]
+removeUnitBind (Unit (ConstantNode tag1 vs) `Bind` LAltConstantNode tag2 xs t)
+  | tag1 == tag2 =
+    let
+      arity = tagArity tag1
+      vs' = raise arity $ reverse vs
+      rho =
+        strengthenS __IMPOSSIBLE__ arity `composeS`
+        foldr composeS IdS (zipWith inplaceS [0 .. arity - 1] vs')
+    in
+    applySubst rho $ removeUnitBind t
+
+  | otherwise = __IMPOSSIBLE__
+
+
+          -- vs' = raise arity $ reverse vs
+          --
+          -- -- Substitute pattern variables by node variables
+          -- rho =
+          --   strengthenS __IMPOSSIBLE__ arity `composeS`
+          --   foldr composeS IdS (zipWith inplaceS [0 .. arity - 1] vs')
+
 removeUnitBind term = case term of
   Bind t alt    -> Bind (removeUnitBind t) (removeUnitBindLalt alt)
   Case n t alts -> Case n (removeUnitBind t) (map removeUnitBindCalt alts)
   _             -> term
 
 removeUnitBindLalt :: LAlt -> LAlt
-removeUnitBindLalt (LAltVar abs t)       = LAltVar abs $ removeUnitBind t
+removeUnitBindLalt (LAltVar abs t) = LAltVar abs $ removeUnitBind t
 removeUnitBindLalt (LAltConstantNode tag abss t) = LAltConstantNode tag abss $ removeUnitBind t
-removeUnitBindLalt (LAltLit lit t)       = LAltLit lit $ removeUnitBind t
-removeUnitBindLalt (LAltEmpty t)         = LAltEmpty $ removeUnitBind t
+removeUnitBindLalt (LAltVariableNode x abss t) = LAltVariableNode x abss $ removeUnitBind t
+removeUnitBindLalt (LAltLit lit t)= LAltLit lit $ removeUnitBind t
+removeUnitBindLalt (LAltEmpty t) = LAltEmpty $ removeUnitBind t
+removeUnitBindLalt (LAltTag tag t) = LAltTag tag $ removeUnitBind t
 
 removeUnitBindCalt :: CAlt -> CAlt
 removeUnitBindCalt (CAltConstantNode tag abss t) = CAltConstantNode tag abss $ removeUnitBind t
-removeUnitBindCalt (CAltLit lit t)       = CAltLit lit $ removeUnitBind t
+removeUnitBindCalt (CAltLit lit t) = CAltLit lit $ removeUnitBind t
+removeUnitBindCalt (CAltTag tag t) = CAltTag tag $ removeUnitBind t
 
 -- | Normalise the GRIN expression by making the expression right-skewed.
 normalise :: Term -> Term
@@ -656,13 +695,7 @@ normalise (Bind t1 alt1)
 normalise term = case term of
   Bind t alt    -> Bind (normalise t) (normaliseLalt alt)
   Case n t alts -> Case n (normalise t) (map normaliseCalt alts)
-  App{}         -> term
-  Unit{}        -> term
-  Store{}       -> term
-  Fetch{}       -> term
-  Update{}      -> term
-  Error{}       -> term
-  -- TODO missing
+  _             -> term
 
 normaliseLalt :: LAlt -> LAlt
 normaliseLalt (LAltVar abs t)       = LAltVar abs $ normalise t
@@ -876,6 +909,7 @@ simplifyCase term = term
 -- fetch p [1]; λ x₁ →
 -- fetch p [2]; λ x₂ →
 -- <t2>
+-- TODO returning fetch [Boquist 1999, p. 105]
 splitFetch :: Term -> Term
 splitFetch (FetchNode n `Bind` alt)
   | LAltVariableNode x xs t <- alt =
