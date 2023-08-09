@@ -4,9 +4,9 @@
 
 module Agda.Llvm.GrinInterpreter (module Agda.Llvm.GrinInterpreter) where
 
-import           Control.Monad             ((<=<))
+import           Control.Monad             (forM, (<=<))
 import           Control.Monad.Reader      (MonadReader, ReaderT (runReaderT),
-                                            local)
+                                            asks, local)
 import           Control.Monad.State       (MonadState, StateT, evalStateT)
 import           Data.Foldable             (find)
 import           Data.List                 (intercalate, singleton)
@@ -77,9 +77,22 @@ interpretGrin defs =
       loc <- heapInsert v
       stackFrameLocal abs (Loc loc) $ eval t2
 
-    eval (Fetch n mn) =
-      maybeM __IMPOSSIBLE__ (fromMaybeM __IMPOSSIBLE__ . heapLookup)
-        (stackFrameLookupLoc n)
+
+    eval fetch
+      | FetchNode n <- fetch = heapLookupLoc n
+      | FetchOffset n1 n2 <- fetch =
+        for (heapLookupLoc n1) $ \case
+            VTag tag
+              | n2 == 0 -> VTag tag
+            VNode tag vs
+              | n2 == 0 -> VTag tag
+              | otherwise -> fromMaybe Undefined $ vs !!! (n2 - 1)
+
+            _ -> __IMPOSSIBLE__
+      where
+        heapLookupLoc =
+          maybeM __IMPOSSIBLE__ (fromMaybeM __IMPOSSIBLE__ . heapLookup) .
+            stackFrameLookupLoc
 
     eval (Case t1 t2 alts `Bind` LAltVar abs t3) = do
       v <- evalCase t1 t2 alts
@@ -127,13 +140,17 @@ interpretGrin defs =
         VNode tag vs -> stackFrameLocals (x : xs) (VTag tag : vs) $ eval t2
         _            -> __IMPOSSIBLE__
 
+    eval (t1 `Bind` LAltTag tag1 t2) =
+      eval t1 >>= \case
+        VTag tag2 | tag2 == tag1 -> eval t2
+        _                        -> __IMPOSSIBLE__
+
     eval (App t ts) = evalApp t ts
     eval (Case v t alts) = evalCase v t alts
     eval (Unit v) = evalVal v
 
     eval Store{} = __IMPOSSIBLE__
-
-
+    eval Fetch{} = __IMPOSSIBLE__
     eval Update{} = __IMPOSSIBLE__
     eval Error{} = __IMPOSSIBLE__
     eval t@Bind{} = error $ "MISSING: " ++ prettyShow t
@@ -243,9 +260,9 @@ interpretGrin defs =
 
     stackFrameLookupLoc :: MonadReader Stack m => Int -> m (Maybe Loc)
     stackFrameLookupLoc n =
-      for (stackFrameLookup n) $ fmap $ \case
-        Loc loc -> loc
-        _       -> __IMPOSSIBLE__
+      for (stackFrameLookup n) $ (=<<) $ \case
+        Loc loc -> Just loc
+        _       -> Nothing
 
     stackFrameLocal :: MonadReader Stack m => Abs -> Value -> m a -> m a
     stackFrameLocal abs v = locally lensStackFrame ((abs, v) :)
@@ -267,8 +284,9 @@ interpretGrin defs =
     heapUpdate loc v = lensHeap %= Map.insert loc v
 
     deBruijnLookup :: MonadReader Stack m => Int -> m Abs
-    deBruijnLookup n =
-      fst . fromMaybe __IMPOSSIBLE__ . (!!! n) <$> view lensStackFrame
+    deBruijnLookup n = do
+      sf <- asks $ StackFrame . (^. lensStackFrame)
+      fst . fromMaybe (error $ "CANNOT FIND: " ++ show n ++ "\n" ++ prettyShow sf) . (!!! n) <$> view lensStackFrame
 
 trace' :: String -> a -> a
 trace' s = unsafePerformIO . (putStrLn s $>)

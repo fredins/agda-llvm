@@ -205,6 +205,16 @@ llvmPostCompile _ _ mods = do
   res_caseSimplified <- interpretGrin defs_caseSimplified
   liftIO $ putStrLn $ "\nResult: " ++ show res_caseSimplified
 
+  let defs_fetchSplit = map (updateGrTerm splitFetch) defs_caseSimplified
+  liftIO $ do
+    putStrLn "\n------------------------------------------------------------------------"
+    putStrLn "-- * Split fetch"
+    putStrLn "------------------------------------------------------------------------\n"
+    putStrLn $ intercalate "\n\n" $ map prettyShow defs_fetchSplit
+
+  res_fetchSplit <- interpretGrin defs_fetchSplit
+  liftIO $ putStrLn $ "\nResult: " ++ show res_fetchSplit
+
 
 -----------------------------------------------------------------------
 -- * GRIN code generation
@@ -585,7 +595,7 @@ inlineEval defs absCxt tagInfo =
             bindVarL' t1 t2 = t1 <&> \t1' ->  Bind t1' (LAltVar x3 t2) in
 
           -- Generated term
-          fetch n   `bindVarR'`
+          FetchNode n   `bindVarR'`
           caseOf    `bindVarL'`
           Update Nothing (n + 2) (Var 0) `BindEmpty`
           Unit (Var 0)
@@ -796,19 +806,22 @@ caseUpdateView _ = Nothing
 -- <t1> ; λ tag x₂ x₃ →
 -- <t2> [tag x₂ x₃ / x₁]
 -- TODO update taginfo
+-- TODO remove after: unit (Cnat x) ; λ x' →
 vectorize :: forall mf. MonadFresh Int mf => TagInfo -> Term -> mf Term
 vectorize tagInfo (t1 `Bind` LAltVar x1 t2)
   | Just tag <- singletonTag x1 tagInfo =
     let n = tagArity tag
         rho =
           inplaceS 0 (ConstantNode tag $ map Var $ downFrom n) `composeS`
-          raiseFromS 1 (n - 1) in
-    Bind t1 <$> laltConstantNode tag (applySubst rho t2)
-  | Just n <- lookupMaxArity x1 tagInfo =
+          raiseFromS 1 (n - 1) in do
+    t2' <- applySubst rho <$> vectorize tagInfo t2
+    Bind t1 <$> laltConstantNode tag t2'
+  | Just n <- lookupMaxArity x1 tagInfo = do
     let rho =
           inplaceS 0 (VariableNode n $ map Var $ downFrom n) `composeS`
-          raiseFromS 1 n in
-    Bind t1 <$> laltVariableNode n (applySubst rho t2)
+          raiseFromS 1 n
+    t2' <- applySubst rho <$> vectorize tagInfo t2
+    Bind t1 <$> laltVariableNode n t2'
 
 vectorize absCxt (t1 `Bind` alt) =
   let (mkAlt, t2) = splitLalt alt in do
@@ -839,7 +852,7 @@ vectorize _ t = pure t
 simplifyCase :: Term -> Term
 simplifyCase (Case v t alts)
   | ConstantNode tag vs <- v = Case (Tag tag) t' $ map (mkAlt vs) alts
-  | VariableNode n vs <- v = Case (Var n) t' $ map (mkAlt vs) alts
+  | VariableNode n vs <- v = Case (Var n) t' $ map (mkAlt $ Var n : vs) alts
   | otherwise =
     let go = (\(mkAlt, t) -> mkAlt $ simplifyCase t) . splitCalt in
     Case v t' $ map go alts
@@ -850,10 +863,14 @@ simplifyCase (Case v t alts)
       | arity <- tagArity tag
       , arity > 0 =
         let
+          vs' = raise arity $ reverse vs
+
           -- Substitute pattern variables by node variables
           rho =
-            foldr composeS IdS $
-            zipWith (liftS arity .: singletonS) [0 .. arity - 1] $ reverse vs
+            strengthenS __IMPOSSIBLE__ arity `composeS`
+            foldr composeS IdS (zipWith inplaceS [0 .. arity - 1] vs')
+
+
          in
          CAltTag tag $ applySubst rho $ simplifyCase t
     mkAlt _ alt = alt
@@ -868,8 +885,40 @@ simplifyCase term = term
 
 
 
--- splitFetch :: Term -> Term
--- splitFetch ()
+-- | Split fetch operations using offsets
+-- <t1>
+-- fetch p ; λ tag x₁ x₂ →
+-- <t2>
+-- >>>
+-- <t1>
+-- fetch p [0]; λ tag →
+-- fetch p [1]; λ x₁ →
+-- fetch p [2]; λ x₂ →
+-- <t2>
+splitFetch :: Term -> Term
+splitFetch (FetchNode n `Bind` alt)
+  | LAltVariableNode x xs t <- alt =
+    let mkFetch x m t = FetchOffset (n + m) m `Bind` LAltVar x t in
+    FetchOffset n 0 `Bind` LAltVar x
+    (mkFetchs xs t mkFetch)
+  | LAltConstantNode tag xs t <- alt =
+    let mkFetch x m t = FetchOffset (n + m - 1) m `Bind` LAltVar x t in
+    FetchOffset n 0 `Bind` LAltTag tag
+    (mkFetchs xs t mkFetch)
+  where
+    mkFetchs xs t f = foldr (uncurry f) t $ zip xs [1 ..]
+
+splitFetch (t1 `Bind` alt) =
+  splitFetch t1 `Bind` mkAlt (splitFetch t2)
+  where
+    (mkAlt, t2) = splitLalt alt
+
+splitFetch (Case v t alts) =
+    Case v (splitFetch t) $ map go alts
+  where
+    go = (\(mkAlt, t) -> mkAlt $ splitFetch t) . splitCalt
+
+splitFetch term = term
 
 
 

@@ -63,14 +63,13 @@ data Val = ConstantNode Tag [Val]
          | Prim TPrim
            deriving (Show, Eq)
 
+pattern FetchNode :: Int -> Term
+pattern FetchNode n = Fetch n Nothing
+pattern FetchOffset :: Int -> Int -> Term
+pattern FetchOffset n1 n2 = Fetch n1 (Just n2)
+
 store :: MonadFresh Int m => Val -> m Term
 store t = (`Store` t) <$> freshLoc
-
-fetch :: Int -> Term
-fetch n = Fetch n Nothing
-
-fetchOffset :: Int -> Int -> Term
-fetchOffset n = Fetch n . Just
 
 instance Unreachable Term where
   isUnreachable (Error TUnreachable) = True
