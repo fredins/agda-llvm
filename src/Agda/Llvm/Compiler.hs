@@ -881,10 +881,10 @@ splitFetch (FetchNode n `Bind` alt)
   | LAltVariableNode x xs t <- alt =
     let mkFetch x m t = FetchOffset (n + m) m `Bind` LAltVar x t in
     FetchOffset n 0 `Bind` LAltVar x
-    (mkFetchs xs t mkFetch)
+    (mkFetchs xs (splitFetch t) mkFetch)
   | LAltConstantNode tag xs t <- alt =
     let mkFetch x m t = FetchOffset (n + m - 1) m `Bind` LAltVar x t in
-    mkFetchs xs t mkFetch
+    mkFetchs xs (splitFetch t) mkFetch
   where
     mkFetchs xs t f = foldr (uncurry f) t $ zip xs [1 ..]
 
