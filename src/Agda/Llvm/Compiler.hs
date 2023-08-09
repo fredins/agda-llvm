@@ -493,18 +493,6 @@ valueToTags = \case
       Bas -> Nothing
       _ -> __IMPOSSIBLE__
 
-
-    -- lookupTagArity = lookup x1 (absCxt ^. lensAbsEnv) >>= \case
-    --   VNode tag _ -> Just tag.tArity
-    --   v@Union{} ->
-    --     let ns = forMaybe (valueToList v) $ \case
-    --                VNode tag _ -> Just tag.tArity
-    --                _           -> Nothing in
-    --     caseList ns Nothing $ \n ns -> Just $ maximum $ n : ns
-    --   Loc _ -> Nothing
-    --   Bas -> Nothing
-    --   _ -> __IMPOSSIBLE__
-
 type E m = ReaderT [Abs] (StateT TagInfo m)
 
 -- | Specialize and inline calls to eval
@@ -519,7 +507,6 @@ type E m = ReaderT [Abs] (StateT TagInfo m)
 --  update 2 0 ; λ () →
 --  unit 0
 -- ) ; λ x14 →
--- TODO need to update TagInformation
 inlineEval :: forall mf. MonadFresh Int mf
            => [GrinDefinition]
            -> AbstractContext
@@ -658,8 +645,6 @@ removeUnitBindCalt :: CAlt -> CAlt
 removeUnitBindCalt (CAltConstantNode tag abss t) = CAltConstantNode tag abss $ removeUnitBind t
 removeUnitBindCalt (CAltLit lit t)       = CAltLit lit $ removeUnitBind t
 
-
-
 -- | Normalise the GRIN expression by making the expression right-skewed.
 normalise :: Term -> Term
 normalise (Bind t1 alt1)
@@ -695,7 +680,6 @@ countBinders (LAltConstantNode _ abss _) = length abss
 countBinders LAltVar{}                   = 1
 countBinders LAltLit{}                   = 0
 countBinders LAltEmpty{}                 = 0
-
 
 -- TODO Fix returning eval [Boquist 1999, p. 95]
 specializeUpdate :: Term -> Term
@@ -758,8 +742,6 @@ specializeUpdateLalt (LAltConstantNode tag abss t) = LAltConstantNode tag abss $
 specializeUpdateLalt (LAltEmpty t)         = LAltEmpty $ specializeUpdate t
 specializeUpdateLalt (LAltLit lit t)       = LAltLit lit $ specializeUpdate t
 
-
-
 -- Preconditions: Normalised
 --
 -- update n₁ n₂ ; λ () →
@@ -796,7 +778,6 @@ caseUpdateView (Update Nothing n t1 `BindEmpty` t) = go IdS id t where
 
 
 caseUpdateView _ = Nothing
-
 
 -- | Replace all node variables by explicit nodes.
 --
@@ -903,8 +884,7 @@ splitFetch (FetchNode n `Bind` alt)
     (mkFetchs xs t mkFetch)
   | LAltConstantNode tag xs t <- alt =
     let mkFetch x m t = FetchOffset (n + m - 1) m `Bind` LAltVar x t in
-    FetchOffset n 0 `Bind` LAltTag tag
-    (mkFetchs xs t mkFetch)
+    mkFetchs xs t mkFetch
   where
     mkFetchs xs t f = foldr (uncurry f) t $ zip xs [1 ..]
 
