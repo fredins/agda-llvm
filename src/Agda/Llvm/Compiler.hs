@@ -9,27 +9,25 @@
 
 module Agda.Llvm.Compiler (module Agda.Llvm.Compiler) where
 
-import           Control.Applicative                (Applicative (liftA2))
-import           Control.DeepSeq                    (NFData)
-import           Control.Monad                      (forM, replicateM, (<=<))
-import           Control.Monad.IO.Class             (liftIO)
-import           Control.Monad.Reader               (MonadReader (local),
-                                                     ReaderT (runReaderT), asks)
-import           Control.Monad.State                (MonadState, State,
-                                                     StateT (runStateT),
-                                                     evalState, evalStateT,
-                                                     gets, modify)
-import           Data.Foldable                      (find, foldrM, toList)
-import           Data.Function                      (on)
-import           Data.List                          (intercalate, singleton)
-import           Data.Map                           (Map)
-import qualified Data.Map                           as Map
-import           Data.Set                           (Set)
-import qualified Data.Set                           as Set
-import           GHC.Generics                       (Generic)
-import           Prelude                            hiding ((!!))
+import           Control.Applicative            (Applicative (liftA2))
+import           Control.DeepSeq                (NFData)
+import           Control.Monad                  (forM, replicateM)
+import           Control.Monad.IO.Class         (liftIO)
+import           Control.Monad.Reader           (MonadReader (local),
+                                                 ReaderT (runReaderT), asks)
+import           Control.Monad.State            (StateT (runStateT), evalStateT,
+                                                 gets, modify)
+import           Data.Foldable                  (find, foldrM, toList)
+import           Data.Function                  (on)
+import           Data.List                      (intercalate, singleton)
+import           Data.Map                       (Map)
+import qualified Data.Map                       as Map
+import           Data.Set                       (Set)
+import qualified Data.Set                       as Set
+import           GHC.Generics                   (Generic)
+import           Prelude                        hiding ((!!))
 
-import           Agda.Compiler.Backend              hiding (Prim, initEnv)
+import           Agda.Compiler.Backend          hiding (Prim, initEnv)
 import           Agda.Interaction.Options
 import           Agda.Syntax.Common.Pretty
 import           Agda.Syntax.TopLevelModuleName
@@ -37,20 +35,17 @@ import           Agda.TypeChecking.Substitute
 import           Agda.Utils.Functor
 import           Agda.Utils.Impossible
 import           Agda.Utils.List
-import           Agda.Utils.List1                   (List1, pattern (:|))
-import qualified Agda.Utils.List1                   as List1
+import           Agda.Utils.List1               (List1, pattern (:|))
+import qualified Agda.Utils.List1               as List1
 import           Agda.Utils.Maybe
 
 import           Agda.Llvm.Grin
-import           Agda.Llvm.GrinInterpreter          (interpretGrin)
+import           Agda.Llvm.GrinInterpreter      (interpretGrin)
 import           Agda.Llvm.HeapPointsTo
 import           Agda.Llvm.TreelessTransform
 import           Agda.Llvm.Utils
-import           Agda.TypeChecking.SizedTypes.Utils (trace)
-import           Agda.Utils.Function                (applyWhen)
 import           Agda.Utils.Lens
-import           Agda.Utils.Monad                   (forMM)
-import           GHC.IO                             (unsafePerformIO)
+import           GHC.IO                         (unsafePerformIO)
 
 
 llvmBackend :: Backend
@@ -566,12 +561,7 @@ inlineEval defs absCxt tagInfo =
         genEval n x $ mkTagSet x
       Case i t alts            -> liftA2 (Case i) (go t) (mapM goCalt alts)
       Bind t alt               -> liftA2 Bind (go t) (goLalt alt)
-      App _ _                  -> pure term
-      Store _ _                -> pure term
-      Unit _                   -> pure term
-      Fetch _                  -> pure term
-      Update{}                 -> pure term
-      Error _                  -> pure term
+      _ -> pure term
 
     goLalt :: LAlt -> E mf LAlt
     goLalt (LAltEmpty t)         = LAltEmpty <$> go t
@@ -586,16 +576,19 @@ inlineEval defs absCxt tagInfo =
     genEval :: Int -> Abs -> Set Tag -> E mf Term
     genEval n x1 tagSet = do
         x2 <- freshAbs
-        let
-          infixr 2 `bindVarL'`
-          bindVarL' t1 t2 = t1 <&> \t1' ->  Bind t1' (LAltVar x2 t2)
-          term =
-            Fetch n    `bindVarR`
-            caseOf    `bindVarL'`
-            Update Nothing (n + 2) (Var 0) `BindEmpty`
-            Unit (Var 0)
-        modify (tagInfoInsert x2 tagSet)
-        term
+        x3 <- freshAbs
+        modify (tagInfoInsert x2 $ Set.fromList $ toList $ collectTags x1)
+        modify (tagInfoInsert x3 tagSet)
+
+        let infixr 2 `bindVarL'`, `bindVarR'`
+            bindVarR' t1 t2 = t2 <&> \t2' ->  Bind t1 (LAltVar x2 t2')
+            bindVarL' t1 t2 = t1 <&> \t1' ->  Bind t1' (LAltVar x3 t2) in
+
+          -- Generated term
+          fetch n   `bindVarR'`
+          caseOf    `bindVarL'`
+          Update Nothing (n + 2) (Var 0) `BindEmpty`
+          Unit (Var 0)
 
       where
         caseOf :: E mf Term
@@ -643,13 +636,7 @@ removeUnitBind (Unit (Var n) `Bind` LAltVar abs t) =
 removeUnitBind term = case term of
   Bind t alt    -> Bind (removeUnitBind t) (removeUnitBindLalt alt)
   Case n t alts -> Case n (removeUnitBind t) (map removeUnitBindCalt alts)
-  App{}         -> term
-  Unit{}        -> term
-  Store{}       -> term
-  Fetch{}       -> term
-  Update{}      -> term
-  Error{}       -> term
-  _             -> error "TODO"
+  _             -> term
 
 removeUnitBindLalt :: LAlt -> LAlt
 removeUnitBindLalt (LAltVar abs t)       = LAltVar abs $ removeUnitBind t
@@ -862,9 +849,13 @@ simplifyCase (Case v t alts)
     mkAlt vs (CAltConstantNode tag xs t)
       | arity <- tagArity tag
       , arity > 0 =
-        let rho =
-              foldr composeS IdS $ zipWith (liftS 2 .: singletonS) [0 ..] $ reverse vs in
-           CAltTag tag $ applySubst rho $ simplifyCase t
+        let
+          -- Substitute pattern variables by node variables
+          rho =
+            foldr composeS IdS $
+            zipWith (liftS arity .: singletonS) [0 .. arity - 1] $ reverse vs
+         in
+         CAltTag tag $ applySubst rho $ simplifyCase t
     mkAlt _ alt = alt
 
 simplifyCase (t1 `Bind` alt) =
@@ -873,6 +864,16 @@ simplifyCase (t1 `Bind` alt) =
     (mkAlt, t2) = splitLalt alt
 
 simplifyCase term = term
+
+
+
+
+-- splitFetch :: Term -> Term
+-- splitFetch ()
+
+
+
+
 
 -----------------------------------------------------------------------
 -- * LLVM code generation

@@ -5,11 +5,9 @@
 module Agda.Llvm.GrinInterpreter (module Agda.Llvm.GrinInterpreter) where
 
 import           Control.Monad             ((<=<))
-import           Control.Monad.Reader      (MonadReader, Reader,
-                                            ReaderT (runReaderT), ask, asks,
-                                            local, runReader)
-import           Control.Monad.State       (MonadState, StateT, evalStateT, get,
-                                            gets, modify)
+import           Control.Monad.Reader      (MonadReader, ReaderT (runReaderT),
+                                            local)
+import           Control.Monad.State       (MonadState, StateT, evalStateT)
 import           Data.Foldable             (find)
 import           Data.List                 (intercalate, singleton)
 import           Data.Map                  (Map)
@@ -79,11 +77,9 @@ interpretGrin defs =
       loc <- heapInsert v
       stackFrameLocal abs (Loc loc) $ eval t2
 
-    eval (Fetch n `Bind` LAltVar abs t) = do
-      heap <- use lensHeap
-      v <- fromMaybeM __IMPOSSIBLE__ . heapLookup =<<
-           fromMaybeM __IMPOSSIBLE__ (stackFrameLookupLoc n)
-      stackFrameLocal abs v $ eval t
+    eval (Fetch n mn) =
+      maybeM __IMPOSSIBLE__ (fromMaybeM __IMPOSSIBLE__ . heapLookup)
+        (stackFrameLookupLoc n)
 
     eval (Case t1 t2 alts `Bind` LAltVar abs t3) = do
       v <- evalCase t1 t2 alts
@@ -136,7 +132,8 @@ interpretGrin defs =
     eval (Unit v) = evalVal v
 
     eval Store{} = __IMPOSSIBLE__
-    eval Fetch{} = __IMPOSSIBLE__
+
+
     eval Update{} = __IMPOSSIBLE__
     eval Error{} = __IMPOSSIBLE__
     eval t@Bind{} = error $ "MISSING: " ++ prettyShow t
@@ -162,9 +159,10 @@ interpretGrin defs =
         let
           evalNat = \case
               BasNat i -> pure i
-              VNode tag [BasNat i] | tag == natTag -> pure i
+              -- Tail can be undefined ⊥
+              VNode tag (BasNat i : _) | tag == natTag -> pure i
               Loc loc  -> evalNat . fromMaybe __IMPOSSIBLE__ =<< heapLookup loc
-              _        -> __IMPOSSIBLE__ in
+              v        -> error $ "EVALAPP: " ++ show v in
         BasNat . runPrim prim <$> mapM (evalNat <=< evalVal) vs
 
       | Def name <- v1 =

@@ -48,7 +48,7 @@ data Term = Bind Term LAlt
           | App Val [Val] -- List1
           | Unit Val
           | Store Loc Val
-          | Fetch Int
+          | Fetch Int (Maybe Int)
           | Update (Maybe Tag) Int Val
           | Error TError
             deriving (Show, Eq)
@@ -65,6 +65,12 @@ data Val = ConstantNode Tag [Val]
 
 store :: MonadFresh Int m => Val -> m Term
 store t = (`Store` t) <$> freshLoc
+
+fetch :: Int -> Term
+fetch n = Fetch n Nothing
+
+fetchOffset :: Int -> Int -> Term
+fetchOffset n = Fetch n . Just
 
 instance Unreachable Term where
   isUnreachable (Error TUnreachable) = True
@@ -210,8 +216,8 @@ applySubstTerm rho term = case term of
   Case t1 t2 alts -> Case (applySubst rho t1) (applySubst rho t2) (applySubst rho alts)
   Unit t -> Unit (applySubst rho t)
   Store loc v -> Store loc (applySubst rho v)
-  Fetch n
-    | Var n' <- lookupS rho n -> Fetch n'
+  Fetch n mn
+    | Var n' <- lookupS rho n -> Fetch n' mn
     | otherwise -> __IMPOSSIBLE__
   Update tag n t
     | Var n' <- lookupS rho n -> Update tag n' (applySubst rho t)
@@ -321,8 +327,9 @@ instance Pretty Term where
         applyWhen (not $ isUnreachable def)
         (++ [text "_ →" <+> nest 2 (pretty def)]) $ map pretty alts
       ]
-
-  pretty (Fetch v) = text "fetch" <+> pretty v
+  pretty (Fetch v mn)
+    | Just n <- mn = text "fetch" <+> pretty v <+> brackets (pretty n)
+    | otherwise = text "fetch" <+> pretty v
   pretty (Update Nothing v1 v2)
     | ConstantNode{} <- v2 = text "update" <+> pretty v1 <+> parens (pretty v2)
     | VariableNode{} <- v2 = text "update" <+> pretty v1 <+> parens (pretty v2)
