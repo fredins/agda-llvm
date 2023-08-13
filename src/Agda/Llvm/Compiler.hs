@@ -1,6 +1,3 @@
-{-# OPTIONS_GHC -Wno-name-shadowing -Wno-unused-matches -Wno-unused-binds #-}
-
-{-# LANGUAGE DeriveAnyClass           #-}
 {-# LANGUAGE DuplicateRecordFields    #-}
 {-# LANGUAGE NondecreasingIndentation #-}
 {-# LANGUAGE OverloadedRecordDot      #-}
@@ -9,25 +6,25 @@
 
 module Agda.Llvm.Compiler (module Agda.Llvm.Compiler) where
 
-import           Control.Applicative            (Applicative (liftA2))
-import           Control.DeepSeq                (NFData)
-import           Control.Monad                  (forM, replicateM)
-import           Control.Monad.IO.Class         (liftIO)
-import           Control.Monad.Reader           (MonadReader (local),
-                                                 ReaderT (runReaderT), asks)
-import           Control.Monad.State            (StateT (runStateT), evalStateT,
-                                                 gets, modify)
-import           Data.Foldable                  (find, foldrM, toList)
-import           Data.Function                  (on)
-import           Data.List                      (intercalate, singleton)
-import           Data.Map                       (Map)
-import qualified Data.Map                       as Map
-import           Data.Set                       (Set)
-import qualified Data.Set                       as Set
-import           GHC.Generics                   (Generic)
-import           Prelude                        hiding ((!!))
+import           Control.Applicative              (Applicative (liftA2))
+import           Control.DeepSeq                  (NFData)
+import           Control.Monad                    (forM, replicateM, zipWithM)
+import           Control.Monad.IO.Class           (liftIO)
+import           Control.Monad.Reader             (MonadReader (local),
+                                                   ReaderT (runReaderT), asks)
+import           Control.Monad.State              (StateT (runStateT),
+                                                   evalStateT, gets, modify)
+import           Data.Foldable                    (find, foldlM, foldrM, toList)
+import           Data.Function                    (on)
+import           Data.List                        (intercalate, singleton)
+import           Data.Map                         (Map)
+import qualified Data.Map                         as Map
+import           Data.Set                         (Set)
+import qualified Data.Set                         as Set
+import           GHC.Generics                     (Generic)
+import           Prelude                          hiding ((!!))
 
-import           Agda.Compiler.Backend          hiding (Prim, initEnv)
+import           Agda.Compiler.Backend            hiding (Prim, initEnv)
 import           Agda.Interaction.Options
 import           Agda.Syntax.Common.Pretty
 import           Agda.Syntax.TopLevelModuleName
@@ -35,17 +32,22 @@ import           Agda.TypeChecking.Substitute
 import           Agda.Utils.Functor
 import           Agda.Utils.Impossible
 import           Agda.Utils.List
-import           Agda.Utils.List1               (List1, pattern (:|))
-import qualified Agda.Utils.List1               as List1
+import           Agda.Utils.List1                 (List1, pattern (:|), (<|))
+import qualified Agda.Utils.List1                 as List1
 import           Agda.Utils.Maybe
 
 import           Agda.Llvm.Grin
-import           Agda.Llvm.GrinInterpreter      (interpretGrin)
+import           Agda.Llvm.GrinInterpreter        (interpretGrin)
 import           Agda.Llvm.HeapPointsTo
 import           Agda.Llvm.TreelessTransform
 import           Agda.Llvm.Utils
+import           Agda.TypeChecking.CompiledClause (WithArity (arity))
+import           Agda.Utils.Applicative           (forA)
+import           Agda.Utils.Function              (applyWhen, applyWhenM)
 import           Agda.Utils.Lens
-import           GHC.IO                         (unsafePerformIO)
+import           Agda.Utils.Monad                 (forMaybeM, mapMM, mapMaybeM)
+import           Data.Bifunctor                   (Bifunctor (first))
+import           GHC.IO                           (unsafePerformIO)
 
 
 llvmBackend :: Backend
@@ -223,6 +225,16 @@ llvmPostCompile _ _ mods = do
 
   res_removeUnit <- interpretGrin defs_removeUnit
   liftIO $ putStrLn $ "\nResult: " ++ show res_removeUnit
+
+  defs_rightHoistedFetch <- mapM (lensGrTerm rightHoistFetch) defs_removeUnit
+  liftIO $ do
+    putStrLn "\n------------------------------------------------------------------------"
+    putStrLn "-- * Right hoist fetch"
+    putStrLn "------------------------------------------------------------------------\n"
+    putStrLn $ intercalate "\n\n" $ map prettyShow defs_rightHoistedFetch
+
+  res_rightHoistedFetch <- interpretGrin defs_rightHoistedFetch
+  liftIO $ putStrLn $ "\nResult: " ++ show res_rightHoistedFetch
 
 
 
@@ -574,34 +586,54 @@ inlineEval defs absCxt tagInfo =
     goLalt (LAltEmpty t)         = LAltEmpty <$> go t
     goLalt (LAltVar abs t)       = LAltVar abs <$> localAbs abs (go t) -- FIXME need to assign this abs
     goLalt (LAltConstantNode tag abss t) = LAltConstantNode tag abss <$> localAbss abss (go t)
-    goLalt (LAltLit lit t)       = LAltLit lit <$> go t
 
     goCalt :: CAlt -> E mf CAlt
     goCalt (CAltConstantNode tag abss t) = CAltConstantNode tag abss <$> localAbss abss (go t)
     goCalt (CAltLit lit t)       = CAltLit lit <$> go t
 
+
     genEval :: Int -> Abs -> Set Tag -> E mf Term
-    genEval n x1 tagSet = do
+    genEval n x1 tagSet
+      | tag :| [] <- collectTags x1 = do
+
         x2 <- freshAbs
+        modify (tagInfoInsert x2 tagSet)
+
+        body <- genBody tag
+
+        let infixr 2 `bindConstantNode`, `bindVar'`
+            bindConstantNode t1 t2 = Bind t1 <$> laltConstantNode tag t2
+            bindVar' t1 t2 = t1 `Bind` LAltVar x2 t2 in
+
+          -- Generated term
+          FetchNode n                    `bindConstantNode`
+          body                           `bindVar'`
+          Update Nothing (n + 2) (Var 0) `BindEmpty`
+          Unit (Var 0)
+
+      | otherwise = do
+
+        let tags = collectTags x1
+        x2 <- freshAbs
+        modify (tagInfoInsert x2 $ Set.fromList $ toList tags)
+
         x3 <- freshAbs
-        modify (tagInfoInsert x2 $ Set.fromList $ toList $ collectTags x1)
         modify (tagInfoInsert x3 tagSet)
 
         let infixr 2 `bindVarL'`, `bindVarR'`
-            bindVarR' t1 t2 = t2 <&> \t2' ->  Bind t1 (LAltVar x2 t2')
-            bindVarL' t1 t2 = t1 <&> \t1' ->  Bind t1' (LAltVar x3 t2) in
+            bindVarR' t1 t2 = t2 <&> \t2' ->  t1 `Bind` LAltVar x2 t2'
+            bindVarL' t1 t2 = t1 <&> \t1' ->  t1' `Bind` LAltVar x3 t2
+            caseOf =
+              Case (Var 0) unreachable . toList <$>
+              forM tags (\tag -> caltConstantNode tag =<< genBody tag) in
 
           -- Generated term
-          FetchNode n   `bindVarR'`
-          caseOf    `bindVarL'`
+          FetchNode n                    `bindVarR'`
+          caseOf                         `bindVarL'`
           Update Nothing (n + 2) (Var 0) `BindEmpty`
           Unit (Var 0)
 
       where
-        caseOf :: E mf Term
-        caseOf =
-          Case (Var 0) unreachable . toList <$>
-          forM (collectTags x1) (\tag -> caltConstantNode tag =<< genBody tag)
 
         genBody :: Tag -> E mf Term
         genBody FTag{tDef, tArity}
@@ -614,7 +646,10 @@ inlineEval defs absCxt tagInfo =
             App prim ts `bindVar`
             Unit (ConstantNode natTag [Var 0])
 
-        genBody CTag{tArity} = pure $ Unit $ Var tArity
+        genBody tag@CTag{tArity}
+          | tArity == 0 = pure $ Unit $ Tag tag
+          | otherwise = pure $ Unit $ ConstantNode tag $ map Var $ downFrom tArity
+
         genBody PTag{} = error "TODO"
 
     collectTags :: Abs -> List1 Tag
@@ -639,7 +674,7 @@ removeUnitBind :: Term -> Term
 removeUnitBind (Unit (Var n) `Bind` LAltVar abs t) =
     applySubst rho $ removeUnitBind t
   where
-    rho = strengthenS __IMPOSSIBLE__ 1 `composeS` singletonS 0 (Var $ n + 1)
+    rho = strengthenS impossible 1 `composeS` singletonS 0 (Var $ n + 1)
 
 -- unit (tag v₁ v₂) ; λ tag x₁ x₂ →
 -- 〈t 〉
@@ -651,20 +686,12 @@ removeUnitBind (Unit (ConstantNode tag1 vs) `Bind` LAltConstantNode tag2 xs t)
       arity = tagArity tag1
       vs' = raise arity $ reverse vs
       rho =
-        strengthenS __IMPOSSIBLE__ arity `composeS`
+        strengthenS impossible arity `composeS`
         foldr composeS IdS (zipWith inplaceS [0 .. arity - 1] vs')
     in
     applySubst rho $ removeUnitBind t
 
   | otherwise = __IMPOSSIBLE__
-
-
-          -- vs' = raise arity $ reverse vs
-          --
-          -- -- Substitute pattern variables by node variables
-          -- rho =
-          --   strengthenS __IMPOSSIBLE__ arity `composeS`
-          --   foldr composeS IdS (zipWith inplaceS [0 .. arity - 1] vs')
 
 removeUnitBind term = case term of
   Bind t alt    -> Bind (removeUnitBind t) (removeUnitBindLalt alt)
@@ -675,9 +702,7 @@ removeUnitBindLalt :: LAlt -> LAlt
 removeUnitBindLalt (LAltVar abs t) = LAltVar abs $ removeUnitBind t
 removeUnitBindLalt (LAltConstantNode tag abss t) = LAltConstantNode tag abss $ removeUnitBind t
 removeUnitBindLalt (LAltVariableNode x abss t) = LAltVariableNode x abss $ removeUnitBind t
-removeUnitBindLalt (LAltLit lit t)= LAltLit lit $ removeUnitBind t
 removeUnitBindLalt (LAltEmpty t) = LAltEmpty $ removeUnitBind t
-removeUnitBindLalt (LAltTag tag t) = LAltTag tag $ removeUnitBind t
 
 removeUnitBindCalt :: CAlt -> CAlt
 removeUnitBindCalt (CAltConstantNode tag abss t) = CAltConstantNode tag abss $ removeUnitBind t
@@ -700,7 +725,6 @@ normalise term = case term of
 normaliseLalt :: LAlt -> LAlt
 normaliseLalt (LAltVar abs t)       = LAltVar abs $ normalise t
 normaliseLalt (LAltConstantNode tag abss t) = LAltConstantNode tag abss $ normalise t
-normaliseLalt (LAltLit lit t)       = LAltLit lit $ normalise t
 normaliseLalt (LAltEmpty t)         = LAltEmpty $ normalise t
 
 
@@ -711,7 +735,6 @@ normaliseCalt (CAltLit lit t)       = CAltLit lit $ normalise t
 countBinders :: LAlt -> Int
 countBinders (LAltConstantNode _ abss _) = length abss
 countBinders LAltVar{}                   = 1
-countBinders LAltLit{}                   = 0
 countBinders LAltEmpty{}                 = 0
 
 -- TODO Fix returning eval [Boquist 1999, p. 95]
@@ -773,7 +796,6 @@ specializeUpdateLalt :: LAlt -> LAlt
 specializeUpdateLalt (LAltVar abs t)       = LAltVar abs $ specializeUpdate t
 specializeUpdateLalt (LAltConstantNode tag abss t) = LAltConstantNode tag abss $ specializeUpdate t
 specializeUpdateLalt (LAltEmpty t)         = LAltEmpty $ specializeUpdate t
-specializeUpdateLalt (LAltLit lit t)       = LAltLit lit $ specializeUpdate t
 
 -- Preconditions: Normalised
 --
@@ -807,7 +829,6 @@ caseUpdateView (Update Nothing n t1 `BindEmpty` t) = go IdS id t where
   goLalt rho m (LAltConstantNode tag abss t) =
     go (raiseS tag.tArity `composeS` rho) (m . LAltConstantNode tag abss) t
   goLalt rho m (LAltEmpty t) = go rho (m . LAltEmpty) t
-  goLalt _ _ LAltLit{} = __IMPOSSIBLE__
 
 
 caseUpdateView _ = Nothing
@@ -820,22 +841,22 @@ caseUpdateView _ = Nothing
 -- <t1> ; λ tag x₂ x₃ →
 -- <t2> [tag x₂ x₃ / x₁]
 -- TODO update taginfo
--- TODO remove after: unit (Cnat x) ; λ x' →
 vectorize :: forall mf. MonadFresh Int mf => TagInfo -> Term -> mf Term
 vectorize tagInfo (t1 `Bind` LAltVar x1 t2)
-  | Just tag <- singletonTag x1 tagInfo =
-    let n = tagArity tag
-        rho =
-          inplaceS 0 (ConstantNode tag $ map Var $ downFrom n) `composeS`
-          raiseFromS 1 (n - 1) in do
+  | Just tag <- singletonTag x1 tagInfo = do
+    let
+      arity = tagArity tag
+      rho =
+        inplaceS 0 (ConstantNode tag $ map Var $ downFrom arity) `composeS`
+        raiseFromS 1 (arity - 1)
     t2' <- applySubst rho <$> vectorize tagInfo t2
     Bind t1 <$> laltConstantNode tag t2'
-  | Just n <- lookupMaxArity x1 tagInfo = do
+  | Just arity <- lookupMaxArity x1 tagInfo = do
     let rho =
-          inplaceS 0 (VariableNode n $ map Var $ downFrom n) `composeS`
-          raiseFromS 1 n
+          inplaceS 0 (VariableNode arity $ map Var $ downFrom arity) `composeS`
+          raiseFromS 1 arity
     t2' <- applySubst rho <$> vectorize tagInfo t2
-    Bind t1 <$> laltVariableNode n t2'
+    Bind t1 <$> laltVariableNode arity t2'
 
 vectorize absCxt (t1 `Bind` alt) =
   let (mkAlt, t2) = splitLalt alt in do
@@ -852,7 +873,6 @@ vectorize absCxt (Case v t alts) = do
 
 vectorize _ t = pure t
 
-
 --
 -- <t1>
 -- case tag x₁ x₂ of
@@ -866,7 +886,7 @@ vectorize _ t = pure t
 simplifyCase :: Term -> Term
 simplifyCase (Case v t alts)
   | ConstantNode tag vs <- v = Case (Tag tag) t' $ map (mkAlt vs) alts
-  | VariableNode n vs <- v = Case (Var n) t' $ map (mkAlt $ Var n : vs) alts
+  | VariableNode n vs <- v = Case (Var n) t' $ map (mkAlt vs) alts
   | otherwise =
     let go = (\(mkAlt, t) -> mkAlt $ simplifyCase t) . splitCalt in
     Case v t' $ map go alts
@@ -877,16 +897,15 @@ simplifyCase (Case v t alts)
       | arity <- tagArity tag
       , arity > 0 =
         let
-          vs' = raise arity $ reverse vs
+          vs' = raise arity $ reverse $ take arity vs
 
           -- Substitute pattern variables by node variables
           rho =
-            strengthenS __IMPOSSIBLE__ arity `composeS`
+            strengthenS impossible arity `composeS`
             foldr composeS IdS (zipWith inplaceS [0 .. arity - 1] vs')
-
-
          in
          CAltTag tag $ applySubst rho $ simplifyCase t
+      | otherwise = CAltTag tag t
     mkAlt _ alt = alt
 
 simplifyCase (t1 `Bind` alt) =
@@ -934,10 +953,223 @@ splitFetch (Case v t alts) =
 
 splitFetch term = term
 
+-- fetch1 :: Term
+-- fetch1 = FetchOffset 1 1
+-- fetch2 :: Term
+-- fetch2 = FetchOffset 2 2
+--
+-- term :: Term
+-- term =
+--   fetch1 `Bind` LAltVar (MkAbs $ Gid 10)
+--   (fetch2 `Bind` LAltVar (MkAbs $ Gid 11)
+--   (Case (Var 3) unreachable
+--     [ CAltTag natTag (Unit (ConstantNode natTag [Var 1]))
+--
+--     ]))
+
+-- Preconditions: Normalised
+--
+-- fetch p [0] ; λ tag →
+-- fetch p [1] ; λ x₁ →
+-- fetch p [2] ; λ x₂ →
+-- <m1>
+-- case tag of
+--   Cnil  → <m2>
+--   Ccons → <m3>
+--
+-- >>>
+--
+-- fetch p [0] ; λ tag →
+-- <m1>
+-- case tag of
+--   Cnil  → <m2>
+--   Ccons → fetch p [1] ; λ y₁ →
+--           fetch p [2] ; λ y₂ →
+--           <m3> [y₁ / x₁, y₂ / x₂]
+--
+
+
+-- rightHoistFetch :: forall mf. MonadFresh Int mf => Term -> mf Term
+-- rightHoistFetch term@(FetchOffset n1 0 `Bind` LAltVar x1 t1) = do
+--
+--   let ((xs, x), fs) = first List1.initLast $ gatherFetches (x1 :| []) [] t1
+--
+--   -- go [x2, x1] t >>= \case
+--   --   Nothing -> undefined
+--   undefined
+--
+--   where
+--     gatherFetches xs fs (FetchOffset n1' offset `Bind` LAltVar x t)
+--       | Just x' <- xs !!! n1'
+--       , x' == x = undefined
+--         gatherFetches (x <| xs) (FetchOffset n1' offset : fs) t
+--     gatherFetches xs fs _ = (xs, fs)
+--
+--     findCase xs (Case (Var n1') t alts)
+--       | n1' - len
+--
+--
+--     go xs (Case (Var n1'') t alts)
+--       | Just x1' <- xs !!! n1''
+--       , x1' == x1 = do
+--         trace' "CASE FOUND" pure ()
+--         (fmap . fmap) (Case (Var n1'') t) (updateAlts xs alts)
+--
+--     go xs1 (Bind t1 (splitLaltWithAbss -> (mkAlt, t2, xs2))) = do
+--       ifJustM (go xs1 t1)
+--         (\t1' -> pure $ Just $ t1' `Bind` mkAlt t2) $
+--         (fmap . fmap) (Bind t1 . mkAlt) (go (xs1 ++ xs2) t2)
+--
+--     go xs _ = pure Nothing
+--
+--     updateAlts  :: [Abs] -> [CAlt] -> mf (Maybe [CAlt])
+--     updateAlts xs alts = do
+--       alts' <- forA alts $ \(splitCalt -> (mkAlt, t)) -> mkAlt <$> prependFetchOnUse xs t
+--       trace' ("UPDATEALTS: " ++ prettyShow (FetchOffset n1' offset `Bind` LAltVar x2 unreachable)) pure ()
+--       trace' ("ALTS: " ++ prettyShow alts) pure ()
+--       trace' ("ALTS': " ++ prettyShow alts') pure ()
+--       let any_unchanged = or $ zipWith (==) alts alts'
+--       pure $ boolToMaybe any_unchanged alts'
+--
+--     prependFetchOnUse :: [Abs] -> Term -> mf Term
+--     prependFetchOnUse xs1 (Bind t1 (splitLaltWithAbss -> (mkAlt, t2, xs2)))
+--       | usesX1 xs1 t1 =
+--         prependFetch xs1 (t1 `Bind` mkAlt t2)
+--       | otherwise =
+--         Bind t1 . mkAlt <$> prependFetchOnUse (xs1 ++ xs2) t2
+--
+--     prependFetchOnUse xs t1
+--       | usesX1 xs t1 = prependFetch xs t1
+--       | otherwise = pure t1 -- Return unchanged
+--
+--     prependFetch :: [Abs] -> Term -> mf Term
+--     prependFetch xs t =  FetchOffset (n1 + length xs - 2) offset `bindVar` raise 1 t
+--
+--     usesX1 xs = \case
+--         App v vs        -> any (valIsX1 xs) (v : vs)
+--         Store _ v       -> valIsX1 xs v
+--         Unit v          -> valIsX1 xs v
+--         Update _ n v    -> isX1 xs n || valIsX1 xs v
+--         Error _         -> False
+--         FetchOffset n _ -> isX1 xs n
+--         Bind{}          -> __IMPOSSIBLE__
+--         Case{}          -> __IMPOSSIBLE__
+--         Fetch{}         -> __IMPOSSIBLE__
+--       where
+--         valIsX1 xs (Var n) = isX1 xs n
+--         valIsX1 _   _      = False
+--
+--         isX1 xs n
+--           | Just x1' <- xs !!! n = x1' == x1
+--           | otherwise = False
+--
+--
+--
+--
+--
+-- rightHoistFetch (FetchOffset n1 offset `Bind` LAltVar x t2) | offset > 0 = do
+--     t2' <- rightHoistFetch t2
+--     let rho = liftS 1 $ wkS 1 IdS
+--
+--     go [x] rho t2' >>= \case
+--       Nothing -> pure $ FetchOffset n1 offset `Bind` LAltVar x t2'
+--       Just t2'' -> do
+--         trace' ("NEED TO STRENGTHEN:\n" ++ prettyShow t2'' ++ "\n") pure ()
+--         -- trace' ("STRENGTHENED:\n" ++ prettyShow (strengthen impossible t2'') ++ "\n") pure ()
+--         pure $
+--         -- strengthen impossible
+--          t2''
 
 
 
 
+
+
+-- FIXME
+
+--     maybe (FetchOffset n1 offset `Bind` LAltVar x t2')
+-- --      (trace' "SHOULD STRENGTHEN")
+--       (\t ->
+--         trace' ("STRENGTHEN:\n" ++ prettyShow t)
+--      -- strengthen impossible
+--         t
+--
+--       )
+--       <$> go rho t2'
+
+--   where
+--     go :: [Abs] -> Substitution' (SubstArg Val) -> Term -> mf (Maybe Term)
+--     go xs rho (Case (Var n2) t1 alts) | length xs + 1 == n1 = do
+--       trace' "CASE FOUND" pure ()
+--       (fmap . fmap) (Case (Var n2) t1) (updateAlts xs rho alts)
+--
+--     go xs1 rho (Bind t1 (splitLaltWithAbss -> (mkAlt, t2, xs2))) = do
+--       ifJustM (go xs1 rho t1)
+--         (\t1' -> pure $ Just $ t1' `Bind` mkAlt t2) $
+--
+--         let
+--           n = length xs2
+--           rho' = liftS n $ wkS n rho in
+--         (fmap . fmap) (Bind t1 . mkAlt) (go (xs1 ++ xs2) rho' t2)
+--
+--     go xs _ _ = pure Nothing
+--
+--     -- Prepend a new `fetch ; λ x →` operation in all alternatives that uses `x`.
+--     -- Return `Nothing` if `x` is used by all alternatives.
+--     updateAlts :: [Abs] -> Substitution' (SubstArg Val) -> [CAlt] -> mf (Maybe [CAlt])
+--     updateAlts xs rho alts = do
+--       alts' <- forA alts $ \(splitCaltAbss -> (mkAlt, t, [])) -> mkAlt <$> prependFetchOnUse xs rho t
+--       trace' ("UPDATEALTS: " ++ prettyShow (FetchOffset n1 offset `Bind` LAltVar x unreachable)) pure ()
+--       trace' ("ALTS: " ++ prettyShow alts) pure ()
+--       trace' ("ALTS': " ++ prettyShow alts') pure ()
+--       let any_unchanged = or $ zipWith (==) alts alts'
+--       pure $ boolToMaybe any_unchanged alts'
+--
+--     prependFetchOnUse :: [Abs] -> Substitution' (SubstArg Val) -> Term -> mf Term
+--     prependFetchOnUse xs1 rho (Bind t1 (splitLaltWithAbss -> (mkAlt, t2, xs2)))
+--       | usesX xs1 t1 =
+--         prependFetch rho (t1 `Bind` mkAlt t2)
+--       | otherwise =
+--         let n = length xs2
+--             rho' = liftS n $ wkS n rho in
+--         Bind t1 . mkAlt <$> prependFetchOnUse (xs1 ++ xs2) rho' t2
+--
+--     prependFetchOnUse xs rho t1
+--       | usesX xs t1 = prependFetch rho t1
+--       | otherwise = pure t1 -- Return unchanged
+--
+--     prependFetch :: Substitution' Val -> Term -> mf Term
+--     prependFetch rho t1 =  applySubst rho (FetchOffset n1 offset) `bindVar` raise 1 t1
+--
+--     usesX xs = \case
+--       App v vs        -> any (valIsX xs) (v : vs)
+--       Store _ v       -> valIsX xs v
+--       Unit v          -> valIsX xs v
+--       Update _ n v    -> isX xs n || valIsX xs v
+--       Error _         -> False
+--       FetchOffset n _ -> isX xs n
+--       Bind{}          -> __IMPOSSIBLE__
+--       Case{}          -> __IMPOSSIBLE__
+--       Fetch{}         -> __IMPOSSIBLE__
+--
+--     valIsX xs (Var n) = isX xs n
+--     valIsX _   _      = False
+--
+--     isX xs n
+--       | Just x' <- xs !!! n = x' == x
+--       | otherwise = False
+--
+--
+-- rightHoistFetch (Bind t1 (splitLalt -> (mkAlt, t2))) =
+--   Bind t1 . mkAlt <$> rightHoistFetch t2
+--
+-- -- rightHoistFetch (Case v t alts) =
+-- --    (Case v <$> rightHoistFetch t) <*> mapM go alts
+-- --   where
+-- --     go (splitCalt -> (mkAlt, t)) = mkAlt <$> rightHoistFetch t
+--
+-- rightHoistFetch term = pure term
+--
 -----------------------------------------------------------------------
 -- * LLVM code generation
 -----------------------------------------------------------------------

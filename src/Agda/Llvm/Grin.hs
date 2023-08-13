@@ -41,10 +41,10 @@ updateGrTerm = over lensGrTerm
 
 
 
--- TODO refactor
+-- TODO
 -- • Maybe remove Loc from Store
 data Term = Bind Term LAlt
-          | Case Val Term [CAlt]
+          | Case Val Term [CAlt] -- List1
           | App Val [Val] -- List1
           | Unit Val
           | Store Loc Val
@@ -97,9 +97,7 @@ freshGid = Gid <$> fresh
 
 data LAlt = LAltConstantNode Tag [Abs] Term
           | LAltVariableNode Abs [Abs] Term
-          | LAltTag Tag Term
           | LAltEmpty Term
-          | LAltLit Literal Term
           | LAltVar Abs Term
             deriving (Show, Eq)
 
@@ -114,10 +112,16 @@ infixr 2 `BindEmpty`, `Bind`
 pattern BindEmpty :: Term -> Term -> Term
 pattern t1 `BindEmpty` t2 = Bind t1 (LAltEmpty t2)
 
+
+--  term ; λ alt →
+type BindView = (Term, Term -> LAlt)
+bindView :: Term -> Maybe BindView
+bindView (t `Bind` alt) = Just (t, fst $ splitLalt alt)
+bindView _              = Nothing
+
 newtype Abs = MkAbs{unAbs :: Gid} deriving (Show, Eq, Ord)
 newtype Loc = MkLoc{unLoc :: Gid} deriving (Show, Eq, Ord, Enum)
 
--- lensGetLoc :: LensGet Loc Int
 intFromLoc :: LensGet Loc Int
 intFromLoc = unGid . unLoc
 
@@ -150,8 +154,6 @@ laltBody :: LensGet LAlt Term
 laltBody = \case
   LAltConstantNode _ _ t -> t
   LAltVariableNode _ _ t -> t
-  LAltTag _ t            -> t
-  LAltLit _ t            -> t
   LAltVar _ t            -> t
   LAltEmpty t            -> t
 
@@ -159,14 +161,24 @@ splitLalt :: LAlt -> (Term -> LAlt, Term)
 splitLalt (LAltVar abs t)               = (LAltVar abs, t)
 splitLalt (LAltConstantNode tag abss t) = (LAltConstantNode tag abss, t)
 splitLalt (LAltVariableNode n xs t)     = (LAltVariableNode n xs, t)
-splitLalt (LAltTag tag t)               = (LAltTag tag, t)
-splitLalt (LAltLit lit t)               = (LAltLit lit, t)
 splitLalt (LAltEmpty t)                 = (LAltEmpty, t)
+
+splitLaltWithAbss :: LAlt -> (Term -> LAlt, Term, [Abs])
+splitLaltWithAbss (LAltVar abs t)               = (LAltVar abs, t, [abs])
+splitLaltWithAbss (LAltConstantNode tag abss t) = (LAltConstantNode tag abss, t, abss)
+splitLaltWithAbss (LAltVariableNode n xs t)     = (LAltVariableNode n xs, t, xs)
+splitLaltWithAbss (LAltEmpty t)                 = (LAltEmpty, t, [])
 
 splitCalt :: CAlt -> (Term -> CAlt, Term)
 splitCalt (CAltConstantNode tag abss t) = (CAltConstantNode tag abss, t)
 splitCalt (CAltTag tag t)               = (CAltTag tag, t)
 splitCalt (CAltLit lit t)               = (CAltLit lit, t)
+
+splitCaltAbss :: CAlt -> (Term -> CAlt, Term, [Abs])
+splitCaltAbss (CAltConstantNode tag abss t) = (CAltConstantNode tag abss, t, abss)
+splitCaltAbss (CAltTag tag t)               = (CAltTag tag, t, [])
+splitCaltAbss (CAltLit lit t)               = (CAltLit lit, t, [])
+
 
 tagArity :: Tag -> Int
 tagArity = \case
@@ -234,8 +246,6 @@ applySubstLAlt rho (LAltConstantNode tag abss t) =
   LAltConstantNode tag abss $ applySubst (liftS (length abss) rho) t
 applySubstLAlt rho (LAltVariableNode abs abss t) =
   LAltVariableNode abs abss $ applySubst (liftS (1 + length abss) rho) t
-applySubstLAlt rho (LAltTag tag t) = LAltTag tag $ applySubst rho t
-applySubstLAlt rho (LAltLit lit t) = LAltLit lit $ applySubst rho t
 applySubstLAlt rho (LAltEmpty t) = LAltEmpty $ applySubst rho t
 
 instance Subst CAlt where
@@ -301,8 +311,6 @@ instance Pretty Term where
     where
       go (LAltConstantNode tag abss _) = pretty tag <+> sep (map pretty abss)
       go (LAltVariableNode abs abss _) = pretty abs <+> sep (map pretty abss)
-      go (LAltTag tag _)               = pretty tag
-      go (LAltLit lit _)               = pretty lit
       go (LAltVar abs _)               = pretty abs
       go (LAltEmpty _)                 = text "()"
 
@@ -367,11 +375,6 @@ instance Pretty LAlt where
   pretty (LAltVariableNode x gids t) =
     sep [ pretty x <+> sep (map pretty gids) <+> text "→"
         ,  nest 2 $ pretty t
-        ]
-  pretty (LAltTag tag t) = sep [pretty tag <+> text "→", nest 2 $ pretty t]
-  pretty (LAltLit lit t) =
-    sep [ pretty lit <+> text "→"
-        , nest 2 $ pretty t
         ]
   pretty (LAltVar abs t) =
     sep [ pretty abs <+> text "→"

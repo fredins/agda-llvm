@@ -137,7 +137,6 @@ countMultiplicities def = evalState (go def.gr_term) def.gr_args where
   goLalt :: LAlt -> State [Abs] Multiplicities
   goLalt (LAltVar abs t)             = modify (abs:) *> go t
   goLalt (LAltConstantNode _ abss t) = modify (reverse abss ++) *> go t
-  goLalt (LAltLit _ t)               = go t
   goLalt (LAltEmpty t)               = go t
 
 

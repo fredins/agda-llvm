@@ -140,11 +140,6 @@ interpretGrin defs =
         VNode tag vs -> stackFrameLocals (x : xs) (VTag tag : vs) $ eval t2
         _            -> __IMPOSSIBLE__
 
-    eval (t1 `Bind` LAltTag tag1 t2) =
-      eval t1 >>= \case
-        VTag tag2 | tag2 == tag1 -> eval t2
-        _                        -> __IMPOSSIBLE__
-
     eval (App t ts) = evalApp t ts
     eval (Case v t alts) = evalCase v t alts
     eval (Unit v) = evalVal v
@@ -168,7 +163,8 @@ interpretGrin defs =
         VTag _ ->
           let (_, t3) = selAlt v alts t2 in
           eval t3
-        _ -> __IMPOSSIBLE__
+        _ -> error $ "EVALCASE: " ++ show v
+        -- _ -> __IMPOSSIBLE__
 
     evalApp :: Val -> [Val] -> Eval mf Value
     evalApp v1 vs
