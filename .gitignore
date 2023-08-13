@@ -3,4 +3,5 @@ dist-newstyle
 output.hs
 output/
 plan.md
-latex/
+latex/*
+!latex/report.pdf
