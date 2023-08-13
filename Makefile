@@ -9,6 +9,9 @@ html : html/logbook.html
 
 pdf : latex/report.pdf
 
+bib : latex/report.tex
+	cd latex && biber report && lualatex report
+
 clean : 
 	rm -rf html
 	rm -rf latex
@@ -23,6 +26,6 @@ latex/report.tex : report.lagda.tex
 	agda --latex report.lagda.tex
 
 latex/report.pdf : latex/report.tex
-	pdflatex -output-directory=latex latex/report.tex
+	cd latex && lualatex report
 
 # EOF
