@@ -226,15 +226,15 @@ llvmPostCompile _ _ mods = do
   res_removeUnit <- interpretGrin defs_removeUnit
   liftIO $ putStrLn $ "\nResult: " ++ show res_removeUnit
 
-  defs_rightHoistedFetch <- mapM (lensGrTerm rightHoistFetch) defs_removeUnit
-  liftIO $ do
-    putStrLn "\n------------------------------------------------------------------------"
-    putStrLn "-- * Right hoist fetch"
-    putStrLn "------------------------------------------------------------------------\n"
-    putStrLn $ intercalate "\n\n" $ map prettyShow defs_rightHoistedFetch
-
-  res_rightHoistedFetch <- interpretGrin defs_rightHoistedFetch
-  liftIO $ putStrLn $ "\nResult: " ++ show res_rightHoistedFetch
+  -- defs_rightHoistedFetch <- mapM (lensGrTerm rightHoistFetch) defs_removeUnit
+  -- liftIO $ do
+  --   putStrLn "\n------------------------------------------------------------------------"
+  --   putStrLn "-- * Right hoist fetch"
+  --   putStrLn "------------------------------------------------------------------------\n"
+  --   putStrLn $ intercalate "\n\n" $ map prettyShow defs_rightHoistedFetch
+  --
+  -- res_rightHoistedFetch <- interpretGrin defs_rightHoistedFetch
+  -- liftIO $ putStrLn $ "\nResult: " ++ show res_rightHoistedFetch
 
 
 
