@@ -1,0 +1,100 @@
+\documentclass{article}
+
+% Support for Agda code.
+\usepackage{agda}
+
+% Use special font families without TeX ligatures for Agda code. (This
+% code is inspired by a comment by Enrico Gregorio/egreg:
+% https://tex.stackexchange.com/a/103078.)
+\usepackage{fontspec}
+\newfontfamily{\AgdaSerifFont}{Latin Modern Roman}
+\newfontfamily{\AgdaSansSerifFont}{Latin Modern Sans}
+\newfontfamily{\AgdaTypewriterFont}{Latin Modern Mono}
+\renewcommand{\AgdaFontStyle}[1]{{\AgdaSansSerifFont{}#1}}
+\renewcommand{\AgdaKeywordFontStyle}[1]{{\AgdaSansSerifFont{}#1}}
+\renewcommand{\AgdaStringFontStyle}[1]{{\AgdaTypewriterFont{}#1}}
+\renewcommand{\AgdaCommentFontStyle}[1]{{\AgdaTypewriterFont{}#1}}
+\renewcommand{\AgdaBoundFontStyle}[1]{\textit{\AgdaSerifFont{}#1}}
+
+% Bibliography
+\usepackage[backend=biber, style=apa, natbib=true]{biblatex}
+\addbibresource{../bibliography.bib}
+
+% Cosmetics
+\linespread{1.25}
+
+% Workarounds for the fact that the Latin Modern Sans font does not
+% support certain characters. An alternative would be to use another
+% font.
+\usepackage{newunicodechar}
+\usepackage{colonequals}
+\newunicodechar{λ}{\ensuremath{\mathnormal{\lambda}}}
+\newunicodechar{∀}{\ensuremath{\mathnormal{\forall}}}
+\newunicodechar{₁}{\ensuremath{{}_1}}
+\newunicodechar{∷}{\ensuremath{\mathnormal{\coloncolon}}}
+\newunicodechar{ω}{\ensuremath{\mathnormal{\omega}}}
+
+\title{
+Optimizing lazy functional languages: utilizing reference counting for memory reuse
+}
+\author{Martin Fredin}
+\date{June 2023}
+
+\begin{document}
+
+\maketitle
+
+\begin{code}[hide]
+open import Data.List using (List; _∷_; [])
+
+private 
+  variable
+    A B : Set
+
+\end{code}
+
+\section{Introduction}
+
+All values in purely functional languages are immutable.
+Immutability is important because it limits shared state, and makes it easier to reason about the program.
+In practice, this means that a function such as \AgdaFunction{map} returns a new list instead of modifying the input.
+\begin{code}
+map : (A → B) → List A → List B
+map f []       = []
+map f (x ∷ xs) = f x ∷ map f xs
+\end{code}
+This is great if the input list (\AgdaDatatype{List}\AgdaSpace\AgdaGeneralizable{A}) is used later in the program. 
+Otherwise, it is better to reuse the allocation for \AgdaDatatype{List}\AgdaSpace\AgdaGeneralizable{A} by updating the list in place. 
+This would avoid both the deallocation of \AgdaDatatype{List}\AgdaSpace\AgdaGeneralizable{A} and the allocation of \AgdaDatatype{List}\AgdaSpace\AgdaGeneralizable{B}.
+
+% TODO also Swift uses ARC and has plans of borrowing
+Precise reference counting has been proposed to identify when it is possible to update objects in place. 
+\citet{ullrich2021} uses reference counting with borrowed references in the Lean theorem prover. 
+\citet{reinking2020} \citet{lorenzen2022} and \citet{lorenzen2023} also uses reference counting in the Koka language.
+
+Both Lean and Koka are, however, eagerly evaluated. Lazy languages...
+
+
+\section{Graph Reduction Intermediate Notation}
+
+\section{Extending GRIN with reference counting}
+
+\section{Result}
+
+\section{Relevant Work}
+% Lean and Koka: reference counting and reuse
+% Swift: automatic reference counting (ARC), and plans of borrowing
+% AST \& Rust: safe manual memory management through proofs and the borrow checker, respectively
+
+\section{Conclusion and Future Work}
+
+% Lambda lifting
+% The rest of the GRIN transformations and optimizations
+% Partial applications (P-tags and the apply operation)
+% Different allocator? mimalloc?
+% Using type information (multiplicites: 0, (1), ω)
+
+\printbibliography
+
+\end{document}
+
