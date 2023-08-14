@@ -4,6 +4,69 @@ csl: acm-siggraph.csl
 css: Agda.css
 ---
 
+### W.32
+
+Read the following:  
+
+  - @xi2018
+  - more...
+
+Did the following:
+
+- Added build instructions and dependencies to README.
+
+- Major refactoring. Datatype Term was split into Term and Val. Alt was split 
+  into LAlt (lambda alternative) and CAlt (case alternative).
+
+- Fixed various issues in (e.g.) the sharing analysis and the substitution instances.
+
+- Implemented vectorization which replaces node variables with _explicit_ nodes. This 
+  is an important transformation for the code generation.  
+
+  ```markdown
+  <t1> ; λ x₁ →
+  <t2>
+  -- >>>
+   <t1> ; λ tag x₂ x₃ →
+   <t2> [tag x₂ x₃ / x₁]
+  ```
+
+- Implemented case simplification. After the transformation, case expression only 
+  scrutinize tag variables, and case patterns do not bind any variables.  
+
+  ```markdown
+   <t1>
+   case tag x₁ x₂ of
+     Cnil        → <t2>
+     Ccons x₃ x₄ → <t3>
+   -- >>>
+   <t1>
+   case tag of
+     Cnil  → <t2>
+     Ccons → <t3> [x₁ / x₃, x₂ / x₄]
+
+  ````
+
+- Implemented fetch splitting using offsets:  
+
+  ```markdown
+   <t1>
+   fetch p ; λ tag x₁ x₂ →
+   <t2>
+   -- >>>
+   <t1>
+   fetch p [0]; λ tag →
+   fetch p [1]; λ x₁ →
+   fetch p [2]; λ x₂ →
+  ```
+
+- Did a lot of work on the right-hoisting fetch operations, however, I encountered some issues 
+  with substitutions and de Bruijn indices.  
+
+- Properly configured the `lagda.tex` document for the report. 
+
+- Started writing the introduction and noted down ideas for the related work section.
+
 
 ### W.30 & W.31
 

@@ -881,8 +881,8 @@ vectorize _ t = pure t
 -- >>>
 -- <t1>
 -- case tag of
---   Cnil        → <t2>
---   Ccons x₃ x₄ → <t3> [x₁ / x₃, x₂ / x₄]
+--   Cnil  → <t2>
+--   Ccons → <t3> [x₁ / x₃, x₂ / x₄]
 simplifyCase :: Term -> Term
 simplifyCase (Case v t alts)
   | ConstantNode tag vs <- v = Case (Tag tag) t' $ map (mkAlt vs) alts
