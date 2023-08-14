@@ -32,5 +32,9 @@ Many programs use the standard library which needs to be installed and configure
 ### Logbook
 See [fredins.github.io](https://fredins.github.io)
 
+### Paper (WIP)
+
+See `latex/report.pdf`
+
 ### References
 See `bibliography.bib`
