@@ -66,7 +66,6 @@ import           Agda.Utils.List
 import           Agda.Utils.List1          (List1, pattern (:|))
 import qualified Agda.Utils.List1          as List1
 import           Agda.Utils.Maybe
-import           Control.Arrow             (Arrow (second))
 
 -- TODO
 -- • Refactor H', HCxt, HRet

@@ -1,2 +1,4 @@
 packages: .
           agda
+
+tests: True

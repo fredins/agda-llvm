@@ -1,9 +1,13 @@
-
-.PHONY : sdist clean
+.PHONY : sdist clean test
 
 install :
 	cabal install
 
+run : 
+	agda-llvm --llvm agda-programs/DownFrom.agda
+
+test :
+	cabal run test
 
 html : html/logbook.html
 

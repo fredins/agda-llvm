@@ -68,6 +68,9 @@ pattern FetchNode n = Fetch n Nothing
 pattern FetchOffset :: Int -> Int -> Term
 pattern FetchOffset n1 n2 = Fetch n1 (Just n2)
 
+pattern UpdateTag :: Tag -> Int -> Val -> Term
+pattern UpdateTag tag n v = Update (Just tag) n v
+
 store :: MonadFresh Int m => Val -> m Term
 store t = (`Store` t) <$> freshLoc
 
@@ -209,6 +212,15 @@ bindEmptyR t1 t2 = Bind t1 . LAltEmpty <$> t2
 
 bindEmptyM :: MonadFresh Int m => m Term -> m Term -> m Term
 bindEmptyM t1 t2 = (Bind <$> t1) <*> (LAltEmpty <$> t2)
+
+mkLoc :: Int -> Loc
+mkLoc = MkLoc . Gid
+
+mkAbs :: Int -> Abs
+mkAbs = MkAbs . Gid
+
+mkLit :: Integer -> Val
+mkLit = Lit . LitNat
 
 -----------------------------------------------------------------------
 -- * Substitute instances

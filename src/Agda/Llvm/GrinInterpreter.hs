@@ -4,7 +4,7 @@
 
 module Agda.Llvm.GrinInterpreter (module Agda.Llvm.GrinInterpreter) where
 
-import           Control.Monad             (forM, (<=<))
+import           Control.Monad             ((<=<))
 import           Control.Monad.Reader      (MonadReader, ReaderT (runReaderT),
                                             asks, local)
 import           Control.Monad.State       (MonadState, StateT, evalStateT)
