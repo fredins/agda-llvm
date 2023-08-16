@@ -95,7 +95,6 @@ interpretGrin defs =
             stackFrameLookupLoc
 
     eval (Case t1 t2 alts `Bind` LAltVar abs t3) = do
-      trace' "CASE 1" pure ()
       v <- evalCase t1 t2 alts
       stackFrameLocal abs v $ eval t3
 
@@ -142,7 +141,7 @@ interpretGrin defs =
         _            -> __IMPOSSIBLE__
 
     eval (App t ts) = evalApp t ts
-    eval (Case v t alts) = do trace' "CASE 2" pure () ; evalCase v t alts
+    eval (Case v t alts) = evalCase v t alts
     eval (Unit v) = evalVal v
 
     eval Store{} = __IMPOSSIBLE__
