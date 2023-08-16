@@ -1,3 +1,4 @@
+-- {-# OPTIONS_GHC -Wincomplete-patterns -Woverlapping-patterns #-}
 {-# LANGUAGE DuplicateRecordFields    #-}
 {-# LANGUAGE NondecreasingIndentation #-}
 {-# LANGUAGE OverloadedRecordDot      #-}
@@ -982,12 +983,10 @@ splitFetch term = term
 --           <m3> [y₁ / x₁, y₂ / x₂]
 --
 
-
 rightHoistFetch :: forall mf. MonadFresh Int mf => Term -> mf Term
 rightHoistFetch term@(FetchOffset n1 0       `Bind` LAltVar x1
                      (FetchOffset n1' offset `Bind` LAltVar x2 t2))
-  -- | n1' + 1 == n1 = do
-  = do
+  | n1' - 1 == n1 = do
     t3 <- hoistFetch x1 n1' x2 t2 offset
     rightHoistFetch $ FetchOffset n1 0 `Bind` LAltVar x1 t3
 
@@ -1016,46 +1015,65 @@ hoistFetch x1 n x2 t offset =
         let v = strengthen impossible $ Var n
         (Case v t <$> updateAlts xs alts) <&> (`Bind` strengthen impossible alt)
 
-    go xs1 (t1 `Bind` (splitLaltWithAbss -> (mkAlt, t2, xs2))) = do
-      t2' <- go (xs2 `List1.prependList` xs1) t2
+
+    go (x1 :| xs) (t1 `Bind` (splitLaltWithAbss -> (mkAlt, t2, [x2]))) = do
+      -- Swap indices 0 and 1
+      t2' <- go (x1 <| x2 :| xs) (swap01' t2)
       pure $ strengthen impossible t1 `Bind` mkAlt t2'
 
+    -- TODO
+    go xs1 (t1 `Bind` (splitLaltWithAbss -> (mkAlt, t2, xs2))) = error "TODO need swap0n"
     go _ _ = __IMPOSSIBLE__
 
     updateAlts  :: List1 Abs -> [CAlt] -> mf [CAlt]
     updateAlts xs alts =
-      forM alts $ \(splitCalt -> (mkAlt, t)) -> mkAlt <$> prependFetchOnUse xs t
+      forM alts $ \(splitCalt -> (mkAlt, t)) -> mkAlt <$>
+        caseMaybe (prependFetchOnUse xs t)
+          -- Strengthen alternatives which didn't prepend fetch
+          (pure $ strengthen impossible t)
+          id
 
-    prependFetchOnUse :: List1 Abs -> Term -> mf Term
-    prependFetchOnUse xs1 (Bind t1 (splitLaltWithAbss -> (mkAlt, t2, xs2)))
-      | usesX2 xs1 t1 =
-        prependFetch xs1 (t1 `Bind` mkAlt t2)
+    prependFetchOnUse :: List1 Abs -> Term -> Maybe (mf Term)
+    prependFetchOnUse (x1 :| xs) (Bind t1 (splitLaltWithAbss -> (mkAlt, t2, [x2])))
+      | usesX2 (x1 :| xs) t1 =
+        Just $ prependFetch (x1 :| xs) (t1 `Bind` mkAlt t2)
       | otherwise =
-        prependFetchOnUse (xs2 `List1.prependList` xs1 ) t2 <&>
-        Bind (strengthen impossible t1) . mkAlt
+        ifJust (prependFetchOnUse (x1 :| xs) t1)
+          -- Keep t2 unchanged
+          (Just . fmap (`Bind` mkAlt t2)) $
 
-    prependFetchOnUse xs t1
-      | usesX2 xs t1 = prependFetch xs t1
-      | otherwise = pure t1 -- Return unchanged
+          (fmap . fmap)
+             -- Strengthen t1 if fetch is prepended to t2
+            (\t2' -> strengthen impossible t1 `Bind` mkAlt t2')
+            -- Swap indices 0 and 1
+            (prependFetchOnUse (x1 <| x2 :| xs) (swap01' t2))
+
+    prependFetchOnUse xs1 (Bind t1 (splitLaltWithAbss -> (mkAlt, t2, xs2))) = error "TODO need swap0n"
+    prependFetchOnUse xs t = boolToMaybe (usesX2 xs t) (prependFetch xs t)
 
     prependFetch :: List1 Abs -> Term -> mf Term
     prependFetch xs t =  FetchOffset (n + length xs - 2) offset `bindVar` t
 
     usesX2 :: List1 Abs -> Term -> Bool
     usesX2 xs = \case
-        App v vs        -> any (valIsX2 xs) (v : vs)
-        Store _ v       -> valIsX2 xs v
-        Unit v          -> valIsX2 xs v
-        Update _ n v    -> isX2 xs n || valIsX2 xs v
+        App v vs        -> any (usesX2Val xs) (v : vs)
+        Store _ v       -> usesX2Val xs v
+        Unit v          -> usesX2Val xs v
+        Update _ n v    -> isX2 xs n || usesX2Val xs v
         Error _         -> False
         FetchOffset n _ -> isX2 xs n
         Bind{}          -> __IMPOSSIBLE__
         Case{}          -> __IMPOSSIBLE__
         Fetch{}         -> __IMPOSSIBLE__
       where
-        valIsX2 xs v = caseMaybe (deBruijnView v) False (isX2 xs)
-        isX2 xs n = caseMaybe (toList xs !!! n) False (== x2)
+        usesX2Val :: List1 Abs -> Val -> Bool
+        usesX2Val xs = \case
+          ConstantNode _ vs -> any (usesX2Val xs) vs
+          VariableNode n vs -> isX2 xs n || any (usesX2Val xs) vs
+          Var n             -> isX2 xs n
+          _                 -> False
 
+        isX2 xs n = caseMaybe (toList xs !!! n) False (== x2)
 
 -----------------------------------------------------------------------
 -- * LLVM code generation

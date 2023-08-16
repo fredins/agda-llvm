@@ -13,6 +13,7 @@ import           Test.Tasty.Silver.Advanced
 import           Agda.Compiler.Backend      hiding (Prim)
 import           Agda.Llvm.Compiler
 import           Agda.Llvm.Grin
+import           Agda.Llvm.Utils            (swap01')
 import           Agda.Syntax.Common.Pretty
 import           Agda.Syntax.Literal
 
@@ -22,8 +23,9 @@ main = defaultMain goldenTests
 goldenTests :: TestTree
 goldenTests =
   testGroup "Golden" $ map (uncurry mkSucceedTest) $
-    ("normalise", testNormalise)             :
-    ("rightHoistFetch", testRightHoistFetch) :
+    ("normalise", testNormalise)               :
+    ("rightHoistFetch1", testRightHoistFetch1) :
+    ("rightHoistFetch2", testRightHoistFetch2) :
     []
 
 testNormalise :: Term
@@ -44,8 +46,26 @@ inputNormalise =
     ) `bindVarL`
     Unit (ConstantNode consTag [Var 1, Var 0])
 
-testRightHoistFetch :: Term
-testRightHoistFetch = evalTest $ rightHoistFetch =<< inputRightHoistFetch
+
+testRightHoistFetch1 :: Term
+testRightHoistFetch1 = evalTest $ rightHoistFetch =<< inputRightHoistFetch1
+
+-- fetch 0 [0] ; λ x1 →
+-- fetch 1 [1] ; λ x0 →
+-- case 1 of
+--   Fsum → sum 0
+--   Cnat → unit (Cnat 3)
+inputRightHoistFetch1 :: Test Term
+inputRightHoistFetch1 =
+    FetchOffset 0 0 `bindVarR`
+    FetchOffset 1 1 `bindVar`
+    Case (Var 1) unreachable
+      [ CAltTag sumTag (App (Def "sum") [Var 0])
+      , CAltTag natTag (Unit (ConstantNode natTag [Var 3]))
+      ]
+
+testRightHoistFetch2 :: Term
+testRightHoistFetch2 = evalTest $ rightHoistFetch =<< inputRightHoistFetch2
 
 -- fetch 0 [0] ; λ x10 →
 -- fetch 1 [1] ; λ x9 →
@@ -63,8 +83,8 @@ testRightHoistFetch = evalTest $ rightHoistFetch =<< inputRightHoistFetch
 --       storel2 (FPrim.Sub 5 0) ; λ x5 →
 --       storel3 (FdownFrom 0) ; λ x4 →
 --       unit (Ccons 1 0)
-inputRightHoistFetch :: Test Term
-inputRightHoistFetch =
+inputRightHoistFetch2 :: Test Term
+inputRightHoistFetch2 =
     FetchOffset 0 0 `bindVarR`
     FetchOffset 1 1 `bindVarR`
     FetchOffset 2 2 `bindVarR`
@@ -95,6 +115,15 @@ inputRightHoistFetch =
 
       pure $ Case (Var 0) t [CAltLit (LitNat 0) $ Unit (Tag nilTag)]
 
+
+
+testSwap01 :: Term
+testSwap01 =
+  swap01' $
+    Unit (Var 1) `BindEmpty`
+    Unit (Var 0)
+
+
 mkSucceedTest :: Pretty a => FilePath -> a -> TestTree
 mkSucceedTest fileName test =
   goldenTestIO1
@@ -124,6 +153,9 @@ cnil = ConstantNode nilTag []
 
 downFromTag :: Tag
 downFromTag = FTag{tDef = "downFrom", tArity = 1}
+
+sumTag :: Tag
+sumTag = FTag{tDef = "sum", tArity = 1}
 
 primSubTag :: Tag
 primSubTag = FTag{tDef = "Prim.Sub", tArity = 2}

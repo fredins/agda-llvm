@@ -2,10 +2,12 @@ fetch 0 [0] ; λ x10 →
 (case 0 of
    FPrim.Sub →
      fetch 1 [1] ; λ x11 →
-     fetch 2 [2] ; λ x12 →
+     fetch 2 [2] ; λ x13 →
      PSub 1 0 ; λ x0 →
      unit (Cnat 0)
-   Cnat → unit (Cnat 1)
+   Cnat →
+     fetch 1 [1] ; λ x12 →
+     unit (Cnat 0)
 ) ; λ Cnat x7 →
 updateCnat 2 (Cnat 0) ; λ () →
 case 0 of
