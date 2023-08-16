@@ -4,6 +4,46 @@ csl: acm-siggraph.csl
 css: Agda.css
 ---
 
+### W.33
+
+Read the following:  
+  
+- @racordon2021
+- @racordon2022
+
+Did the following:  
+
+- Implemented the right hoisting fetch tranformation, which hoists fetches 
+  with offset > 0 into the the appropriate case alternatives. 
+
+  ```markdown
+  fetch 0 [0] ; λ x10 →
+  fetch 1 [1] ; λ x9 →
+  fetch 2 [2] ; λ x8 →
+  (case 2 of
+     FPrim.Sub →
+       PSub 1 0 ; λ x0 →
+       unit (Cnat 0)
+     Cnat → unit (Cnat 1)
+  ) ; λ Cnat x7 →
+  updateCnat 4 (Cnat 0) ; λ () →
+  <m>
+  -- >>>
+  fetch 0 [0] ; λ x10 →
+  (case 0 of
+     FPrim.Sub →
+       fetch 1 [1] ; λ x11 →
+       fetch 2 [2] ; λ x13 →
+       PSub 1 0 ; λ x0 →
+       unit (Cnat 0)
+     Cnat →
+       fetch 1 [1] ; λ x12 →
+       unit (Cnat 0)
+  ) ; λ Cnat x7 →
+  updateCnat 2 (Cnat 0) ; λ () →
+  <m>
+  ```
+
 ### W.32
 
 Read the following:  

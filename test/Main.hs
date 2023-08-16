@@ -98,7 +98,7 @@ inputRightHoistFetch2 =
     caseOf1 :: Test Term
     caseOf1 = do
       t <- App (Prim PSub) [Var 1, Var 0] `bindVar`
-        Unit (ConstantNode natTag [Var 0])
+           Unit (ConstantNode natTag [Var 0])
 
       pure $
         Case (Var 2) unreachable
