@@ -1,26 +1,24 @@
 {-# OPTIONS_GHC -Wno-unused-binds #-}
 {-# LANGUAGE OverloadedStrings #-}
-import           Control.Monad.State                (MonadState, State,
-                                                     evalState, get, modify)
-import qualified Data.ByteString                    as BS
-import           Data.Foldable                      (toList)
-import           Data.Text                          (Text)
-import qualified Data.Text                          as T
-import           Data.Text.Encoding                 (decodeUtf8, encodeUtf8)
-import           System.FilePath                    ((<.>), (</>))
+import           Control.Monad.State           (MonadState, State, evalState,
+                                                get, modify)
+import qualified Data.ByteString               as BS
+import           Data.Foldable                 (toList)
+import           Data.Text                     (Text)
+import qualified Data.Text                     as T
+import           Data.Text.Encoding            (decodeUtf8, encodeUtf8)
+import           System.FilePath               ((<.>), (</>))
 import           Test.Tasty
 import           Test.Tasty.Silver.Advanced
 
-import           Agda.Compiler.Backend              hiding (Prim)
-import           Agda.Llvm.Compiler
+import           Agda.Compiler.Backend         hiding (Prim)
 import           Agda.Llvm.Grin
+import           Agda.Llvm.GrinTransformations
 import           Agda.Llvm.Utils
 import           Agda.Syntax.Common.Pretty
 import           Agda.Syntax.Literal
 import           Agda.TypeChecking.Substitute
-import           Agda.TypeChecking.Substitute.Class
-import           Agda.Utils.List1                   (List1, pattern (:|), (<|))
-import qualified Agda.Utils.List1                   as List1
+import           Agda.Utils.List1              (pattern (:|), (<|))
 
 
 main :: IO ()
