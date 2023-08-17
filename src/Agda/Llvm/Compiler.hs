@@ -6,21 +6,15 @@
 
 module Agda.Llvm.Compiler (module Agda.Llvm.Compiler) where
 
-import           Control.Applicative            (Applicative (liftA2))
 import           Control.DeepSeq                (NFData)
-import           Control.Monad                  (forM, replicateM, (<=<))
+import           Control.Monad                  (forM, replicateM)
 import           Control.Monad.IO.Class         (liftIO)
-import           Control.Monad.Reader           (MonadReader (local),
-                                                 ReaderT (runReaderT), asks)
-import           Control.Monad.State            (StateT (runStateT), evalStateT,
-                                                 gets, modify)
-import           Data.Foldable                  (find, foldrM, toList)
+import           Control.Monad.State            (StateT, evalStateT, gets)
+import           Data.Foldable                  (foldrM)
 import           Data.Function                  (on)
 import           Data.List                      (intercalate, singleton)
 import           Data.Map                       (Map)
 import qualified Data.Map                       as Map
-import           Data.Set                       (Set)
-import qualified Data.Set                       as Set
 import           GHC.Generics                   (Generic)
 import           GHC.IO                         (unsafePerformIO)
 import           Prelude                        hiding ((!!))
@@ -32,16 +26,13 @@ import           Agda.Llvm.GrinInterpreter      (interpretGrin)
 import           Agda.Llvm.GrinTransformations
 import           Agda.Llvm.HeapPointsTo
 import           Agda.Llvm.TreelessTransform
-import           Agda.Llvm.Utils
 import           Agda.Syntax.Common.Pretty
 import           Agda.Syntax.TopLevelModuleName
 import           Agda.TypeChecking.Substitute
 import           Agda.Utils.Functor
 import           Agda.Utils.Impossible
-import           Agda.Utils.Lens
 import           Agda.Utils.List
-import           Agda.Utils.List1               (List1, pattern (:|), (<|))
-import qualified Agda.Utils.List1               as List1
+import           Agda.Utils.List1               (pattern (:|))
 import           Agda.Utils.Maybe
 
 
