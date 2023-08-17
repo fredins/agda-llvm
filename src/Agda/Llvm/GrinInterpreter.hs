@@ -288,9 +288,6 @@ interpretGrin defs =
       sf <- asks $ StackFrame . (^. lensStackFrame)
       fst . fromMaybe (error $ "CANNOT FIND: " ++ show n ++ "\n" ++ prettyShow sf) . (!!! n) <$> view lensStackFrame
 
-trace' :: String -> a -> a
-trace' s = unsafePerformIO . (appendFile "trace.log" (s ++ "\n") $>)
-
 natTag :: Tag
 natTag = CTag{tCon = "nat" , tArity = 1}
 

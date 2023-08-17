@@ -9,6 +9,7 @@ import           Data.Function                         (on)
 
 import           Agda.Compiler.Backend                 hiding (Prim, initEnv)
 import           Agda.Compiler.Treeless.NormalizeNames (normalizeNames)
+import           Agda.Llvm.Utils
 import           Agda.Syntax.Common.Pretty
 import           Agda.Syntax.Internal                  (Type)
 import           Agda.TypeChecking.Substitute
@@ -34,6 +35,7 @@ instance Pretty TreelessDefinition where
 
 definitionToTreeless :: IsMain -> Definition -> TCM (Maybe TreelessDefinition)
 definitionToTreeless isMainModule Defn{defName, defType, theDef=Function{}} = do
+    -- trace' (prettyShow defn) pure ()
     term <- maybeM __IMPOSSIBLE__ normalizeNames $
             toTreeless LazyEvaluation defName
     let (arity, term') = skipLambdas term

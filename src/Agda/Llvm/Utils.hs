@@ -1,7 +1,9 @@
 
 module Agda.Llvm.Utils where
 
+import           Data.Functor                 (($>))
 import           Data.List                    (deleteBy, mapAccumR, union)
+import           GHC.IO                       (unsafePerformIO)
 
 import           Agda.Syntax.Common.Pretty
 import           Agda.TypeChecking.Substitute
@@ -32,3 +34,6 @@ forAccumR s t f = mapAccumR f s t
 
 printPretty :: Pretty a => a -> IO ()
 printPretty = putStrLn . prettyShow
+
+trace' :: String -> a -> a
+trace' s = unsafePerformIO . (appendFile "trace.log" (s ++ "\n") $>)

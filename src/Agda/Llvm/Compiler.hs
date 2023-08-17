@@ -237,6 +237,8 @@ llvmPostCompile _ _ mods = do
 -----------------------------------------------------------------------
 
 -- TODO
+-- • Need to deal with erased arguments and parameters
+--
 -- • Refactor (use Reader instead of State)
 -- • Use bind combinators
 -- • Reuse evaluated variables
@@ -316,6 +318,7 @@ rScheme (TApp t as) = do
             s <- store $ ConstantNode natTag $ Lit lit :| []
             pure (s : ss, Var (length ss) : vs)
         f (TVar n)   (ss, vs) = pure (ss, Var (n + nLits) : vs)
+        f TErased    (ss, vs) = pure (ss, vs)
         f _          _        = __IMPOSSIBLE__
 
       (stores, vs) <- foldrM f ([], []) as
@@ -333,6 +336,7 @@ rScheme (TApp t as) = do
             s <- store $ ConstantNode natTag $ Lit lit :| []
             pure (s : ss, Var (length ss) : vs)
           f (TVar n)   (ss, vs) = pure (ss, Var (n + nLits) : vs)
+          f TErased    (ss, vs) = pure (ss, vs)
           f _          _        = __IMPOSSIBLE__
 
         (stores, vs) <- foldrM f ([], []) as
@@ -385,6 +389,7 @@ cSchemeApp t as = do
           s <- store $ ConstantNode natTag $ Lit lit :| []
           pure (s : ss, Var (length ss) : vs)
         f (TVar n)   (ss, vs) = pure (ss, Var (n + nLits) : vs)
+        f TErased    (ss, vs) = pure (ss, vs)
         f _          _        = __IMPOSSIBLE__
 
     (stores, vs) <-  foldrM f ([], []) as
