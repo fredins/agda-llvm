@@ -4,6 +4,69 @@ csl: acm-siggraph.csl
 css: Agda.css
 ---
 
+### W.33
+
+Read the following:  
+  
+- @racordon2021
+- @racordon2022
+
+Did the following:  
+
+- Implemented the right hoisting fetch tranformation, which hoists fetches 
+  with offset > 0 into the the appropriate case alternatives. 
+
+  ```markdown
+  fetch 0 [0] ; λ x10 →
+  fetch 1 [1] ; λ x9 →
+  fetch 2 [2] ; λ x8 →
+  (case 2 of
+     FPrim.Sub →
+       PSub 1 0 ; λ x0 →
+       unit (Cnat 0)
+     Cnat → unit (Cnat 1)
+  ) ; λ Cnat x7 →
+  updateCnat 4 (Cnat 0) ; λ () →
+  <m>
+
+  -- >>>
+  
+  fetch 0 [0] ; λ x10 →
+  (case 0 of
+     FPrim.Sub →
+       fetch 1 [1] ; λ x11 →
+       fetch 2 [2] ; λ x13 →
+       PSub 1 0 ; λ x0 →
+       unit (Cnat 0)
+     Cnat →
+       fetch 1 [1] ; λ x12 →
+       unit (Cnat 0)
+  ) ; λ Cnat x7 →
+  updateCnat 2 (Cnat 0) ; λ () →
+  <m>
+  ```
+
+- Implemented the last simplifying (and necessary) tranformation: register introduction.  
+  The tranformation gives names to all values, and ensures that arguments to (e.g.) the  
+  `store` operation only contains variables.  
+  
+  ```markdown
+  storel21 (Cnat #100) ; λ x24 →
+  storel22 (FDownFrom.downFrom 0) ; λ x23 →
+  DownFrom.sum 0 ; λ Cnat x25 →
+  <m>
+  
+  -- >>>
+    
+  unit #100 ; λ x3690 →
+  unit (Cnat 0) ; λ x3689 →
+  storel21 0 ; λ x24 →
+  unit (FDownFrom.downFrom 0) ; λ x3691 →
+  storel22 0 ; λ x23 →
+  <m>
+  
+  ```
+
 ### W.32
 
 Read the following:  
@@ -26,7 +89,9 @@ Did the following:
   ```markdown
   <t1> ; λ x₁ →
   <t2>
+
   -- >>>
+
    <t1> ; λ tag x₂ x₃ →
    <t2> [tag x₂ x₃ / x₁]
   ```
@@ -39,7 +104,9 @@ Did the following:
    case tag x₁ x₂ of
      Cnil        → <t2>
      Ccons x₃ x₄ → <t3>
+   
    -- >>>
+   
    <t1>
    case tag of
      Cnil  → <t2>
@@ -53,7 +120,9 @@ Did the following:
    <t1>
    fetch p ; λ tag x₁ x₂ →
    <t2>
+   
    -- >>>
+   
    <t1>
    fetch p [0]; λ tag →
    fetch p [1]; λ x₁ →
@@ -363,7 +432,9 @@ Did the following:
 
   ```markdown
   f a (g b) (h c)
+  
   -- >>>
+  
   let b' = g b in
   let c' = h c in
   f a b' c'
