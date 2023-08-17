@@ -60,11 +60,12 @@ library
   exposed-modules:
     Agda.Llvm.Compiler
     Agda.Llvm.Grin
-    Agda.Llvm.Llvm
-    Agda.Llvm.Utils
-    Agda.Llvm.HeapPointsTo
     Agda.Llvm.GrinInterpreter
+    Agda.Llvm.GrinTransformations
+    Agda.Llvm.HeapPointsTo
+    Agda.Llvm.Llvm
     Agda.Llvm.TreelessTransform
+    Agda.Llvm.Utils
        
   default-extensions:
     LambdaCase
