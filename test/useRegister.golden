@@ -1,0 +1,2 @@
+unit (Cnat 0) ; λ x0 →
+updateCnat 3 0

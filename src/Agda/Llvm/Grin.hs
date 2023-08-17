@@ -16,10 +16,12 @@ import           Agda.Syntax.Common.Pretty
 import           Agda.Syntax.Internal         (Type)
 import           Agda.Syntax.Literal
 import           Agda.TypeChecking.Substitute hiding (applySubstTerm)
-import           Agda.Utils.Function          (applyWhen)
-import           Agda.Utils.Impossible        (__IMPOSSIBLE__)
+import           Agda.Utils.Function
+import           Agda.Utils.Impossible
 import           Agda.Utils.Lens
-import           Agda.Utils.Maybe             (ifJust)
+import           Agda.Utils.List1             (List1, pattern (:|), (<|))
+import qualified Agda.Utils.List1             as List1
+import           Agda.Utils.Maybe
 
 
 
@@ -53,8 +55,8 @@ data Term = Bind Term LAlt
           | Error TError
             deriving (Show, Eq)
 
-data Val = ConstantNode Tag [Val]
-         | VariableNode Int [Val]
+data Val = ConstantNode Tag (List1 Val)
+         | VariableNode Int (List1 Val)
          | Tag Tag
          | Empty
          | Lit Literal
@@ -282,9 +284,9 @@ instance Subst Val where
   applySubst = applySubstVal
 
 applySubstVal :: Substitution' Val -> Val -> Val
-applySubstVal rho (ConstantNode tag vs) = ConstantNode tag $ applySubst rho vs
+applySubstVal rho (ConstantNode tag vs) = ConstantNode tag $ List1.map (applySubst rho) vs
 applySubstVal rho (VariableNode n vs)
-  | Var n' <- lookupS rho n  = VariableNode n' $ applySubst rho vs
+  | Var n' <- lookupS rho n  = VariableNode n' $ List1.map (applySubst rho) vs
   | otherwise = __IMPOSSIBLE__
 applySubstVal _   (Tag tag)             = Tag tag
 applySubstVal _   Empty                 = Empty
@@ -331,13 +333,14 @@ instance Pretty Term where
         Case{} -> True
         _      -> False
 
-
   pretty (Unit v)
         | ConstantNode{} <- v = text "unit" <+> parens (pretty v)
         | VariableNode{} <- v = text "unit" <+> parens (pretty v)
         | otherwise   = text "unit" <+> pretty v
 
-  pretty (Store l v) = (text "store" <> pretty l) <+> parens (pretty v)
+  pretty (Store l v)
+    | Var _ <- v = (text "store" <> pretty l) <+> pretty v
+    | otherwise  = (text "store" <> pretty l) <+> parens (pretty v)
   pretty (App v vs) = sep $ pretty v : map pretty vs
   pretty (Case n def alts) =
     vcat
@@ -361,8 +364,8 @@ instance Pretty Term where
   pretty (Error (TMeta _)) = __IMPOSSIBLE__
 
 instance Pretty Val where
-  pretty (VariableNode tag vs) = sep (pretty tag : map pretty vs)
-  pretty (ConstantNode n vs)   = sep (pretty n : map pretty vs)
+  pretty (VariableNode tag vs) = sep (pretty tag <| List1.map pretty vs)
+  pretty (ConstantNode n vs)   = sep (pretty n <| List1.map pretty vs)
   pretty (Tag tag)             = pretty tag
   pretty Empty                 = text "()"
   pretty (Lit lit)             = text "#" <> pretty lit

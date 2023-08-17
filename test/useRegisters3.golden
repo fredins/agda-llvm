@@ -1,0 +1,7 @@
+unit #4 ; λ x2 →
+unit #2 ; λ x1 →
+foo 1 2 0 5 ; λ x0 →
+unit 0 ; λ () →
+unit 3 ; λ () →
+unit 4 ; λ () →
+unit 5

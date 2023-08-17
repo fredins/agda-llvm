@@ -1,15 +1,15 @@
--- {-# OPTIONS_GHC -Wincomplete-patterns -Woverlapping-patterns #-}
 {-# LANGUAGE DuplicateRecordFields    #-}
 {-# LANGUAGE NondecreasingIndentation #-}
 {-# LANGUAGE OverloadedRecordDot      #-}
 {-# LANGUAGE OverloadedStrings        #-}
+{-# LANGUAGE ScopedTypeVariables      #-}
 {-# LANGUAGE ViewPatterns             #-}
 
 module Agda.Llvm.Compiler (module Agda.Llvm.Compiler) where
 
 import           Control.Applicative            (Applicative (liftA2))
 import           Control.DeepSeq                (NFData)
-import           Control.Monad                  (forM, replicateM)
+import           Control.Monad                  (forM, replicateM, (<=<))
 import           Control.Monad.IO.Class         (liftIO)
 import           Control.Monad.Reader           (MonadReader (local),
                                                  ReaderT (runReaderT), asks)
@@ -232,6 +232,17 @@ llvmPostCompile _ _ mods = do
   res_rightHoistedFetch <- interpretGrin defs_rightHoistedFetch
   liftIO $ putStrLn $ "\nResult: " ++ show res_rightHoistedFetch
 
+  defs_introducedRegisters  <- mapM (lensGrTerm introduceRegisters) defs_rightHoistedFetch
+  liftIO $ do
+    putStrLn "\n------------------------------------------------------------------------"
+    putStrLn "-- * Introduce Registers"
+    putStrLn "------------------------------------------------------------------------\n"
+    putStrLn $ intercalate "\n\n" $ map prettyShow defs_introducedRegisters
+
+  res_introducedRegisters <- interpretGrin defs_introducedRegisters
+  liftIO $ putStrLn $ "\nResult: " ++ show res_introducedRegisters
+
+
 -----------------------------------------------------------------------
 -- * GRIN code generation
 -----------------------------------------------------------------------
@@ -275,9 +286,9 @@ rScheme (TCase n CaseInfo{caseType=CTData _} def alts) = do
   Bind (eval n) <$> laltVar (Case (Var 0) def' alts')
 
 -- | 𝓡 [_[]_] = unit (C_[]_)
-rScheme (TCon q) = pure $ Unit $ ConstantNode tag [] where
+rScheme (TCon q) = pure $ Unit $ Tag tag where
   tag = CTag{tCon = prettyShow q, tArity = 0}
-rScheme (TLit lit) = pure $ Unit $ ConstantNode natTag [Lit lit]
+rScheme (TLit lit) = pure $ Unit $ ConstantNode natTag $ Lit lit :| []
 rScheme (TError TUnreachable) = pure $ Error TUnreachable
 
 rScheme (TApp t as) = do
@@ -297,7 +308,7 @@ rScheme (TApp t as) = do
     --               add @1 @0 ; λ #1 →
     --               unit @0
     appPrim res prim as = do
-        fin <- App (Prim prim) vs `bindVar` res (Unit $ ConstantNode natTag [Var 0])
+        fin <- App (Prim prim) vs `bindVar` res (Unit $ ConstantNode natTag $ Var 0 :| [])
         evals' <- foldrM (\t ts -> Bind t <$> laltConstantNode natTag ts) fin evals
         pure $ mkWithOffset (length evals) evals'
       where
@@ -313,7 +324,7 @@ rScheme (TApp t as) = do
         nLits = foldl (\n -> \case{TLit _ -> succ n ; _ -> n}) 0 as
 
         f (TLit lit) (ss, vs) = do
-            s <- store $ ConstantNode natTag [Lit lit]
+            s <- store $ ConstantNode natTag $ Lit lit :| []
             pure (s : ss, Var (length ss) : vs)
         f (TVar n)   (ss, vs) = pure (ss, Var (n + nLits) : vs)
         f _          _        = __IMPOSSIBLE__
@@ -330,13 +341,13 @@ rScheme (TApp t as) = do
           nLits = foldl (\n -> \case{TLit _ -> succ n ; _ -> n}) 0 as
 
           f (TLit lit) (ss, vs) = do
-            s <- store $ ConstantNode natTag [Lit lit]
+            s <- store $ ConstantNode natTag $ Lit lit :| []
             pure (s : ss, Var (length ss) : vs)
           f (TVar n)   (ss, vs) = pure (ss, Var (n + nLits) : vs)
           f _          _        = __IMPOSSIBLE__
 
         (stores, vs) <- foldrM f ([], []) as
-        let fin = res $ Unit $ ConstantNode tag vs
+        let fin = res $ Unit $ ConstantNode tag $ caseList vs __IMPOSSIBLE__ (:|)
         stores' <- foldrM (\t ts -> Bind t <$> laltVar ts) fin stores
 
         pure $ mkWithOffset (length stores) stores'
@@ -382,7 +393,7 @@ cSchemeApp t as = do
     let
         nLits = foldl (\n -> \case{TLit _ -> succ n ; _ -> n}) 0 as
         f (TLit lit) (ss, vs) = do
-          s <- store $ ConstantNode natTag [Lit lit]
+          s <- store $ ConstantNode natTag $ Lit lit :| []
           pure (s : ss, Var (length ss) : vs)
         f (TVar n)   (ss, vs) = pure (ss, Var (n + nLits) : vs)
         f _          _        = __IMPOSSIBLE__
@@ -390,7 +401,7 @@ cSchemeApp t as = do
     (stores, vs) <-  foldrM f ([], []) as
 
     -- let fin' = res $ Unit $ Node tag vs
-    t <- store $ ConstantNode tag vs
+    t <- store $ ConstantNode tag $ caseList vs __IMPOSSIBLE__ (:|)
     abs <- freshAbs
     let fin = Bind t . LAltVar abs
     stores' <- foldrM (\t ts -> (\abs -> Bind t . LAltVar abs . ts) <$> freshAbs) fin stores
@@ -638,11 +649,13 @@ inlineEval defs absCxt tagInfo =
             let prim = Prim $ strPrim tDef
                 ts = (map Var $ downFrom tArity) in
             App prim ts `bindVar`
-            Unit (ConstantNode natTag [Var 0])
+            Unit (ConstantNode natTag $ Var 0 :| [])
 
         genBody tag@CTag{tArity}
           | tArity == 0 = pure $ Unit $ Tag tag
-          | otherwise = pure $ Unit $ ConstantNode tag $ map Var $ downFrom tArity
+          | otherwise =
+            let vs = caseList (map Var $ downFrom tArity) __IMPOSSIBLE__ (:|) in
+            pure $ Unit $ ConstantNode tag vs
 
         genBody PTag{} = error "TODO"
 
@@ -678,10 +691,10 @@ removeUnitBind (Unit (ConstantNode tag1 vs) `Bind` LAltConstantNode tag2 xs t)
   | tag1 == tag2 =
     let
       arity = tagArity tag1
-      vs' = raise arity $ reverse vs
+      vs' = List1.map (raise arity) $ List1.reverse vs
       rho =
         strengthenS impossible arity `composeS`
-        foldr composeS IdS (zipWith inplaceS [0 .. arity - 1] vs')
+        foldr composeS IdS (List1.zipWith inplaceS (0 :| [1 .. arity - 1]) vs')
     in
     applySubst rho $ removeUnitBind t
 
@@ -840,14 +853,16 @@ vectorize tagInfo (t1 `Bind` LAltVar x1 t2)
   | Just tag <- singletonTag x1 tagInfo = do
     let
       arity = tagArity tag
+      vs = caseList (map Var $ downFrom arity) __IMPOSSIBLE__ (:|)
       rho =
-        inplaceS 0 (ConstantNode tag $ map Var $ downFrom arity) `composeS`
+        inplaceS 0 (ConstantNode tag vs) `composeS`
         raiseFromS 1 (arity - 1)
     t2' <- applySubst rho <$> vectorize tagInfo t2
     Bind t1 <$> laltConstantNode tag t2'
   | Just arity <- lookupMaxArity x1 tagInfo = do
-    let rho =
-          inplaceS 0 (VariableNode arity $ map Var $ downFrom arity) `composeS`
+    let vs = caseList (map Var $ downFrom arity) __IMPOSSIBLE__ (:|)
+        rho =
+          inplaceS 0 (VariableNode arity vs) `composeS`
           raiseFromS 1 arity
     t2' <- applySubst rho <$> vectorize tagInfo t2
     Bind t1 <$> laltVariableNode arity t2'
@@ -879,8 +894,8 @@ vectorize _ t = pure t
 --   Ccons → <t3> [x₁ / x₃, x₂ / x₄]
 simplifyCase :: Term -> Term
 simplifyCase (Case v t alts)
-  | ConstantNode tag vs <- v = Case (Tag tag) t' $ map (mkAlt vs) alts
-  | VariableNode n vs <- v = Case (Var n) t' $ map (mkAlt vs) alts
+  | ConstantNode tag vs <- v = Case (Tag tag) t' $ map (mkAlt $ toList vs) alts
+  | VariableNode n vs <- v = Case (Var n) t' $ map (mkAlt $ toList vs) alts
   | otherwise =
     let go = (\(mkAlt, t) -> mkAlt $ simplifyCase t) . splitCalt in
     Case v t' $ map go alts
@@ -983,6 +998,12 @@ splitFetch term = term
 --           <m3> [y₁ / x₁, y₂ / x₂]
 --
 
+-- TODO
+-- • Maybe leave fetch operations that are used by all alternatives and all uses the
+--   small layout.
+-- • Annotate fetch with tag so it is known whether small layout or big layout should
+--   be used.
+-- • Implement the the missing patterns (see TODOs below)
 rightHoistFetch :: forall mf. MonadFresh Int mf => Term -> mf Term
 rightHoistFetch term@(FetchOffset n1 0       `Bind` LAltVar x1
                      (FetchOffset n1' offset `Bind` LAltVar x2 t2))
@@ -1074,6 +1095,91 @@ hoistFetch x1 n x2 t offset =
           _                 -> False
 
         isX2 xs n = caseMaybe (toList xs !!! n) False (== x2)
+
+
+
+
+
+-- f #3 0 ; λ xs → <m>
+-- >>>
+-- unit #3 ; λ x →
+-- f 0 1 ; λ xs → <m>
+introduceRegisters :: MonadFresh Int mf => Term -> mf Term
+introduceRegisters term@((valsView -> Just (mkT, vs)) `Bind` (splitLalt -> (mkAlt, t2))) = do
+  term' <- useRegisters vs (\vs -> mkT vs `Bind` mkAlt t2)
+  if term' == term then do
+    t2' <- introduceRegisters t2
+    pure $ mkT vs `Bind` mkAlt t2'
+  else
+    introduceRegisters term'
+
+introduceRegisters term@(Case v t1 alts `Bind` alt@(splitLalt -> (mkAlt, t2))) = do
+    term' <- useRegister v (\v -> Case v t1 alts `Bind` alt)
+    if term' == term then do
+      t1' <- introduceRegisters t1
+      alts' <- mapM go alts
+      t2' <- introduceRegisters t2
+      pure $ Case v t1' alts' `Bind` mkAlt t2'
+    else
+      introduceRegisters term'
+  where
+    go (splitCalt -> (mkAlt, t)) = mkAlt <$> introduceRegisters t
+
+introduceRegisters (t1@(valsView -> Nothing) `Bind` (splitLalt -> (mkAlt, t2))) = do
+  introduceRegisters t2 <&> \t2' -> t1 `Bind` mkAlt t2'
+
+introduceRegisters term@(Case v t alts) = do
+    term' <- useRegister v (\v -> Case v t alts)
+    if term' == term then do
+      t' <- introduceRegisters t
+      alts' <- mapM go alts
+      pure $ Case v t' alts'
+    else
+      introduceRegisters term'
+  where
+    go (splitCalt -> (mkAlt, t)) = mkAlt <$> introduceRegisters t
+
+introduceRegisters (valsView -> Just (mkT, vs)) = useRegisters vs mkT
+introduceRegisters t@(valsView -> Nothing) = pure t
+introduceRegisters _ = __IMPOSSIBLE__ -- Redundant pattern but GHC can't figure it out
+
+valsView :: Term -> Maybe (List1 Val -> Term, List1 Val)
+valsView (UpdateTag tag n v) = Just (UpdateTag tag n . List1.head, v :| [])
+valsView (App v1 vs)         = caseList vs Nothing $ \v2 vs -> Just (App v1 . toList, v2 :| vs)
+valsView (Store loc v)       = Just (Store loc . List1.head, v :| [])
+valsView Unit{}              = Nothing -- Otherwise it doesn't terminate
+valsView Fetch{}             = Nothing
+valsView Error{}             = Nothing
+valsView Bind{}              = Nothing
+valsView Case{}              = Nothing
+valsView Update{}            = __IMPOSSIBLE__
+
+useRegisters :: MonadFresh Int mf => List1 Val -> (List1 Val -> Term) -> mf Term
+useRegisters vs mkT = f $ raise n $ mkT vs' where
+  ((f, n), vs') =
+    forAccumR (pure, 0) vs $ \(f, m) v ->
+      caseMaybe (mkRegister v)
+        ((f, m), v)
+        ((, Var $ m - n) . (, succ m) . (<=< f))
+
+useRegister :: MonadFresh Int mf => Val -> (Val -> Term) -> mf Term
+useRegister v mkT =  useRegisters (v :| []) (mkT . List1.head)
+
+mkRegister :: MonadFresh Int mf => Val -> Maybe (Term -> mf Term)
+mkRegister = \case
+  Var _ -> Nothing
+  Lit lit             -> Just $ bindVar (Unit $ Lit lit)
+  Tag tag             -> Just $ bindVar (Unit $ Tag tag)
+  ConstantNode tag vs -> Just $ \t -> do
+    alt <- laltVar t
+    let mkT vs' = Unit (ConstantNode tag vs') `Bind` alt
+    useRegisters vs mkT
+  VariableNode n vs -> Just $ \t -> do
+    alt <- laltVar t
+    let mkT vs' = Unit (VariableNode n vs') `Bind` alt
+    useRegisters vs mkT
+  v -> error $ "REG: " ++ prettyShow v
+
 
 -----------------------------------------------------------------------
 -- * LLVM code generation

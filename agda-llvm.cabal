@@ -13,45 +13,47 @@ extra-doc-files:    CHANGELOG.md
 -- extra-source-files:
 
 common warnings
-    ghc-options:
-      -Werror
-      -Werror=cpp-undef
-      -Werror=deprecated-flags
-      -Werror=deriving-typeable
-      -Werror=dodgy-exports
-      -Werror=dodgy-foreign-imports
-      -Werror=dodgy-imports
-      -Werror=duplicate-exports
-      -Werror=empty-enumerations
-      -Werror=identities
-      -Werror=inaccessible-code
-      -Werror=inline-rule-shadowing
-      -Werror=missing-fields
-      -Werror=missing-home-modules
-      -Werror=missing-methods
-      -Werror=missing-pattern-synonym-signatures
-      -Werror=missing-signatures
-      -Werror=noncanonical-monad-instances
-      -Werror=noncanonical-monoid-instances
-      -Werror=overflowed-literals
-      -Werror=overlapping-patterns
-      -Werror=semigroup
-      -Werror=simplifiable-class-constraints
-      -Werror=star-binder
-      -Werror=star-is-type
-      -Werror=tabs
-      -Werror=typed-holes
-      -Werror=unbanged-strict-patterns
-      -Werror=unrecognised-pragmas
-      -Werror=unrecognised-warning-flags
-      -Werror=unticked-promoted-constructors
-      -Werror=unused-do-bind
-      -Werror=unused-foralls
-      -Werror=warnings-deprecations
-      -Werror=wrong-do-bind
-      
-      -- Warnings
-      -Wunused-imports
+  ghc-options:
+    -W
+    -- ghc-options:
+    --   -Werror
+    --   -Werror=cpp-undef
+    --   -Werror=deprecated-flags
+    --   -Werror=deriving-typeable
+    --   -Werror=dodgy-exports
+    --   -Werror=dodgy-foreign-imports
+    --   -Werror=dodgy-imports
+    --   -Werror=duplicate-exports
+    --   -Werror=empty-enumerations
+    --   -Werror=identities
+    --   -Werror=inaccessible-code
+    --   -Werror=inline-rule-shadowing
+    --   -Werror=missing-fields
+    --   -Werror=missing-home-modules
+    --   -Werror=missing-methods
+    --   -Werror=missing-pattern-synonym-signatures
+    --   -Werror=missing-signatures
+    --   -Werror=noncanonical-monad-instances
+    --   -Werror=noncanonical-monoid-instances
+    --   -Werror=overflowed-literals
+    --   -Werror=overlapping-patterns
+    --   -Werror=semigroup
+    --   -Werror=simplifiable-class-constraints
+    --   -Werror=star-binder
+    --   -Werror=star-is-type
+    --   -Werror=tabs
+    --   -Werror=typed-holes
+    --   -Werror=unbanged-strict-patterns
+    --   -Werror=unrecognised-pragmas
+    --   -Werror=unrecognised-warning-flags
+    --   -Werror=unticked-promoted-constructors
+    --   -Werror=unused-do-bind
+    --   -Werror=unused-foralls
+    --   -Werror=warnings-deprecations
+    --   -Werror=wrong-do-bind
+    --   
+    --   -- Warnings
+    --   -Wunused-imports
 
 library 
   import: warnings

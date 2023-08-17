@@ -9,6 +9,9 @@ run :
 test :
 	cabal run test
 
+test-clean :
+	rm test/*.err
+
 html : html/logbook.html
 
 pdf : latex/report.pdf
