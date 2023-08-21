@@ -4,6 +4,7 @@ import           Control.Monad.State           (MonadState, State, evalState,
                                                 get, modify)
 import qualified Data.ByteString               as BS
 import           Data.Foldable                 (toList)
+import           Data.List                     (intercalate)
 import           Data.Text                     (Text)
 import qualified Data.Text                     as T
 import           Data.Text.Encoding            (decodeUtf8, encodeUtf8)
@@ -12,13 +13,15 @@ import           Test.Tasty
 import           Test.Tasty.Silver.Advanced
 
 import           Agda.Compiler.Backend         hiding (Prim)
+import           Agda.Llvm.Compiler
 import           Agda.Llvm.Grin
 import           Agda.Llvm.GrinTransformations
+import qualified Agda.Llvm.Llvm                as L
 import           Agda.Llvm.Utils
 import           Agda.Syntax.Common.Pretty
 import           Agda.Syntax.Literal
 import           Agda.TypeChecking.Substitute
-import           Agda.Utils.List1              (pattern (:|), (<|))
+import           Agda.Utils.List1              (List1, pattern (:|), (<|))
 
 
 main :: IO ()
@@ -162,8 +165,28 @@ inputIntroduceRegisters1 =
   Unit (Var 4)
 
 
-test :: Term
-test = raiseFrom 1 10 $ evalTest $ Unit (Var 0) `bindVar` Unit (Var 1)
+testCodeGen1 :: List1 L.Instruction
+testCodeGen1 = evalCodeGen $ termToLlvm $ evalTest inputCodeGen1
+
+-- DownFrom.main =
+--   unit Cnat ; λ x3706 →
+--   unit #100 ; λ x3705 →
+--   unit (1 0) ; λ x3704 →
+--   storel21 0 ; λ x24 →
+--   unit FDownFrom.downFrom ; λ x3708 →
+--   unit (0 1) ; λ x3707 →
+--   storel22 0 ; λ x23 →
+--   DownFrom.sum 0 ; λ Cnat x25 →
+--   printf 0
+inputCodeGen1 :: Test Term
+inputCodeGen1 =
+  Unit (Tag natTag) `bindVarR`
+  Unit (mkLit 100) `bindVarR`
+  Unit (VariableNode 1 $ Var 0 :| []) `bindVar`
+  unreachable
+
+printLlvm :: Foldable t => t L.Instruction -> IO ()
+printLlvm = putStrLn . intercalate "\n" . map prettyShow . toList
 
 testSwap01 :: Term
 testSwap01 =

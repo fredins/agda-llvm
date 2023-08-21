@@ -691,6 +691,9 @@ valsView :: Term -> Maybe (List1 Val -> Term, List1 Val)
 valsView (UpdateTag tag n v) = Just (UpdateTag tag n . List1.head, v :| [])
 valsView (App v1 vs)         = caseList vs Nothing $ \v2 vs -> Just (App v1 . toList, v2 :| vs)
 valsView (Store loc v)       = Just (Store loc . List1.head, v :| [])
+valsView (Unit (ConstantNode tag vs)) = Just (mkT, Tag tag <| vs) where
+  mkT (Var n :| v : vs) = Unit (VariableNode n $ v :| vs)
+  mkT _                 = __IMPOSSIBLE__
 valsView Unit{}              = Nothing -- Otherwise it doesn't terminate
 valsView Fetch{}             = Nothing
 valsView Error{}             = Nothing
@@ -716,8 +719,9 @@ mkRegister = \case
   Tag tag             -> Just $ bindVar (Unit $ Tag tag)
   ConstantNode tag vs -> Just $ \t -> do
     alt <- laltVar t
-    let mkT vs' = Unit (ConstantNode tag vs') `Bind` alt
-    useRegisters vs mkT
+    let mkT (Var n :| v : vs) = Unit (VariableNode n $ v :| vs) `Bind` alt
+        mkT _                 = __IMPOSSIBLE__
+    useRegisters (Tag tag <| vs) mkT
   VariableNode n vs -> Just $ \t -> do
     alt <- laltVar t
     let mkT vs' = Unit (VariableNode n vs') `Bind` alt

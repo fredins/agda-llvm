@@ -7,6 +7,7 @@ declare ptr @malloc(i64)
 @pp_int = private constant [12 x i8] c"result: %d\0A\00", align 1
 @pp_debug_int = private constant [25 x i8] c"debug number %d int: %d\0A\00", align 1
 @pp_debug_ptr = private constant [25 x i8] c"debug number %d ptr: %d\0A\00", align 1
+@"%d" = private constant [4 x i8] c"%d\0A\00", align 1
 
 %Node = type [4 x i64]
 
@@ -148,6 +149,6 @@ define fastcc void
 
   %12 = call fastcc %Node @eval(ptr %8)
   %13 = extractvalue %Node %12, 1
-  call void @printf(ptr @pp_int, i64 %13)
+  call void @printf(ptr @"%d", i64 %13)
   ret void
 }

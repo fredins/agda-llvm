@@ -15,10 +15,12 @@ import           Agda.Llvm.Utils
 import           Agda.Syntax.Common.Pretty
 import           Agda.Syntax.Internal         (Type)
 import           Agda.Syntax.Literal
+import           Agda.Syntax.Parser.Parser    (splitOnDots)
 import           Agda.TypeChecking.Substitute hiding (applySubstTerm)
 import           Agda.Utils.Function
 import           Agda.Utils.Impossible
 import           Agda.Utils.Lens
+import           Agda.Utils.List              (lastWithDefault)
 import           Agda.Utils.List1             (List1, pattern (:|), (<|))
 import qualified Agda.Utils.List1             as List1
 import           Agda.Utils.Maybe
@@ -41,6 +43,8 @@ lensGrTerm f def = f def.gr_term <&> \t -> def{gr_term = t}
 updateGrTerm :: LensMap GrinDefinition Term
 updateGrTerm = over lensGrTerm
 
+getShortName :: GrinDefinition -> String
+getShortName = lastWithDefault __IMPOSSIBLE__ . splitOnDots . gr_name
 
 
 -- TODO
