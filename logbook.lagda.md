@@ -67,6 +67,8 @@ Did the following:
   
   ```
 
+- Implemented approx. 90% of the code generator.
+
 ### W.32
 
 Read the following:  
