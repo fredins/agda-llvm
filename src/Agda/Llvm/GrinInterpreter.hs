@@ -4,11 +4,11 @@
 
 module Agda.Llvm.GrinInterpreter (module Agda.Llvm.GrinInterpreter) where
 
-import           Control.Monad             (forM, (<=<))
+import           Control.Monad             ((<=<))
 import           Control.Monad.Reader      (MonadReader, ReaderT (runReaderT),
                                             asks, local)
 import           Control.Monad.State       (MonadState, StateT, evalStateT)
-import           Data.Foldable             (find)
+import           Data.Foldable             (find, toList)
 import           Data.List                 (intercalate, singleton)
 import           Data.Map                  (Map)
 import qualified Data.Map                  as Map
@@ -16,14 +16,14 @@ import           GHC.IO                    (unsafePerformIO)
 
 import           Agda.Compiler.Backend     hiding (Prim, initEnv)
 import           Agda.Llvm.Grin
+import           Agda.Syntax.Common.Pretty
 import           Agda.Syntax.Literal       (Literal (LitNat))
 import           Agda.Utils.Functor
 import           Agda.Utils.Impossible
 import           Agda.Utils.Lens
 import           Agda.Utils.List
--- import           Agda.Utils.List1                   (List1, pattern (:|), (<|))
--- import qualified Agda.Utils.List1                   as List1
-import           Agda.Syntax.Common.Pretty
+import           Agda.Utils.List1          (List1, pattern (:|))
+import qualified Agda.Utils.List1          as List1
 import           Agda.Utils.Maybe
 import           Agda.Utils.Monad          (forMM)
 
@@ -114,6 +114,9 @@ interpretGrin defs =
         VNode{} -> do
           heapUpdate loc v
           eval t2
+        VTag{} -> do
+          heapUpdate loc v
+          eval t2
         _ -> __IMPOSSIBLE__
 
     eval (Unit t1 `Bind` LAltVar abs t2) =
@@ -138,6 +141,7 @@ interpretGrin defs =
     eval (t1 `Bind` LAltVariableNode x xs t2) =
       eval t1 >>= \case
         VNode tag vs -> stackFrameLocals (x : xs) (VTag tag : vs) $ eval t2
+        VTag tag     -> stackFrameLocals (x : xs) [VTag tag] $ eval t2
         _            -> __IMPOSSIBLE__
 
     eval (App t ts) = evalApp t ts
@@ -192,11 +196,11 @@ interpretGrin defs =
     evalVal' :: Val -> Eval mf (Maybe Value)
     evalVal' (Var n) = stackFrameLookup n
     evalVal' (ConstantNode tag vs) =
-      fmap (VNode tag) <$> allJustM (map evalVal' vs)
+      fmap (VNode tag) <$> allJustM (map evalVal' $ toList vs)
     evalVal' (VariableNode n vs) = do
       forMM (stackFrameLookup n) $ \case
         VTag tag ->
-          VNode tag <$> mapM (fmap (fromMaybe Undefined) . evalVal') vs
+          VNode tag . toList <$> mapM (fmap (fromMaybe Undefined) . evalVal') vs
         _ -> __IMPOSSIBLE__
 
     evalVal' (Tag tag) = pure $ Just $ VTag tag
@@ -283,9 +287,6 @@ interpretGrin defs =
     deBruijnLookup n = do
       sf <- asks $ StackFrame . (^. lensStackFrame)
       fst . fromMaybe (error $ "CANNOT FIND: " ++ show n ++ "\n" ++ prettyShow sf) . (!!! n) <$> view lensStackFrame
-
-trace' :: String -> a -> a
-trace' s = unsafePerformIO . (putStrLn s $>)
 
 natTag :: Tag
 natTag = CTag{tCon = "nat" , tArity = 1}

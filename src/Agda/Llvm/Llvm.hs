@@ -1,51 +1,160 @@
-{-# OPTIONS_GHC -Wno-name-shadowing #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ViewPatterns      #-}
 
-module Agda.Llvm.Llvm where
+module Agda.Llvm.Llvm (module Agda.Llvm.Llvm) where
 
 import           Data.List                 (intercalate)
+import           Data.String               (IsString)
 
-import           Agda.Compiler.Backend     hiding (Name)
+import           Agda.Compiler.Backend     hiding (Name, Prim)
 import           Agda.Syntax.Common.Pretty
 import           Agda.Syntax.Literal
+import           Agda.Syntax.Parser.Parser (splitOnDots)
+import           Agda.Utils.Impossible     (__IMPOSSIBLE__)
+import           Agda.Utils.List
+import           Agda.Utils.List1          (List1, pattern (:|), (<|))
+import qualified Agda.Utils.List1          as List1
+import           Agda.Utils.Monad          (forM')
+import           Control.Arrow             (Arrow (first))
+import           Control.Monad             (forM)
+import           Data.Foldable             (toList)
 
 data Instruction =
-    Define CallingConvention Type Var [(Type, String)] [Instruction]
-  | Declare Type Var [Type]
-  | Getelementptr Type [(Type, Val)]
-  -- | Extractvalue Type
-  | Call CallingConvention Type Scope Val [(Type, Val)]
-  | Ret Type Val
-  | Malloc Int
-  | Store Type Val Type Val
+    Define CallingConvention Type GlobalId [(Type, LocalId)] (List1 Instruction)
+  | Declare Type LocalId [Type]
+  | Getelementptr Type (List1 (Type, Val))
+  | Extractvalue Type Val Int
+  | Insertvalue Type Val Type Val Int
+  | Call CallingConvention Type GlobalId [(Type, Val)]
+  | Ret Type (Maybe Val)
+  | Store Type Val Type LocalId
   | Load Type Type Val
-  | Prim TPrim
-  | SetVar Var Instruction
-  | Switch Type Var Var [Alt]
-  | Label String [Instruction]
+  | SetVar LocalId Instruction
+  | Switch Type LocalId LocalId [Alt]
+  | Label String (List1 Instruction)
   | Comment String
+  | Unreachable
+  | Alloca Type
+  | Inttoptr Type Val Type
+  | Ptrtoint Type Val Type
+  | Br LocalId
+  | Phi Type (List1 (Val, LocalId))
+  | Add Type Val Val
+  | Sub Type Val Val
     deriving Show
 
-data Alt = Alt Type Val String deriving Show
+pattern RetVoid = Ret Void Nothing
+pattern RetNode v = Ret (Alias "%Node") (Just v)
 
-newtype Var = MkVar String deriving (Show, Eq)
+data Alt = Alt Type Val LocalId deriving Show
 
-data Val = Var Var
+add64 :: Val -> Val -> Instruction
+add64 = Add I64
+
+sub64 :: Val -> Val -> Instruction
+sub64 = Sub I64
+
+alt :: Val -> LocalId -> Alt
+alt = Alt I64
+
+newtype GlobalId = MkGlobalId String deriving (Show, Eq, Ord, IsString)
+
+newtype LocalId = MkLocalId String deriving (Show, Eq, Ord, IsString)
+
+mkLocalId :: Pretty a => a -> LocalId
+mkLocalId = MkLocalId . ('%' :) . prettyShow
+
+mkUnnamed :: (Pretty a, Num a) => a -> LocalId
+mkUnnamed = MkLocalId . ("%_" ++) . prettyShow
+
+mkGlobalId :: Pretty a => a -> GlobalId
+mkGlobalId (prettyShow -> s) =
+    MkGlobalId $ case shortName of
+      "main"   -> "@main"
+      "printf" -> "@printf"
+      "malloc" -> "@malloc"
+      _        -> '@' : '"' : s `snoc` '"'
+
+  where
+    shortName = lastWithDefault __IMPOSSIBLE__ $ splitOnDots s
+
+
+mkLit :: Int -> Val
+mkLit = Lit . LitNat . toInteger
+
+data Val = LocalId LocalId
+         | GlobalId GlobalId
          | Lit Literal
+         | Structure (List1 Val)
          | Null
-           deriving Show
-
-data Scope = Global | Local deriving Show
+         | Undef
+           deriving (Show, Eq)
 
 data Type = Ptr
           | I8
           | I32
           | I64
           | Void
-          | Alias Var
-          | Structure [Type]
+          | Alias LocalId
+          | StructureTy (List1 Type)
           | Varargs
             deriving (Show, Eq)
 
+typeOf :: Val -> Type
+typeOf LocalId{}      = Ptr
+typeOf GlobalId{}     = Ptr
+typeOf (Lit LitNat{}) = I64
+typeOf Lit{}          = __IMPOSSIBLE__
+typeOf (Structure vs) = StructureTy $ List1.map typeOf vs
+typeOf Undef          = __IMPOSSIBLE__
+typeOf Null           = __IMPOSSIBLE__
+
+size :: Type -> Int
+size I8               = 8
+size I64              = 64
+size I32              = 32
+size Ptr              = 64
+size (Alias "%Node")  = size nodeTy
+size (StructureTy ts) = List1.foldr ((+) . size) size ts
+size Varargs          = __IMPOSSIBLE__
+size Alias{}          = __IMPOSSIBLE__
+size Void             = __IMPOSSIBLE__
+
+extractvalue :: Val -> Int -> Instruction
+extractvalue = Extractvalue nodeTySyn
+
+insertvalue :: Val -> Val -> Int -> Instruction
+insertvalue v = Insertvalue nodeTySyn v I64
+
+getelementptr :: LocalId -> Int -> Instruction
+getelementptr ptr offset = Getelementptr nodeTySyn $ (Ptr, LocalId ptr) :| [(I32, mkLit offset)]
+
+switch :: LocalId -> LocalId -> [Alt] -> Instruction
+switch = Switch I64
+
+inttoptr :: LocalId -> Instruction
+inttoptr x = Inttoptr I64 (LocalId x) Ptr
+
+ptrtoint :: LocalId -> Instruction
+ptrtoint x = Ptrtoint Ptr (LocalId x) I64
+
+load :: Type -> LocalId -> Instruction
+load t = Load t Ptr . LocalId
+
+nodeTySyn :: Type
+nodeTySyn  = Alias "%Node"
+
+nodeTy :: Type
+nodeTy = StructureTy $ I64 <| I64 <| I64 :| []
+
+store :: Type -> Val -> LocalId -> Instruction
+store t v = Store t v Ptr
+
+malloc :: Int -> Instruction
+malloc n = Call Fastcc Ptr "@malloc" [(I64, mkLit n)]
+
+phi :: Type -> List1 (LocalId, LocalId) -> Instruction
+phi t = Phi t . List1.map (first LocalId)
 
 data CallingConvention = Tailcc | Fastcc deriving Show
 
@@ -56,60 +165,68 @@ data CallingConvention = Tailcc | Fastcc deriving Show
 
 instance Pretty Instruction where
   pretty = \case
+    Unreachable -> text "unreachable"
     Comment s -> text ";" <+> text s
     Define cc t n as is -> vcat
       [ text "define" <+> pretty cc <+> pretty t
-      , text $ "@" ++ prettyShow n ++ "(" ++ render (prettyArgs as) ++ "){"
-      , nest 2 $ vcat $ map pretty is
+      , pretty n <> text ("(" ++ render (prettyArgs as) ++ "){")
+      , nest 2 $ vcat $ List1.map pretty is
       , text "}"
       ]
-    SetVar x i -> text ("%" ++ prettyShow x) <+> text "=" <+> pretty i
+    SetVar x i -> pretty x <+> text "=" <+> pretty i
     Getelementptr t is -> sep
       [ text "getelementptr inbounds"
       , text (prettyShow t ++ ",")
-      , text $ intercalate ", " $ map (\(t, v) -> render $ pretty t <+> pp v) is
+      , text $ intercalate ", " $ toList $ List1.map (\(t, v) -> render $ pretty t <+> pretty v) is
       ]
-      where
-        pp (Var (MkVar s)) = text $ "%" ++ s
-        pp v               = pretty v
-    Label s is -> vcat [nest (-2) $ text $ s ++ ":", vcat $ map pretty is]
+    Label s is -> vcat [nest (-2) $ text $ s ++ ":", vcat $ map pretty $ toList is]
     Switch t x l alts ->
           text "switch"
       <+> pretty t
-      <+> text ("%" ++ prettyShow x ++ ", label")
-      <+> text ("%" ++ prettyShow l)
+      <+> (pretty x <> text ", label")
+      <+> pretty l
       <+> text "["
       <+> vcat (map pretty alts)
       <+> text "]"
-
-    Ret t (Var v) -> text "ret" <+> pretty t <+> text ("%" ++ prettyShow v)
-    Ret t v -> text "ret" <+> pretty t <+> pretty v
-
-    Call cc t s v as -> sep
+    RetVoid -> text "ret void"
+    Ret t (Just v) -> text "ret" <+> pretty t <+> pretty v
+    Ret{} -> __IMPOSSIBLE__
+    Call cc t v as -> sep
       [ text "call"
       , pretty cc
       , pretty t
-      , text $ prettyShow s ++ prettyShow v ++ "(" ++ render (prettyArgs as) ++ ")"
+      , pretty v <> text ("(" ++ render (prettyArgs as) ++ ")")
       ]
-
-    Load t1 t2 v -> text "load" <+> text (prettyShow t1 ++ ",") <+> pretty t2 <+> text ("%" ++ prettyShow v)
-
-    i -> error $ "not impemented: " ++ show i
+    Load t1 t2 v -> text "load" <+> text (prettyShow t1 ++ ",") <+> pretty t2 <+> pretty v
+    Alloca t -> text "alloca" <+> pretty t
+    Declare{} -> undefined
+    Store t1 v t2 x -> (text "store" <+> pretty t1 <+> pretty v) <> (text "," <+> pretty t2 <+> pretty x)
+    Extractvalue t v n -> (text "extractvalue" <+> pretty t <+> pretty v) <> (text "," <+> pretty n)
+    Insertvalue t1 v1 t2 v2 offset -> (text "insertvalue" <+> pretty t1 <+> pretty v1) <> ("," <+> pretty t2 <+> pretty v2) <> ("," <+> pretty offset)
+    Br x -> text "br label" <+> pretty x
+    Inttoptr t1 v t2 -> text "inttoptr" <+> pretty t1 <+> pretty v <+> text "to" <+> pretty t2
+    Ptrtoint t1 v t2 -> text "ptrtoint" <+> pretty t1 <+> pretty v <+> text "to" <+> pretty t2
+    Phi t xs -> text "phi" <+> pretty t <+> text (intercalate ", " (map (\(v, x) -> '[' : prettyShow v <> ", " <> prettyShow x `snoc` ']') (toList xs)))
+    Add t v1 v2 -> (text "add" <+> pretty t <+> pretty v1) <> (text "," <+> pretty v2)
+    Sub t v1 v2 -> (text "add" <+> pretty t <+> pretty v1) <> (text "," <+> pretty v2)
 
 instance Pretty Alt where
   pretty (Alt t v x) =
-    pretty t <+> text (prettyShow v ++ ", label") <+> text ("%" ++ prettyShow x)
+    pretty t <+> text (prettyShow v ++ ", label") <+> pretty x
 
-prettyArgs :: Pretty a => [(Type, a)] -> Doc
-prettyArgs as = text $ intercalate ", " (map go as)
+prettyArgs :: (Foldable t, Pretty a) => t (Type, a) -> Doc
+prettyArgs as = text $ intercalate ", " (map go $ toList as)
   where
-    go (t, x) = render $ pretty t <+> text ("%" ++ prettyShow x)
+    go (t, x) = render $ pretty t <+> pretty x
 
 instance Pretty Val where
   pretty = \case
-    Var x   -> pretty x
-    Lit lit -> pretty lit
-    Null    -> text "null"
+    LocalId x       -> pretty x
+    GlobalId x       -> pretty x
+    Lit lit         -> pretty lit
+    Null            -> text "null"
+    Structure vs -> text $ "{" ++ intercalate ", " (map prettyShow $ toList vs) ++ "}"
+    Undef -> text "undef"
 
 
 instance Pretty CallingConvention where
@@ -119,23 +236,18 @@ instance Pretty CallingConvention where
 
 instance Pretty Type where
   pretty = \case
-    Ptr          -> text "ptr"
-    I8           -> text "i8"
-    I32          -> text "i32"
-    I64          -> text "i64"
-    Void         -> text "void"
-    Alias x      -> text $ "%" ++ prettyShow x
-    Structure ts -> text $ "{" ++ intercalate ", " (map prettyShow ts) ++ "}"
-    Varargs      -> text "..."
+    Ptr            -> text "ptr"
+    I8             -> text "i8"
+    I32            -> text "i32"
+    I64            -> text "i64"
+    Void           -> text "void"
+    Alias x        -> pretty x
+    StructureTy ts -> text $ "{" ++ intercalate ", " (map prettyShow $ toList ts) ++ "}"
+    Varargs        -> text "..."
 
-instance Pretty Scope where
-  pretty Local  = text "%"
-  pretty Global = text "@"
+instance Pretty LocalId where
+  pretty (MkLocalId s) = text s
 
-instance Pretty Var where
-  pretty (MkVar s) = text s
-
-
-
-
+instance Pretty GlobalId where
+  pretty (MkGlobalId s) = text s
 

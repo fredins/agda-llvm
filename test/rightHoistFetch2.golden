@@ -1,0 +1,18 @@
+fetch 0 [0] ; λ x10 →
+(case 0 of
+   FPrim.Sub →
+     fetch 1 [1] ; λ x11 →
+     fetch 2 [2] ; λ x13 →
+     PSub 1 0 ; λ x0 →
+     unit (Cnat 0)
+   Cnat →
+     fetch 1 [1] ; λ x12 →
+     unit (Cnat 0)
+) ; λ Cnat x7 →
+updateCnat 2 (Cnat 0) ; λ () →
+case 0 of
+  0 → unit Cnil
+  _ → storel1 (Cnat #1) ; λ x6 →
+      storel2 (FPrim.Sub 3 0) ; λ x5 →
+      storel3 (FdownFrom 0) ; λ x4 →
+      unit (Ccons 1 0)

@@ -13,60 +13,63 @@ extra-doc-files:    CHANGELOG.md
 -- extra-source-files:
 
 common warnings
-    ghc-options:
-      -Werror
-      -Werror=cpp-undef
-      -Werror=deprecated-flags
-      -Werror=deriving-typeable
-      -Werror=dodgy-exports
-      -Werror=dodgy-foreign-imports
-      -Werror=dodgy-imports
-      -Werror=duplicate-exports
-      -Werror=empty-enumerations
-      -Werror=identities
-      -Werror=inaccessible-code
-      -Werror=inline-rule-shadowing
-      -Werror=missing-fields
-      -Werror=missing-home-modules
-      -Werror=missing-methods
-      -Werror=missing-pattern-synonym-signatures
-      -Werror=missing-signatures
-      -Werror=noncanonical-monad-instances
-      -Werror=noncanonical-monoid-instances
-      -Werror=overflowed-literals
-      -Werror=overlapping-patterns
-      -Werror=semigroup
-      -Werror=simplifiable-class-constraints
-      -Werror=star-binder
-      -Werror=star-is-type
-      -Werror=tabs
-      -Werror=typed-holes
-      -Werror=unbanged-strict-patterns
-      -Werror=unrecognised-pragmas
-      -Werror=unrecognised-warning-flags
-      -Werror=unticked-promoted-constructors
-      -Werror=unused-do-bind
-      -Werror=unused-foralls
-      -Werror=warnings-deprecations
-      -Werror=wrong-do-bind
+  ghc-options:
+    -W
+    -- ghc-options:
+    --   -Werror
+    --   -Werror=cpp-undef
+    --   -Werror=deprecated-flags
+    --   -Werror=deriving-typeable
+    --   -Werror=dodgy-exports
+    --   -Werror=dodgy-foreign-imports
+    --   -Werror=dodgy-imports
+    --   -Werror=duplicate-exports
+    --   -Werror=empty-enumerations
+    --   -Werror=identities
+    --   -Werror=inaccessible-code
+    --   -Werror=inline-rule-shadowing
+    --   -Werror=missing-fields
+    --   -Werror=missing-home-modules
+    --   -Werror=missing-methods
+    --   -Werror=missing-pattern-synonym-signatures
+    --   -Werror=missing-signatures
+    --   -Werror=noncanonical-monad-instances
+    --   -Werror=noncanonical-monoid-instances
+    --   -Werror=overflowed-literals
+    --   -Werror=overlapping-patterns
+    --   -Werror=semigroup
+    --   -Werror=simplifiable-class-constraints
+    --   -Werror=star-binder
+    --   -Werror=star-is-type
+    --   -Werror=tabs
+    --   -Werror=typed-holes
+    --   -Werror=unbanged-strict-patterns
+    --   -Werror=unrecognised-pragmas
+    --   -Werror=unrecognised-warning-flags
+    --   -Werror=unticked-promoted-constructors
+    --   -Werror=unused-do-bind
+    --   -Werror=unused-foralls
+    --   -Werror=warnings-deprecations
+    --   -Werror=wrong-do-bind
+    --   
+    --   -- Warnings
+    --   -Wunused-imports
 
-
-executable agda-llvm
-  import:           warnings
-  main-is:          Main.hs
-  other-modules:
+library 
+  import: warnings
+  exposed-modules:
     Agda.Llvm.Compiler
     Agda.Llvm.Grin
-    Agda.Llvm.Llvm
-    Agda.Llvm.Utils
-    Agda.Llvm.HeapPointsTo
     Agda.Llvm.GrinInterpreter
+    Agda.Llvm.GrinTransformations
+    Agda.Llvm.HeapPointsTo
+    Agda.Llvm.Llvm
     Agda.Llvm.TreelessTransform
+    Agda.Llvm.Utils
        
   default-extensions:
     LambdaCase
     PatternSynonyms
-    DeriveGeneric
 
   build-depends:    
     , Agda       >= 2.6.4
@@ -79,20 +82,28 @@ executable agda-llvm
   hs-source-dirs:   src
   default-language: GHC2021
 
-test-suite agda-tests
+
+executable agda-llvm
+  import: warnings
+  hs-source-dirs: src/main
+  main-is:        Main.hs
+  build-depends:
+    , Agda       >= 2.6.4
+    , agda-llvm
+    , base       >= 4.12.0.0 && < 4.19
+
+  default-extensions:
+    LambdaCase
+    PatternSynonyms
+
+  default-language: GHC2021
+
+test-suite test
   import:           warnings
 
   type:             exitcode-stdio-1.0
-  hs-source-dirs:   test/, src/
+  hs-source-dirs:   test/
   main-is:          Main.hs
-  other-modules:
-    Agda.Llvm.Compiler
-    Agda.Llvm.Grin
-    Agda.Llvm.Llvm
-    Agda.Llvm.Utils
-    Agda.Llvm.HeapPointsTo
-    Agda.Llvm.GrinInterpreter
-    Agda.Llvm.TreelessTransform
 
   default-extensions:
     LambdaCase
@@ -111,5 +122,6 @@ test-suite agda-tests
     , tasty-silver >= 3.1.13  && < 3.4
     , text
     , unix-compat      >= 0.4.3.1 && < 0.8
+    , agda-llvm
 
   default-language: GHC2021

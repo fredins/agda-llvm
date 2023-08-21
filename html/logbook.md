@@ -4,6 +4,71 @@ csl: acm-siggraph.csl
 css: Agda.css
 ---
 
+### W.33
+
+Read the following:  
+  
+- @racordon2021
+- @racordon2022
+
+Did the following:  
+
+- Implemented the right hoisting fetch tranformation, which hoists fetches 
+  with offset > 0 into the the appropriate case alternatives. 
+
+  ```markdown
+  fetch 0 [0] ; λ x10 →
+  fetch 1 [1] ; λ x9 →
+  fetch 2 [2] ; λ x8 →
+  (case 2 of
+     FPrim.Sub →
+       PSub 1 0 ; λ x0 →
+       unit (Cnat 0)
+     Cnat → unit (Cnat 1)
+  ) ; λ Cnat x7 →
+  updateCnat 4 (Cnat 0) ; λ () →
+  <m>
+
+  -- >>>
+  
+  fetch 0 [0] ; λ x10 →
+  (case 0 of
+     FPrim.Sub →
+       fetch 1 [1] ; λ x11 →
+       fetch 2 [2] ; λ x13 →
+       PSub 1 0 ; λ x0 →
+       unit (Cnat 0)
+     Cnat →
+       fetch 1 [1] ; λ x12 →
+       unit (Cnat 0)
+  ) ; λ Cnat x7 →
+  updateCnat 2 (Cnat 0) ; λ () →
+  <m>
+  ```
+
+- Implemented the last simplifying (and necessary) tranformation: register introduction.  
+  The tranformation gives names to all values, and ensures that arguments to (e.g.) the  
+  `store` operation only contains variables.  
+  
+  ```markdown
+  storel21 (Cnat #100) ; λ x24 →
+  storel22 (FDownFrom.downFrom 0) ; λ x23 →
+  DownFrom.sum 0 ; λ Cnat x25 →
+  <m>
+  
+  -- >>>
+    
+  unit #100 ; λ x3690 →
+  unit (Cnat 0) ; λ x3689 →
+  storel21 0 ; λ x24 →
+  unit (FDownFrom.downFrom 0) ; λ x3691 →
+  storel22 0 ; λ x23 →
+  <m>
+  
+  ```
+
+- Implemented approx. 90% of the code generator.
+
 ### W.32
 
 Read the following:  
@@ -26,7 +91,9 @@ Did the following:
   ```markdown
   <t1> ; λ x₁ →
   <t2>
+
   -- >>>
+
    <t1> ; λ tag x₂ x₃ →
    <t2> [tag x₂ x₃ / x₁]
   ```
@@ -39,7 +106,9 @@ Did the following:
    case tag x₁ x₂ of
      Cnil        → <t2>
      Ccons x₃ x₄ → <t3>
+   
    -- >>>
+   
    <t1>
    case tag of
      Cnil  → <t2>
@@ -53,7 +122,9 @@ Did the following:
    <t1>
    fetch p ; λ tag x₁ x₂ →
    <t2>
+   
    -- >>>
+   
    <t1>
    fetch p [0]; λ tag →
    fetch p [1]; λ x₁ →
@@ -339,29 +410,31 @@ Did the following:
   to LLVM IR.  
 
   <pre class="Agda">
-  <a id="8459" class="Keyword">open</a> <a id="8464" class="Keyword">import</a> <a id="8471" href="Agda.Builtin.Nat.html" class="Module">Agda.Builtin.Nat</a> <a id="8488" class="Keyword">using</a> <a id="8494" class="Symbol">(</a><a id="8495" href="Agda.Builtin.Nat.html#217" class="InductiveConstructor">suc</a><a id="8498" class="Symbol">;</a> <a id="8500" href="Agda.Builtin.Nat.html#204" class="InductiveConstructor">zero</a><a id="8504" class="Symbol">;</a> <a id="8506" href="Agda.Builtin.Nat.html#319" class="Primitive Operator">_+_</a><a id="8509" class="Symbol">)</a> <a id="8511" class="Keyword">renaming</a> <a id="8520" class="Symbol">(</a><a id="8521" href="Agda.Builtin.Nat.html#186" class="Datatype">Nat</a> <a id="8525" class="Symbol">to</a> <a id="8528" class="Datatype">ℕ</a><a id="8529" class="Symbol">)</a> 
+  <a id="9830" class="Keyword">open</a> <a id="9835" class="Keyword">import</a> <a id="9842" href="Agda.Builtin.Nat.html" class="Module">Agda.Builtin.Nat</a> <a id="9859" class="Keyword">using</a> <a id="9865" class="Symbol">(</a><a id="9866" href="Agda.Builtin.Nat.html#217" class="InductiveConstructor">suc</a><a id="9869" class="Symbol">;</a> <a id="9871" href="Agda.Builtin.Nat.html#204" class="InductiveConstructor">zero</a><a id="9875" class="Symbol">;</a> <a id="9877" href="Agda.Builtin.Nat.html#319" class="Primitive Operator">_+_</a><a id="9880" class="Symbol">)</a> <a id="9882" class="Keyword">renaming</a> <a id="9891" class="Symbol">(</a><a id="9892" href="Agda.Builtin.Nat.html#186" class="Datatype">Nat</a> <a id="9896" class="Symbol">to</a> <a id="9899" class="Datatype">ℕ</a><a id="9900" class="Symbol">)</a> 
 
-  <a id="8535" class="Keyword">infixr</a> <a id="8542" class="Number">5</a> <a id="8544" href="logbook.html#8611" class="InductiveConstructor Operator">_∷_</a>
-  <a id="8550" class="Keyword">data</a> <a id="List"></a><a id="8555" href="logbook.html#8555" class="Datatype">List</a> <a id="8560" class="Symbol">{</a><a id="8561" href="logbook.html#8561" class="Bound">a</a><a id="8562" class="Symbol">}</a> <a id="8564" class="Symbol">(</a><a id="8565" href="logbook.html#8565" class="Bound">A</a> <a id="8567" class="Symbol">:</a> <a id="8569" href="Agda.Primitive.html#320" class="Primitive">Set</a> <a id="8573" href="logbook.html#8561" class="Bound">a</a><a id="8574" class="Symbol">)</a> <a id="8576" class="Symbol">:</a> <a id="8578" href="Agda.Primitive.html#320" class="Primitive">Set</a> <a id="8582" href="logbook.html#8561" class="Bound">a</a> <a id="8584" class="Keyword">where</a>
-    <a id="List.[]"></a><a id="8594" href="logbook.html#8594" class="InductiveConstructor">[]</a>  <a id="8598" class="Symbol">:</a> <a id="8600" href="logbook.html#8555" class="Datatype">List</a> <a id="8605" href="logbook.html#8565" class="Bound">A</a>
-    <a id="List._∷_"></a><a id="8611" href="logbook.html#8611" class="InductiveConstructor Operator">_∷_</a> <a id="8615" class="Symbol">:</a> <a id="8617" class="Symbol">(</a><a id="8618" href="logbook.html#8618" class="Bound">x</a> <a id="8620" class="Symbol">:</a> <a id="8622" href="logbook.html#8565" class="Bound">A</a><a id="8623" class="Symbol">)</a> <a id="8625" class="Symbol">(</a><a id="8626" href="logbook.html#8626" class="Bound">xs</a> <a id="8629" class="Symbol">:</a> <a id="8631" href="logbook.html#8555" class="Datatype">List</a> <a id="8636" href="logbook.html#8565" class="Bound">A</a><a id="8637" class="Symbol">)</a> <a id="8639" class="Symbol">→</a> <a id="8641" href="logbook.html#8555" class="Datatype">List</a> <a id="8646" href="logbook.html#8565" class="Bound">A</a>
+  <a id="9906" class="Keyword">infixr</a> <a id="9913" class="Number">5</a> <a id="9915" href="logbook.html#9982" class="InductiveConstructor Operator">_∷_</a>
+  <a id="9921" class="Keyword">data</a> <a id="List"></a><a id="9926" href="logbook.html#9926" class="Datatype">List</a> <a id="9931" class="Symbol">{</a><a id="9932" href="logbook.html#9932" class="Bound">a</a><a id="9933" class="Symbol">}</a> <a id="9935" class="Symbol">(</a><a id="9936" href="logbook.html#9936" class="Bound">A</a> <a id="9938" class="Symbol">:</a> <a id="9940" href="Agda.Primitive.html#320" class="Primitive">Set</a> <a id="9944" href="logbook.html#9932" class="Bound">a</a><a id="9945" class="Symbol">)</a> <a id="9947" class="Symbol">:</a> <a id="9949" href="Agda.Primitive.html#320" class="Primitive">Set</a> <a id="9953" href="logbook.html#9932" class="Bound">a</a> <a id="9955" class="Keyword">where</a>
+    <a id="List.[]"></a><a id="9965" href="logbook.html#9965" class="InductiveConstructor">[]</a>  <a id="9969" class="Symbol">:</a> <a id="9971" href="logbook.html#9926" class="Datatype">List</a> <a id="9976" href="logbook.html#9936" class="Bound">A</a>
+    <a id="List._∷_"></a><a id="9982" href="logbook.html#9982" class="InductiveConstructor Operator">_∷_</a> <a id="9986" class="Symbol">:</a> <a id="9988" class="Symbol">(</a><a id="9989" href="logbook.html#9989" class="Bound">x</a> <a id="9991" class="Symbol">:</a> <a id="9993" href="logbook.html#9936" class="Bound">A</a><a id="9994" class="Symbol">)</a> <a id="9996" class="Symbol">(</a><a id="9997" href="logbook.html#9997" class="Bound">xs</a> <a id="10000" class="Symbol">:</a> <a id="10002" href="logbook.html#9926" class="Datatype">List</a> <a id="10007" href="logbook.html#9936" class="Bound">A</a><a id="10008" class="Symbol">)</a> <a id="10010" class="Symbol">→</a> <a id="10012" href="logbook.html#9926" class="Datatype">List</a> <a id="10017" href="logbook.html#9936" class="Bound">A</a>
 
-  <a id="downFrom"></a><a id="8651" href="logbook.html#8651" class="Function">downFrom</a> <a id="8660" class="Symbol">:</a> <a id="8662" href="logbook.html#8528" class="Datatype">ℕ</a> <a id="8664" class="Symbol">→</a> <a id="8666" href="logbook.html#8555" class="Datatype">List</a> <a id="8671" href="logbook.html#8528" class="Datatype">ℕ</a>
-  <a id="8675" href="logbook.html#8651" class="Function">downFrom</a> <a id="8684" href="Agda.Builtin.Nat.html#204" class="InductiveConstructor">zero</a> <a id="8689" class="Symbol">=</a> <a id="8691" href="logbook.html#8594" class="InductiveConstructor">[]</a>
-  <a id="8696" href="logbook.html#8651" class="Function">downFrom</a> <a id="8705" class="Symbol">(</a><a id="8706" href="Agda.Builtin.Nat.html#217" class="InductiveConstructor">suc</a> <a id="8710" href="logbook.html#8710" class="Bound">n</a><a id="8711" class="Symbol">)</a> <a id="8713" class="Symbol">=</a> <a id="8715" href="Agda.Builtin.Nat.html#217" class="InductiveConstructor">suc</a> <a id="8719" href="logbook.html#8710" class="Bound">n</a> <a id="8721" href="logbook.html#8611" class="InductiveConstructor Operator">∷</a> <a id="8723" href="logbook.html#8651" class="Function">downFrom</a> <a id="8732" href="logbook.html#8710" class="Bound">n</a> 
+  <a id="downFrom"></a><a id="10022" href="logbook.html#10022" class="Function">downFrom</a> <a id="10031" class="Symbol">:</a> <a id="10033" href="logbook.html#9899" class="Datatype">ℕ</a> <a id="10035" class="Symbol">→</a> <a id="10037" href="logbook.html#9926" class="Datatype">List</a> <a id="10042" href="logbook.html#9899" class="Datatype">ℕ</a>
+  <a id="10046" href="logbook.html#10022" class="Function">downFrom</a> <a id="10055" href="Agda.Builtin.Nat.html#204" class="InductiveConstructor">zero</a> <a id="10060" class="Symbol">=</a> <a id="10062" href="logbook.html#9965" class="InductiveConstructor">[]</a>
+  <a id="10067" href="logbook.html#10022" class="Function">downFrom</a> <a id="10076" class="Symbol">(</a><a id="10077" href="Agda.Builtin.Nat.html#217" class="InductiveConstructor">suc</a> <a id="10081" href="logbook.html#10081" class="Bound">n</a><a id="10082" class="Symbol">)</a> <a id="10084" class="Symbol">=</a> <a id="10086" href="Agda.Builtin.Nat.html#217" class="InductiveConstructor">suc</a> <a id="10090" href="logbook.html#10081" class="Bound">n</a> <a id="10092" href="logbook.html#9982" class="InductiveConstructor Operator">∷</a> <a id="10094" href="logbook.html#10022" class="Function">downFrom</a> <a id="10103" href="logbook.html#10081" class="Bound">n</a> 
   
-  <a id="sum"></a><a id="8740" href="logbook.html#8740" class="Function">sum</a> <a id="8744" class="Symbol">:</a> <a id="8746" href="logbook.html#8555" class="Datatype">List</a> <a id="8751" href="logbook.html#8528" class="Datatype">ℕ</a> <a id="8753" class="Symbol">→</a> <a id="8755" href="logbook.html#8528" class="Datatype">ℕ</a>
-  <a id="8759" href="logbook.html#8740" class="Function">sum</a> <a id="8763" href="logbook.html#8594" class="InductiveConstructor">[]</a> <a id="8766" class="Symbol">=</a> <a id="8768" class="Number">0</a>
-  <a id="8772" href="logbook.html#8740" class="Function">sum</a> <a id="8776" class="Symbol">(</a><a id="8777" href="logbook.html#8777" class="Bound">x</a> <a id="8779" href="logbook.html#8611" class="InductiveConstructor Operator">∷</a> <a id="8781" href="logbook.html#8781" class="Bound">xs</a><a id="8783" class="Symbol">)</a> <a id="8785" class="Symbol">=</a> <a id="8787" href="logbook.html#8777" class="Bound">x</a> <a id="8789" href="Agda.Builtin.Nat.html#319" class="Primitive Operator">+</a> <a id="8791" href="logbook.html#8740" class="Function">sum</a> <a id="8795" href="logbook.html#8781" class="Bound">xs</a>
+  <a id="sum"></a><a id="10111" href="logbook.html#10111" class="Function">sum</a> <a id="10115" class="Symbol">:</a> <a id="10117" href="logbook.html#9926" class="Datatype">List</a> <a id="10122" href="logbook.html#9899" class="Datatype">ℕ</a> <a id="10124" class="Symbol">→</a> <a id="10126" href="logbook.html#9899" class="Datatype">ℕ</a>
+  <a id="10130" href="logbook.html#10111" class="Function">sum</a> <a id="10134" href="logbook.html#9965" class="InductiveConstructor">[]</a> <a id="10137" class="Symbol">=</a> <a id="10139" class="Number">0</a>
+  <a id="10143" href="logbook.html#10111" class="Function">sum</a> <a id="10147" class="Symbol">(</a><a id="10148" href="logbook.html#10148" class="Bound">x</a> <a id="10150" href="logbook.html#9982" class="InductiveConstructor Operator">∷</a> <a id="10152" href="logbook.html#10152" class="Bound">xs</a><a id="10154" class="Symbol">)</a> <a id="10156" class="Symbol">=</a> <a id="10158" href="logbook.html#10148" class="Bound">x</a> <a id="10160" href="Agda.Builtin.Nat.html#319" class="Primitive Operator">+</a> <a id="10162" href="logbook.html#10111" class="Function">sum</a> <a id="10166" href="logbook.html#10152" class="Bound">xs</a>
   
-  <a id="main"></a><a id="8803" href="logbook.html#8803" class="Function">main</a> <a id="8808" class="Symbol">=</a> <a id="8810" href="logbook.html#8740" class="Function">sum</a> <a id="8814" class="Symbol">(</a><a id="8815" href="logbook.html#8651" class="Function">downFrom</a> <a id="8824" class="Number">4</a><a id="8825" class="Symbol">)</a>
+  <a id="main"></a><a id="10174" href="logbook.html#10174" class="Function">main</a> <a id="10179" class="Symbol">=</a> <a id="10181" href="logbook.html#10111" class="Function">sum</a> <a id="10185" class="Symbol">(</a><a id="10186" href="logbook.html#10022" class="Function">downFrom</a> <a id="10195" class="Number">4</a><a id="10196" class="Symbol">)</a>
 </pre>
 - Created a transformation for the treeless syntax that 
   simplify applications.
 
   ```markdown
   f a (g b) (h c)
+  
   -- >>>
+  
   let b' = g b in
   let c' = h c in
   f a b' c'

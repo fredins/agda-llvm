@@ -1,0 +1,6 @@
+fetch 0 [0] ; λ x1 →
+case 0 of
+  Fsum →
+    fetch 1 [1] ; λ x2 →
+    sum 0
+  Cnat → unit (Cnat 2)

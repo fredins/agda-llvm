@@ -1,0 +1,3 @@
+unit #4 ; λ x1 →
+unit #2 ; λ x0 →
+Prim.Sub 1 0

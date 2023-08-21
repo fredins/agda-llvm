@@ -1,43 +1,216 @@
+{-# OPTIONS_GHC -Wno-unused-binds #-}
 {-# LANGUAGE OverloadedStrings #-}
-import           Control.Monad.State        (MonadState, State, evalState, get,
-                                             modify)
-import qualified Data.ByteString            as BS
-import           Data.Text                  (Text)
-import qualified Data.Text                  as T
-import           Data.Text.Encoding         (decodeUtf8, encodeUtf8)
-
-import           System.FilePath            ((<.>), (</>))
+import           Control.Monad.State           (MonadState, State, evalState,
+                                                get, modify)
+import qualified Data.ByteString               as BS
+import           Data.Foldable                 (toList)
+import           Data.List                     (intercalate)
+import           Data.Text                     (Text)
+import qualified Data.Text                     as T
+import           Data.Text.Encoding            (decodeUtf8, encodeUtf8)
+import           System.FilePath               ((<.>), (</>))
 import           Test.Tasty
 import           Test.Tasty.Silver.Advanced
 
-import           Agda.Compiler.Backend
+import           Agda.Compiler.Backend         hiding (Prim)
 import           Agda.Llvm.Compiler
 import           Agda.Llvm.Grin
+import           Agda.Llvm.GrinTransformations
+import qualified Agda.Llvm.Llvm                as L
+import           Agda.Llvm.Utils
 import           Agda.Syntax.Common.Pretty
 import           Agda.Syntax.Literal
+import           Agda.TypeChecking.Substitute
+import           Agda.Utils.List1              (List1, pattern (:|), (<|))
+
 
 main :: IO ()
-main = defaultMain unitTests
+main = defaultMain goldenTests
+
+goldenTests :: TestTree
+goldenTests =
+  testGroup "Golden" $ map (uncurry mkSucceedTest) $
+    ("normalise", testNormalise)               :
+    ("rightHoistFetch1", testRightHoistFetch1) :
+    ("rightHoistFetch2", testRightHoistFetch2) :
+    ("useRegister", testUseRegister)           :
+    ("useRegisters1", testUseRegisters1)       :
+    ("useRegisters2", testUseRegisters2)       :
+    ("useRegisters3", testUseRegisters3)       :
+    ("introduceRegisters1", testIntroduceRegisters1)       :
+    []
+
+testNormalise :: Term
+testNormalise = normalise inputNormalise
+
+-- storel0 (Cnil) ; λ x6 →
+-- storel1 (Cnat #1) ; λ x4 →
+-- storel2 (FdownFrom 0) ; λ x3 →
+-- unit 0 ; λ x5 →
+-- unit (Ccons 3 0)
+inputNormalise :: Term
+inputNormalise =
+  evalTest $
+    store cnil `bindVarM`
+    ( store (ConstantNode natTag $ mkLit 1 :| []) `bindVarM`
+      store (ConstantNode downFromTag $ Var 0 :| []) `bindVarL`
+      Unit (Var 0)
+    ) `bindVarL`
+    Unit (ConstantNode consTag $ Var 1 <| Var 0 :| [])
 
 
-unitTests :: TestTree
-unitTests =
+testRightHoistFetch1 :: Term
+testRightHoistFetch1 = evalTest $ rightHoistFetch =<< inputRightHoistFetch1
+
+-- fetch 0 [0] ; λ x1 →
+-- fetch 1 [1] ; λ x0 →
+-- case 1 of
+--   Fsum → sum 0
+--   Cnat → unit (Cnat 3)
+inputRightHoistFetch1 :: Test Term
+inputRightHoistFetch1 =
+    FetchOffset 0 0 `bindVarR`
+    FetchOffset 1 1 `bindVar`
+    Case (Var 1) unreachable
+      [ CAltTag sumTag (App (Def "sum") [Var 0])
+      , CAltTag natTag (Unit (ConstantNode natTag $ Var 3 :| []))
+      ]
+
+testRightHoistFetch2 :: Term
+testRightHoistFetch2 = evalTest $ rightHoistFetch =<< inputRightHoistFetch2
+
+-- fetch 0 [0] ; λ x10 →
+-- fetch 1 [1] ; λ x9 →
+-- fetch 2 [2] ; λ x8 →
+-- (case 2 of
+--    FPrim.Sub →
+--      PSub 1 0 ; λ x0 →
+--      unit (Cnat 0)
+--    Cnat → unit (Cnat 1)
+-- ) ; λ Cnat x7 →
+-- updateCnat 4 (Cnat 0) ; λ () →
+-- case 0 of
+--   0 → unit Cnil
+--   _ → storel1 (Cnat #1) ; λ x6 →
+--       storel2 (FPrim.Sub 5 0) ; λ x5 →
+--       storel3 (FdownFrom 0) ; λ x4 →
+--       unit (Ccons 1 0)
+inputRightHoistFetch2 :: Test Term
+inputRightHoistFetch2 =
+    FetchOffset 0 0 `bindVarR`
+    FetchOffset 1 1 `bindVarR`
+    FetchOffset 2 2 `bindVarR`
+    caseOf1 `bindCnatM`
+    UpdateTag natTag 4 (ConstantNode natTag $ Var 0 :| []) `bindEmptyR`
+    caseOf2
+  where
+    infixr 2 `bindCnatM`
+    bindCnatM t1 t2 = Bind <$> t1 <*> (laltConstantNode natTag =<< t2)
+
+    caseOf1 :: Test Term
+    caseOf1 = do
+      t <- App (Prim PSub) [Var 1, Var 0] `bindVar`
+           Unit (ConstantNode natTag $ Var 0 :| [])
+
+      pure $
+        Case (Var 2) unreachable
+          [ CAltTag primSubTag t
+          , CAltTag natTag (Unit (ConstantNode natTag $ Var 1 :| []))
+          ]
+
+    caseOf2 :: Test Term
+    caseOf2 = do
+      t <- store (ConstantNode natTag $ mkLit 1 :| []) `bindVarM`
+           store (ConstantNode primSubTag $ Var 5 <| Var 0 :| []) `bindVarM`
+           store (ConstantNode downFromTag $ Var 0 :| []) `bindVarL`
+           Unit (ConstantNode consTag $ Var 1 <| Var 0 :| [])
+
+      pure $ Case (Var 0) t [CAltLit (LitNat 0) $ Unit (Tag nilTag)]
+
+
+testUseRegister :: Term
+testUseRegister =
+  evalTest $ useRegister (ConstantNode natTag $ Var 0 :| []) (UpdateTag natTag 2)
+
+testUseRegisters1 :: Term
+testUseRegisters1 =
+  evalTest $ useRegisters (mkLit 4 <| mkLit 2 :| []) (App (Def "Prim.Sub") . toList)
+
+testUseRegisters2 :: Term
+testUseRegisters2 =
+  evalTest $ do
+    alt <- laltVar $
+      Unit (Var 0) `BindEmpty`
+      Unit (Var 1) `BindEmpty`
+      Unit (Var 2) `BindEmpty`
+      Unit (Var 3)
+    useRegisters (mkLit 4 <| mkLit 2 :| []) (\vs -> App (Def "Prim.Sub") (toList vs) `Bind` alt)
+
+testUseRegisters3 :: Term
+testUseRegisters3 =
+  evalTest $ do
+    alt <- laltVar $
+      Unit (Var 0) `BindEmpty`
+      Unit (Var 1) `BindEmpty`
+      Unit (Var 2) `BindEmpty`
+      Unit (Var 3)
+    useRegisters (mkLit 4 <| Var 0 <| mkLit 2 <| Var 3 :| []) (\vs -> App (Def "foo") (toList vs) `Bind` alt)
+
+testIntroduceRegisters1 :: Term
+testIntroduceRegisters1 = evalTest $ introduceRegisters inputIntroduceRegisters1
+
+inputIntroduceRegisters1 :: Term
+inputIntroduceRegisters1 =
+  UpdateTag natTag 1 (ConstantNode natTag $ Var 0 :| []) `BindEmpty`
+  Unit (Var 4)
+
+
+testCodeGen1 :: List1 L.Instruction
+testCodeGen1 = evalCodeGen $ termToLlvm $ evalTest inputCodeGen1
+
+-- DownFrom.main =
+--   unit Cnat ; λ x3706 →
+--   unit #100 ; λ x3705 →
+--   unit (1 0) ; λ x3704 →
+--   storel21 0 ; λ x24 →
+--   unit FDownFrom.downFrom ; λ x3708 →
+--   unit (0 1) ; λ x3707 →
+--   storel22 0 ; λ x23 →
+--   DownFrom.sum 0 ; λ Cnat x25 →
+--   printf 0
+inputCodeGen1 :: Test Term
+inputCodeGen1 =
+  Unit (Tag natTag) `bindVarR`
+  Unit (mkLit 100) `bindVarR`
+  Unit (VariableNode 1 $ Var 0 :| []) `bindVar`
+  unreachable
+
+printLlvm :: Foldable t => t L.Instruction -> IO ()
+printLlvm = putStrLn . intercalate "\n" . map prettyShow . toList
+
+testSwap01 :: Term
+testSwap01 =
+  swap01' $
+    Unit (Var 1) `BindEmpty`
+    Unit (Var 0)
+
+mkSucceedTest :: Pretty a => FilePath -> a -> TestTree
+mkSucceedTest fileName test =
   goldenTestIO1
-    "Normalise"
+    fileName
     readGolden
-    (pure $ prettyText testNormalise)
+    (pure $ prettyText test)
     (textDiffWithWrite $ baseName <.> ".err")
     (pure . ShowText)
     Nothing
   where
-    baseName = "test" </> "Normalise"
+    baseName = "test" </> fileName
 
     readGolden :: IO (Maybe Text)
     readGolden = readTextFileMaybe $ baseName <.> ".golden"
 
-
-
-
+evalTest :: Test a -> a
+evalTest f = evalState (runTest f) 0
 
 newtype Test a = Test{runTest :: State Int a}
   deriving (Functor, Applicative, Monad, MonadState Int)
@@ -45,56 +218,23 @@ newtype Test a = Test{runTest :: State Int a}
 instance MonadFresh Int Test where
   fresh = get <* modify succ
 
-evalTest :: Test a -> a
-evalTest f = evalState (runTest f) 0
+cnil :: Val
+cnil = Tag nilTag
 
--- store (Cnil) λ x0 →
--- ( store (Cnat #1) ; λ x1 →
---   store (FdownFrom 0) ; λ x2 →
---   unit 0
--- ) ; λ x3 →
--- unit (Ccons 1 0)
--- >>>
--- store (Cnil) λ x0 →
--- store (Cnat #1) ; λ x1 →
--- store (FdownFrom 0) ; λ x2 →
--- unit 0 ; λ x3 →
--- unit (Ccons 3 0)
-testNormalise :: Term
-testNormalise = normalise $ evalTest input'
-  where
+downFromTag :: Tag
+downFromTag = FTag{tDef = "downFrom", tArity = 1}
 
-    input' :: Test Term
-    input' =
-      store cnil `bindVarM`
-      ( store (Node natTag [mkLit 1]) `bindVarM`
-        store (Node downFromTag [Var 0]) `bindVarL`
-        Unit (Var 0)
-      ) `bindVarL`
-      Unit (Node consTag [Var 1, Var 0])
+sumTag :: Tag
+sumTag = FTag{tDef = "sum", tArity = 1}
 
-    output :: Test Term
-    output =
-      store cnil `bindVarM`
-      store (Node natTag [mkLit 1]) `bindVarM`
-      store (Node downFromTag [Var 0]) `bindVarM`
-      Unit (Var 0) `bindVar`
-      Unit (Node consTag [Var 1, Var 0])
+primSubTag :: Tag
+primSubTag = FTag{tDef = "Prim.Sub", tArity = 2}
 
-    cnil = Node nilTag []
-    downFromTag = FTag{tDef = "downFrom", tArity = 1}
-    nilTag = CTag {tCon = "nil", tArity = 0}
-    consTag = CTag{tCon = "cons", tArity = 2}
+nilTag :: Tag
+nilTag = CTag {tCon = "nil", tArity = 0}
 
-    mkLoc :: Int -> Loc
-    mkLoc = MkLoc . Gid
-
-    mkAbs :: Int -> Abs
-    mkAbs = MkAbs . Gid
-
-    mkLit :: Integer -> Term
-    mkLit = Lit . LitNat
-
+consTag :: Tag
+consTag = CTag{tCon = "cons", tArity = 2}
 
 prettyText :: Pretty a => a -> Text
 prettyText = T.pack . prettyShow

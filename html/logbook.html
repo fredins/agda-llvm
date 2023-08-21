@@ -107,6 +107,68 @@
   <![endif]-->
 </head>
 <body>
+<h3 id="w.33">W.33</h3>
+<p>Read the following:</p>
+<ul>
+<li><span class="citation" data-cites="racordon2021">Racordon et al.
+[2021]</span></li>
+<li><span class="citation" data-cites="racordon2022">Racordon et al.
+[2022]</span></li>
+</ul>
+<p>Did the following:</p>
+<ul>
+<li><p>Implemented the right hoisting fetch tranformation, which hoists
+fetches with offset &gt; 0 into the the appropriate case
+alternatives.</p>
+<div class="sourceCode" id="cb1"><pre
+class="sourceCode markdown"><code class="sourceCode markdown"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a>fetch 0 <span class="co">[</span><span class="ot">0</span><span class="co">]</span> ; λ x10 →</span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a>fetch 1 <span class="co">[</span><span class="ot">1</span><span class="co">]</span> ; λ x9 →</span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a>fetch 2 <span class="co">[</span><span class="ot">2</span><span class="co">]</span> ; λ x8 →</span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a>(case 2 of</span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a>   FPrim.Sub →</span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a>     PSub 1 0 ; λ x0 →</span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a>     unit (Cnat 0)</span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a>   Cnat → unit (Cnat 1)</span>
+<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a>) ; λ Cnat x7 →</span>
+<span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a>updateCnat 4 (Cnat 0) ; λ () →</span>
+<span id="cb1-11"><a href="#cb1-11" aria-hidden="true" tabindex="-1"></a><span class="kw">&lt;m&gt;</span></span>
+<span id="cb1-12"><a href="#cb1-12" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-13"><a href="#cb1-13" aria-hidden="true" tabindex="-1"></a>-- &gt;&gt;&gt;</span>
+<span id="cb1-14"><a href="#cb1-14" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-15"><a href="#cb1-15" aria-hidden="true" tabindex="-1"></a>fetch 0 <span class="co">[</span><span class="ot">0</span><span class="co">]</span> ; λ x10 →</span>
+<span id="cb1-16"><a href="#cb1-16" aria-hidden="true" tabindex="-1"></a>(case 0 of</span>
+<span id="cb1-17"><a href="#cb1-17" aria-hidden="true" tabindex="-1"></a>   FPrim.Sub →</span>
+<span id="cb1-18"><a href="#cb1-18" aria-hidden="true" tabindex="-1"></a>     fetch 1 <span class="co">[</span><span class="ot">1</span><span class="co">]</span> ; λ x11 →</span>
+<span id="cb1-19"><a href="#cb1-19" aria-hidden="true" tabindex="-1"></a>     fetch 2 <span class="co">[</span><span class="ot">2</span><span class="co">]</span> ; λ x13 →</span>
+<span id="cb1-20"><a href="#cb1-20" aria-hidden="true" tabindex="-1"></a>     PSub 1 0 ; λ x0 →</span>
+<span id="cb1-21"><a href="#cb1-21" aria-hidden="true" tabindex="-1"></a>     unit (Cnat 0)</span>
+<span id="cb1-22"><a href="#cb1-22" aria-hidden="true" tabindex="-1"></a>   Cnat →</span>
+<span id="cb1-23"><a href="#cb1-23" aria-hidden="true" tabindex="-1"></a>     fetch 1 <span class="co">[</span><span class="ot">1</span><span class="co">]</span> ; λ x12 →</span>
+<span id="cb1-24"><a href="#cb1-24" aria-hidden="true" tabindex="-1"></a>     unit (Cnat 0)</span>
+<span id="cb1-25"><a href="#cb1-25" aria-hidden="true" tabindex="-1"></a>) ; λ Cnat x7 →</span>
+<span id="cb1-26"><a href="#cb1-26" aria-hidden="true" tabindex="-1"></a>updateCnat 2 (Cnat 0) ; λ () →</span>
+<span id="cb1-27"><a href="#cb1-27" aria-hidden="true" tabindex="-1"></a><span class="kw">&lt;m&gt;</span></span></code></pre></div></li>
+<li><p>Implemented the last simplifying (and necessary) tranformation:
+register introduction.<br />
+The tranformation gives names to all values, and ensures that arguments
+to (e.g.) the<br />
+<code>store</code> operation only contains variables.</p>
+<div class="sourceCode" id="cb2"><pre
+class="sourceCode markdown"><code class="sourceCode markdown"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a>storel21 (Cnat #100) ; λ x24 →</span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a>storel22 (FDownFrom.downFrom 0) ; λ x23 →</span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a>DownFrom.sum 0 ; λ Cnat x25 →</span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a><span class="kw">&lt;m&gt;</span></span>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-6"><a href="#cb2-6" aria-hidden="true" tabindex="-1"></a>-- &gt;&gt;&gt;</span>
+<span id="cb2-7"><a href="#cb2-7" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-8"><a href="#cb2-8" aria-hidden="true" tabindex="-1"></a>unit #100 ; λ x3690 →</span>
+<span id="cb2-9"><a href="#cb2-9" aria-hidden="true" tabindex="-1"></a>unit (Cnat 0) ; λ x3689 →</span>
+<span id="cb2-10"><a href="#cb2-10" aria-hidden="true" tabindex="-1"></a>storel21 0 ; λ x24 →</span>
+<span id="cb2-11"><a href="#cb2-11" aria-hidden="true" tabindex="-1"></a>unit (FDownFrom.downFrom 0) ; λ x3691 →</span>
+<span id="cb2-12"><a href="#cb2-12" aria-hidden="true" tabindex="-1"></a>storel22 0 ; λ x23 →</span>
+<span id="cb2-13"><a href="#cb2-13" aria-hidden="true" tabindex="-1"></a><span class="kw">&lt;m&gt;</span></span></code></pre></div></li>
+<li><p>Implemented approx. 90% of the code generator.</p></li>
+</ul>
 <h3 id="w.32">W.32</h3>
 <p>Read the following:</p>
 <ul>
@@ -125,35 +187,41 @@ substitution instances.</p></li>
 <li><p>Implemented vectorization which replaces node variables with
 <em>explicit</em> nodes. This is an important transformation for the
 code generation.</p>
-<div class="sourceCode" id="cb1"><pre
-class="sourceCode markdown"><code class="sourceCode markdown"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="kw">&lt;t1&gt;</span> ; λ x₁ →</span>
-<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="kw">&lt;t2&gt;</span></span>
-<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a>-- &gt;&gt;&gt;</span>
-<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a> <span class="kw">&lt;t1&gt;</span> ; λ tag x₂ x₃ →</span>
-<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a> <span class="kw">&lt;t2&gt;</span> <span class="co">[</span><span class="ot">tag x₂ x₃ / x₁</span><span class="co">]</span></span></code></pre></div></li>
+<div class="sourceCode" id="cb3"><pre
+class="sourceCode markdown"><code class="sourceCode markdown"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="kw">&lt;t1&gt;</span> ; λ x₁ →</span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a><span class="kw">&lt;t2&gt;</span></span>
+<span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-4"><a href="#cb3-4" aria-hidden="true" tabindex="-1"></a>-- &gt;&gt;&gt;</span>
+<span id="cb3-5"><a href="#cb3-5" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-6"><a href="#cb3-6" aria-hidden="true" tabindex="-1"></a> <span class="kw">&lt;t1&gt;</span> ; λ tag x₂ x₃ →</span>
+<span id="cb3-7"><a href="#cb3-7" aria-hidden="true" tabindex="-1"></a> <span class="kw">&lt;t2&gt;</span> <span class="co">[</span><span class="ot">tag x₂ x₃ / x₁</span><span class="co">]</span></span></code></pre></div></li>
 <li><p>Implemented case simplification. After the transformation, case
 expression only scrutinize tag variables, and case patterns do not bind
 any variables.</p>
-<div class="sourceCode" id="cb2"><pre
-class="sourceCode markdown"><code class="sourceCode markdown"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a> <span class="kw">&lt;t1&gt;</span></span>
-<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a> case tag x₁ x₂ of</span>
-<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a>   Cnil        → <span class="kw">&lt;t2&gt;</span></span>
-<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a>   Ccons x₃ x₄ → <span class="kw">&lt;t3&gt;</span></span>
-<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a> -- &gt;&gt;&gt;</span>
-<span id="cb2-6"><a href="#cb2-6" aria-hidden="true" tabindex="-1"></a> <span class="kw">&lt;t1&gt;</span></span>
-<span id="cb2-7"><a href="#cb2-7" aria-hidden="true" tabindex="-1"></a> case tag of</span>
-<span id="cb2-8"><a href="#cb2-8" aria-hidden="true" tabindex="-1"></a>   Cnil  → <span class="kw">&lt;t2&gt;</span></span>
-<span id="cb2-9"><a href="#cb2-9" aria-hidden="true" tabindex="-1"></a>   Ccons → <span class="kw">&lt;t3&gt;</span> <span class="co">[</span><span class="ot">x₁ / x₃, x₂ / x₄</span><span class="co">]</span></span></code></pre></div></li>
+<div class="sourceCode" id="cb4"><pre
+class="sourceCode markdown"><code class="sourceCode markdown"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a> <span class="kw">&lt;t1&gt;</span></span>
+<span id="cb4-2"><a href="#cb4-2" aria-hidden="true" tabindex="-1"></a> case tag x₁ x₂ of</span>
+<span id="cb4-3"><a href="#cb4-3" aria-hidden="true" tabindex="-1"></a>   Cnil        → <span class="kw">&lt;t2&gt;</span></span>
+<span id="cb4-4"><a href="#cb4-4" aria-hidden="true" tabindex="-1"></a>   Ccons x₃ x₄ → <span class="kw">&lt;t3&gt;</span></span>
+<span id="cb4-5"><a href="#cb4-5" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-6"><a href="#cb4-6" aria-hidden="true" tabindex="-1"></a> -- &gt;&gt;&gt;</span>
+<span id="cb4-7"><a href="#cb4-7" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb4-8"><a href="#cb4-8" aria-hidden="true" tabindex="-1"></a> <span class="kw">&lt;t1&gt;</span></span>
+<span id="cb4-9"><a href="#cb4-9" aria-hidden="true" tabindex="-1"></a> case tag of</span>
+<span id="cb4-10"><a href="#cb4-10" aria-hidden="true" tabindex="-1"></a>   Cnil  → <span class="kw">&lt;t2&gt;</span></span>
+<span id="cb4-11"><a href="#cb4-11" aria-hidden="true" tabindex="-1"></a>   Ccons → <span class="kw">&lt;t3&gt;</span> <span class="co">[</span><span class="ot">x₁ / x₃, x₂ / x₄</span><span class="co">]</span></span></code></pre></div></li>
 <li><p>Implemented fetch splitting using offsets:</p>
-<div class="sourceCode" id="cb3"><pre
-class="sourceCode markdown"><code class="sourceCode markdown"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a> <span class="kw">&lt;t1&gt;</span></span>
-<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a> fetch p ; λ tag x₁ x₂ →</span>
-<span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a> <span class="kw">&lt;t2&gt;</span></span>
-<span id="cb3-4"><a href="#cb3-4" aria-hidden="true" tabindex="-1"></a> -- &gt;&gt;&gt;</span>
-<span id="cb3-5"><a href="#cb3-5" aria-hidden="true" tabindex="-1"></a> <span class="kw">&lt;t1&gt;</span></span>
-<span id="cb3-6"><a href="#cb3-6" aria-hidden="true" tabindex="-1"></a> fetch p <span class="co">[</span><span class="ot">0</span><span class="co">]</span>; λ tag →</span>
-<span id="cb3-7"><a href="#cb3-7" aria-hidden="true" tabindex="-1"></a> fetch p <span class="co">[</span><span class="ot">1</span><span class="co">]</span>; λ x₁ →</span>
-<span id="cb3-8"><a href="#cb3-8" aria-hidden="true" tabindex="-1"></a> fetch p <span class="co">[</span><span class="ot">2</span><span class="co">]</span>; λ x₂ →</span></code></pre></div></li>
+<div class="sourceCode" id="cb5"><pre
+class="sourceCode markdown"><code class="sourceCode markdown"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a> <span class="kw">&lt;t1&gt;</span></span>
+<span id="cb5-2"><a href="#cb5-2" aria-hidden="true" tabindex="-1"></a> fetch p ; λ tag x₁ x₂ →</span>
+<span id="cb5-3"><a href="#cb5-3" aria-hidden="true" tabindex="-1"></a> <span class="kw">&lt;t2&gt;</span></span>
+<span id="cb5-4"><a href="#cb5-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb5-5"><a href="#cb5-5" aria-hidden="true" tabindex="-1"></a> -- &gt;&gt;&gt;</span>
+<span id="cb5-6"><a href="#cb5-6" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb5-7"><a href="#cb5-7" aria-hidden="true" tabindex="-1"></a> <span class="kw">&lt;t1&gt;</span></span>
+<span id="cb5-8"><a href="#cb5-8" aria-hidden="true" tabindex="-1"></a> fetch p <span class="co">[</span><span class="ot">0</span><span class="co">]</span>; λ tag →</span>
+<span id="cb5-9"><a href="#cb5-9" aria-hidden="true" tabindex="-1"></a> fetch p <span class="co">[</span><span class="ot">1</span><span class="co">]</span>; λ x₁ →</span>
+<span id="cb5-10"><a href="#cb5-10" aria-hidden="true" tabindex="-1"></a> fetch p <span class="co">[</span><span class="ot">2</span><span class="co">]</span>; λ x₂ →</span></code></pre></div></li>
 <li><p>Did a lot of work on the right-hoisting fetch operations,
 however, I encountered some issues with substitutions and de Bruijn
 indices.</p></li>
@@ -171,21 +239,21 @@ makes it easier to correctly manipulate DeBruijn indices.</p></li>
 <li><p>Implemented normalisation for GRIN expression, to make the
 monadic<br />
 binds right-skewed.</p>
-<div class="sourceCode" id="cb4"><pre
-class="sourceCode markdown"><code class="sourceCode markdown"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a>store (Cnil) λ x0 →</span>
-<span id="cb4-2"><a href="#cb4-2" aria-hidden="true" tabindex="-1"></a>( store (Cnat #1) ; λ x1 →</span>
-<span id="cb4-3"><a href="#cb4-3" aria-hidden="true" tabindex="-1"></a>  store (FdownFrom 0) ; λ x2 →</span>
-<span id="cb4-4"><a href="#cb4-4" aria-hidden="true" tabindex="-1"></a>  unit 0</span>
-<span id="cb4-5"><a href="#cb4-5" aria-hidden="true" tabindex="-1"></a>) ; λ x3 →</span>
-<span id="cb4-6"><a href="#cb4-6" aria-hidden="true" tabindex="-1"></a>unit (Ccons 1 0)</span>
-<span id="cb4-7"><a href="#cb4-7" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb4-8"><a href="#cb4-8" aria-hidden="true" tabindex="-1"></a>-- &gt;&gt;&gt;</span>
-<span id="cb4-9"><a href="#cb4-9" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb4-10"><a href="#cb4-10" aria-hidden="true" tabindex="-1"></a>store (Cnil) λ x0 →</span>
-<span id="cb4-11"><a href="#cb4-11" aria-hidden="true" tabindex="-1"></a>store (Cnat #1) ; λ x1 →</span>
-<span id="cb4-12"><a href="#cb4-12" aria-hidden="true" tabindex="-1"></a>store (FdownFrom 0) ; λ x2 →</span>
-<span id="cb4-13"><a href="#cb4-13" aria-hidden="true" tabindex="-1"></a>unit 0 ; λ x3 →</span>
-<span id="cb4-14"><a href="#cb4-14" aria-hidden="true" tabindex="-1"></a>unit (Ccons 3 0)</span></code></pre></div></li>
+<div class="sourceCode" id="cb6"><pre
+class="sourceCode markdown"><code class="sourceCode markdown"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a>store (Cnil) λ x0 →</span>
+<span id="cb6-2"><a href="#cb6-2" aria-hidden="true" tabindex="-1"></a>( store (Cnat #1) ; λ x1 →</span>
+<span id="cb6-3"><a href="#cb6-3" aria-hidden="true" tabindex="-1"></a>  store (FdownFrom 0) ; λ x2 →</span>
+<span id="cb6-4"><a href="#cb6-4" aria-hidden="true" tabindex="-1"></a>  unit 0</span>
+<span id="cb6-5"><a href="#cb6-5" aria-hidden="true" tabindex="-1"></a>) ; λ x3 →</span>
+<span id="cb6-6"><a href="#cb6-6" aria-hidden="true" tabindex="-1"></a>unit (Ccons 1 0)</span>
+<span id="cb6-7"><a href="#cb6-7" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb6-8"><a href="#cb6-8" aria-hidden="true" tabindex="-1"></a>-- &gt;&gt;&gt;</span>
+<span id="cb6-9"><a href="#cb6-9" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb6-10"><a href="#cb6-10" aria-hidden="true" tabindex="-1"></a>store (Cnil) λ x0 →</span>
+<span id="cb6-11"><a href="#cb6-11" aria-hidden="true" tabindex="-1"></a>store (Cnat #1) ; λ x1 →</span>
+<span id="cb6-12"><a href="#cb6-12" aria-hidden="true" tabindex="-1"></a>store (FdownFrom 0) ; λ x2 →</span>
+<span id="cb6-13"><a href="#cb6-13" aria-hidden="true" tabindex="-1"></a>unit 0 ; λ x3 →</span>
+<span id="cb6-14"><a href="#cb6-14" aria-hidden="true" tabindex="-1"></a>unit (Ccons 3 0)</span></code></pre></div></li>
 <li><p>Set up testing, and tested the normalisation using ‘golden
 testing’.</p></li>
 <li><p>Implemented update specialization transformation, which
@@ -193,23 +261,23 @@ converts<br />
 general (unknown tag) <code>update</code> to a tag-specialized operation
 <code>updateᶜᶜᵒⁿˢ</code>.<br />
 However, there is currently a small bug in the implementation.</p>
-<div class="sourceCode" id="cb5"><pre
-class="sourceCode markdown"><code class="sourceCode markdown"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a>update v₁ v₂ ; λ () →</span>
-<span id="cb5-2"><a href="#cb5-2" aria-hidden="true" tabindex="-1"></a>〈m₁ 〉</span>
-<span id="cb5-3"><a href="#cb5-3" aria-hidden="true" tabindex="-1"></a>case v₂ of</span>
-<span id="cb5-4"><a href="#cb5-4" aria-hidden="true" tabindex="-1"></a>  CNil       → 〈m₂ 〉</span>
-<span id="cb5-5"><a href="#cb5-5" aria-hidden="true" tabindex="-1"></a>  CCons x xs → 〈m₃ 〉</span>
-<span id="cb5-6"><a href="#cb5-6" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb5-7"><a href="#cb5-7" aria-hidden="true" tabindex="-1"></a>-- &gt;&gt;&gt;</span>
-<span id="cb5-8"><a href="#cb5-8" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb5-9"><a href="#cb5-9" aria-hidden="true" tabindex="-1"></a>〈m₁ 〉</span>
-<span id="cb5-10"><a href="#cb5-10" aria-hidden="true" tabindex="-1"></a>case v₂ of</span>
-<span id="cb5-11"><a href="#cb5-11" aria-hidden="true" tabindex="-1"></a>  CNil       →</span>
-<span id="cb5-12"><a href="#cb5-12" aria-hidden="true" tabindex="-1"></a>    updateᶜᴺⁱˡ v₁ v₂ ; λ () →</span>
-<span id="cb5-13"><a href="#cb5-13" aria-hidden="true" tabindex="-1"></a>    〈m₂ 〉</span>
-<span id="cb5-14"><a href="#cb5-14" aria-hidden="true" tabindex="-1"></a>  CCons x xs →</span>
-<span id="cb5-15"><a href="#cb5-15" aria-hidden="true" tabindex="-1"></a>    updateᶜᶜᵒⁿˢ v₁ v₂ ; λ () →</span>
-<span id="cb5-16"><a href="#cb5-16" aria-hidden="true" tabindex="-1"></a>    〈m₃ 〉</span></code></pre></div></li>
+<div class="sourceCode" id="cb7"><pre
+class="sourceCode markdown"><code class="sourceCode markdown"><span id="cb7-1"><a href="#cb7-1" aria-hidden="true" tabindex="-1"></a>update v₁ v₂ ; λ () →</span>
+<span id="cb7-2"><a href="#cb7-2" aria-hidden="true" tabindex="-1"></a>〈m₁ 〉</span>
+<span id="cb7-3"><a href="#cb7-3" aria-hidden="true" tabindex="-1"></a>case v₂ of</span>
+<span id="cb7-4"><a href="#cb7-4" aria-hidden="true" tabindex="-1"></a>  CNil       → 〈m₂ 〉</span>
+<span id="cb7-5"><a href="#cb7-5" aria-hidden="true" tabindex="-1"></a>  CCons x xs → 〈m₃ 〉</span>
+<span id="cb7-6"><a href="#cb7-6" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb7-7"><a href="#cb7-7" aria-hidden="true" tabindex="-1"></a>-- &gt;&gt;&gt;</span>
+<span id="cb7-8"><a href="#cb7-8" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb7-9"><a href="#cb7-9" aria-hidden="true" tabindex="-1"></a>〈m₁ 〉</span>
+<span id="cb7-10"><a href="#cb7-10" aria-hidden="true" tabindex="-1"></a>case v₂ of</span>
+<span id="cb7-11"><a href="#cb7-11" aria-hidden="true" tabindex="-1"></a>  CNil       →</span>
+<span id="cb7-12"><a href="#cb7-12" aria-hidden="true" tabindex="-1"></a>    updateᶜᴺⁱˡ v₁ v₂ ; λ () →</span>
+<span id="cb7-13"><a href="#cb7-13" aria-hidden="true" tabindex="-1"></a>    〈m₂ 〉</span>
+<span id="cb7-14"><a href="#cb7-14" aria-hidden="true" tabindex="-1"></a>  CCons x xs →</span>
+<span id="cb7-15"><a href="#cb7-15" aria-hidden="true" tabindex="-1"></a>    updateᶜᶜᵒⁿˢ v₁ v₂ ; λ () →</span>
+<span id="cb7-16"><a href="#cb7-16" aria-hidden="true" tabindex="-1"></a>    〈m₃ 〉</span></code></pre></div></li>
 <li><p>Implemented a GRIN interpreter to check that the program produces
 the expected result,<br />
 and to check that the transformations does not change the program
@@ -241,130 +309,130 @@ allocations work in GRIN.</p></li>
 <ul>
 <li><p>Rewrote the heap points-to analysis and incorporated the sharing
 analysis.</p>
-<div class="sourceCode" id="cb6"><pre
-class="sourceCode markdown"><code class="sourceCode markdown"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a>------------------------------------------------------------------------</span>
-<span id="cb6-2"><a href="#cb6-2" aria-hidden="true" tabindex="-1"></a>-- * GRIN</span>
-<span id="cb6-3"><a href="#cb6-3" aria-hidden="true" tabindex="-1"></a>------------------------------------------------------------------------</span>
-<span id="cb6-4"><a href="#cb6-4" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb6-5"><a href="#cb6-5" aria-hidden="true" tabindex="-1"></a>DownFrom.downFrom r9 x8 =</span>
-<span id="cb6-6"><a href="#cb6-6" aria-hidden="true" tabindex="-1"></a>  eval 0 ; λ Cnat x7 →</span>
-<span id="cb6-7"><a href="#cb6-7" aria-hidden="true" tabindex="-1"></a>  case 0 of</span>
-<span id="cb6-8"><a href="#cb6-8" aria-hidden="true" tabindex="-1"></a>    0 → unit (CDownFrom.List.[])</span>
-<span id="cb6-9"><a href="#cb6-9" aria-hidden="true" tabindex="-1"></a>    _ → storel0 (Cnat #1) ; λ x3 →</span>
-<span id="cb6-10"><a href="#cb6-10" aria-hidden="true" tabindex="-1"></a>        storel1 (FPrim.sub 2 0) ; λ x2 →</span>
-<span id="cb6-11"><a href="#cb6-11" aria-hidden="true" tabindex="-1"></a>        storel4 (FDownFrom.downFrom 0) ; λ x5 →</span>
-<span id="cb6-12"><a href="#cb6-12" aria-hidden="true" tabindex="-1"></a>        unit (CDownFrom.List._∷_ 4 0)</span>
-<span id="cb6-13"><a href="#cb6-13" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb6-14"><a href="#cb6-14" aria-hidden="true" tabindex="-1"></a>DownFrom.sum r20 x19 =</span>
-<span id="cb6-15"><a href="#cb6-15" aria-hidden="true" tabindex="-1"></a>  eval 0 ; λ x18 →</span>
-<span id="cb6-16"><a href="#cb6-16" aria-hidden="true" tabindex="-1"></a>  case 0 of</span>
-<span id="cb6-17"><a href="#cb6-17" aria-hidden="true" tabindex="-1"></a>    CDownFrom.List.[] → unit (Cnat #0)</span>
-<span id="cb6-18"><a href="#cb6-18" aria-hidden="true" tabindex="-1"></a>    CDownFrom.List._∷_ x16 x17 →</span>
-<span id="cb6-19"><a href="#cb6-19" aria-hidden="true" tabindex="-1"></a>      storel10 (FDownFrom.sum 0) ; λ x11 →</span>
-<span id="cb6-20"><a href="#cb6-20" aria-hidden="true" tabindex="-1"></a>      eval 0 ; λ x15 →</span>
-<span id="cb6-21"><a href="#cb6-21" aria-hidden="true" tabindex="-1"></a>      eval 3 ; λ x14 →</span>
-<span id="cb6-22"><a href="#cb6-22" aria-hidden="true" tabindex="-1"></a>      PAdd 1 0 ; λ x13 →</span>
-<span id="cb6-23"><a href="#cb6-23" aria-hidden="true" tabindex="-1"></a>      unit 0</span>
-<span id="cb6-24"><a href="#cb6-24" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb6-25"><a href="#cb6-25" aria-hidden="true" tabindex="-1"></a>DownFrom.main =</span>
-<span id="cb6-26"><a href="#cb6-26" aria-hidden="true" tabindex="-1"></a>  storel21 (Cnat #4) ; λ x24 →</span>
-<span id="cb6-27"><a href="#cb6-27" aria-hidden="true" tabindex="-1"></a>  storel22 (FDownFrom.downFrom 0) ; λ x23 →</span>
-<span id="cb6-28"><a href="#cb6-28" aria-hidden="true" tabindex="-1"></a>  DownFrom.sum 0 ; λ Cnat x25 →</span>
-<span id="cb6-29"><a href="#cb6-29" aria-hidden="true" tabindex="-1"></a>  printf 0</span>
-<span id="cb6-30"><a href="#cb6-30" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb6-31"><a href="#cb6-31" aria-hidden="true" tabindex="-1"></a>------------------------------------------------------------------------</span>
-<span id="cb6-32"><a href="#cb6-32" aria-hidden="true" tabindex="-1"></a>-- * Heap points-to analysis</span>
-<span id="cb6-33"><a href="#cb6-33" aria-hidden="true" tabindex="-1"></a>------------------------------------------------------------------------</span>
-<span id="cb6-34"><a href="#cb6-34" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb6-35"><a href="#cb6-35" aria-hidden="true" tabindex="-1"></a>Abstract heap:</span>
-<span id="cb6-36"><a href="#cb6-36" aria-hidden="true" tabindex="-1"></a>l0 → Cnat <span class="co">[</span><span class="ot">BAS</span><span class="co">]</span></span>
-<span id="cb6-37"><a href="#cb6-37" aria-hidden="true" tabindex="-1"></a>l1 → FPrim.sub <span class="co">[</span><span class="ot">l1 ∪ l21, l0</span><span class="co">]</span></span>
-<span id="cb6-38"><a href="#cb6-38" aria-hidden="true" tabindex="-1"></a>l4 → FDownFrom.downFrom <span class="co">[</span><span class="ot">l1</span><span class="co">]</span></span>
-<span id="cb6-39"><a href="#cb6-39" aria-hidden="true" tabindex="-1"></a>l10 → FDownFrom.sum <span class="co">[</span><span class="ot">l4</span><span class="co">]</span></span>
-<span id="cb6-40"><a href="#cb6-40" aria-hidden="true" tabindex="-1"></a>l21 → Cnat <span class="co">[</span><span class="ot">BAS</span><span class="co">]</span></span>
-<span id="cb6-41"><a href="#cb6-41" aria-hidden="true" tabindex="-1"></a>l22 → FDownFrom.downFrom <span class="co">[</span><span class="ot">l21</span><span class="co">]</span></span>
-<span id="cb6-42"><a href="#cb6-42" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb6-43"><a href="#cb6-43" aria-hidden="true" tabindex="-1"></a>Abstract env:</span>
-<span id="cb6-44"><a href="#cb6-44" aria-hidden="true" tabindex="-1"></a>x2 → l1</span>
-<span id="cb6-45"><a href="#cb6-45" aria-hidden="true" tabindex="-1"></a>x3 → l0</span>
-<span id="cb6-46"><a href="#cb6-46" aria-hidden="true" tabindex="-1"></a>x5 → l4</span>
-<span id="cb6-47"><a href="#cb6-47" aria-hidden="true" tabindex="-1"></a>x7 → BAS</span>
-<span id="cb6-48"><a href="#cb6-48" aria-hidden="true" tabindex="-1"></a>x8 → l1 ∪ l21</span>
-<span id="cb6-49"><a href="#cb6-49" aria-hidden="true" tabindex="-1"></a>x9 → CDownFrom.List._∷_ <span class="co">[</span><span class="ot">l1 ∪ l21, l4</span><span class="co">]</span> ∪ CDownFrom.List.[] []</span>
-<span id="cb6-50"><a href="#cb6-50" aria-hidden="true" tabindex="-1"></a>x11 → l10</span>
-<span id="cb6-51"><a href="#cb6-51" aria-hidden="true" tabindex="-1"></a>x13 → Cnat <span class="co">[</span><span class="ot">BAS</span><span class="co">]</span></span>
-<span id="cb6-52"><a href="#cb6-52" aria-hidden="true" tabindex="-1"></a>x14 → Cnat <span class="co">[</span><span class="ot">BAS</span><span class="co">]</span></span>
-<span id="cb6-53"><a href="#cb6-53" aria-hidden="true" tabindex="-1"></a>x15 → Cnat <span class="co">[</span><span class="ot">BAS</span><span class="co">]</span></span>
-<span id="cb6-54"><a href="#cb6-54" aria-hidden="true" tabindex="-1"></a>x16 → l1 ∪ l21</span>
-<span id="cb6-55"><a href="#cb6-55" aria-hidden="true" tabindex="-1"></a>x17 → l4</span>
-<span id="cb6-56"><a href="#cb6-56" aria-hidden="true" tabindex="-1"></a>x18 → CDownFrom.List._∷_ <span class="co">[</span><span class="ot">l1 ∪ l21, l4</span><span class="co">]</span> ∪ CDownFrom.List.[] []</span>
-<span id="cb6-57"><a href="#cb6-57" aria-hidden="true" tabindex="-1"></a>x19 → l4 ∪ l22</span>
-<span id="cb6-58"><a href="#cb6-58" aria-hidden="true" tabindex="-1"></a>x20 → Cnat <span class="co">[</span><span class="ot">BAS</span><span class="co">]</span></span>
-<span id="cb6-59"><a href="#cb6-59" aria-hidden="true" tabindex="-1"></a>x23 → l22</span>
-<span id="cb6-60"><a href="#cb6-60" aria-hidden="true" tabindex="-1"></a>x24 → l21</span>
-<span id="cb6-61"><a href="#cb6-61" aria-hidden="true" tabindex="-1"></a>x25 → BAS</span>
-<span id="cb6-62"><a href="#cb6-62" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb6-63"><a href="#cb6-63" aria-hidden="true" tabindex="-1"></a>Shared: {0, 1, 2, 3, 8, 21, 24}</span></code></pre></div></li>
+<div class="sourceCode" id="cb8"><pre
+class="sourceCode markdown"><code class="sourceCode markdown"><span id="cb8-1"><a href="#cb8-1" aria-hidden="true" tabindex="-1"></a>------------------------------------------------------------------------</span>
+<span id="cb8-2"><a href="#cb8-2" aria-hidden="true" tabindex="-1"></a>-- * GRIN</span>
+<span id="cb8-3"><a href="#cb8-3" aria-hidden="true" tabindex="-1"></a>------------------------------------------------------------------------</span>
+<span id="cb8-4"><a href="#cb8-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb8-5"><a href="#cb8-5" aria-hidden="true" tabindex="-1"></a>DownFrom.downFrom r9 x8 =</span>
+<span id="cb8-6"><a href="#cb8-6" aria-hidden="true" tabindex="-1"></a>  eval 0 ; λ Cnat x7 →</span>
+<span id="cb8-7"><a href="#cb8-7" aria-hidden="true" tabindex="-1"></a>  case 0 of</span>
+<span id="cb8-8"><a href="#cb8-8" aria-hidden="true" tabindex="-1"></a>    0 → unit (CDownFrom.List.[])</span>
+<span id="cb8-9"><a href="#cb8-9" aria-hidden="true" tabindex="-1"></a>    _ → storel0 (Cnat #1) ; λ x3 →</span>
+<span id="cb8-10"><a href="#cb8-10" aria-hidden="true" tabindex="-1"></a>        storel1 (FPrim.sub 2 0) ; λ x2 →</span>
+<span id="cb8-11"><a href="#cb8-11" aria-hidden="true" tabindex="-1"></a>        storel4 (FDownFrom.downFrom 0) ; λ x5 →</span>
+<span id="cb8-12"><a href="#cb8-12" aria-hidden="true" tabindex="-1"></a>        unit (CDownFrom.List._∷_ 4 0)</span>
+<span id="cb8-13"><a href="#cb8-13" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb8-14"><a href="#cb8-14" aria-hidden="true" tabindex="-1"></a>DownFrom.sum r20 x19 =</span>
+<span id="cb8-15"><a href="#cb8-15" aria-hidden="true" tabindex="-1"></a>  eval 0 ; λ x18 →</span>
+<span id="cb8-16"><a href="#cb8-16" aria-hidden="true" tabindex="-1"></a>  case 0 of</span>
+<span id="cb8-17"><a href="#cb8-17" aria-hidden="true" tabindex="-1"></a>    CDownFrom.List.[] → unit (Cnat #0)</span>
+<span id="cb8-18"><a href="#cb8-18" aria-hidden="true" tabindex="-1"></a>    CDownFrom.List._∷_ x16 x17 →</span>
+<span id="cb8-19"><a href="#cb8-19" aria-hidden="true" tabindex="-1"></a>      storel10 (FDownFrom.sum 0) ; λ x11 →</span>
+<span id="cb8-20"><a href="#cb8-20" aria-hidden="true" tabindex="-1"></a>      eval 0 ; λ x15 →</span>
+<span id="cb8-21"><a href="#cb8-21" aria-hidden="true" tabindex="-1"></a>      eval 3 ; λ x14 →</span>
+<span id="cb8-22"><a href="#cb8-22" aria-hidden="true" tabindex="-1"></a>      PAdd 1 0 ; λ x13 →</span>
+<span id="cb8-23"><a href="#cb8-23" aria-hidden="true" tabindex="-1"></a>      unit 0</span>
+<span id="cb8-24"><a href="#cb8-24" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb8-25"><a href="#cb8-25" aria-hidden="true" tabindex="-1"></a>DownFrom.main =</span>
+<span id="cb8-26"><a href="#cb8-26" aria-hidden="true" tabindex="-1"></a>  storel21 (Cnat #4) ; λ x24 →</span>
+<span id="cb8-27"><a href="#cb8-27" aria-hidden="true" tabindex="-1"></a>  storel22 (FDownFrom.downFrom 0) ; λ x23 →</span>
+<span id="cb8-28"><a href="#cb8-28" aria-hidden="true" tabindex="-1"></a>  DownFrom.sum 0 ; λ Cnat x25 →</span>
+<span id="cb8-29"><a href="#cb8-29" aria-hidden="true" tabindex="-1"></a>  printf 0</span>
+<span id="cb8-30"><a href="#cb8-30" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb8-31"><a href="#cb8-31" aria-hidden="true" tabindex="-1"></a>------------------------------------------------------------------------</span>
+<span id="cb8-32"><a href="#cb8-32" aria-hidden="true" tabindex="-1"></a>-- * Heap points-to analysis</span>
+<span id="cb8-33"><a href="#cb8-33" aria-hidden="true" tabindex="-1"></a>------------------------------------------------------------------------</span>
+<span id="cb8-34"><a href="#cb8-34" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb8-35"><a href="#cb8-35" aria-hidden="true" tabindex="-1"></a>Abstract heap:</span>
+<span id="cb8-36"><a href="#cb8-36" aria-hidden="true" tabindex="-1"></a>l0 → Cnat <span class="co">[</span><span class="ot">BAS</span><span class="co">]</span></span>
+<span id="cb8-37"><a href="#cb8-37" aria-hidden="true" tabindex="-1"></a>l1 → FPrim.sub <span class="co">[</span><span class="ot">l1 ∪ l21, l0</span><span class="co">]</span></span>
+<span id="cb8-38"><a href="#cb8-38" aria-hidden="true" tabindex="-1"></a>l4 → FDownFrom.downFrom <span class="co">[</span><span class="ot">l1</span><span class="co">]</span></span>
+<span id="cb8-39"><a href="#cb8-39" aria-hidden="true" tabindex="-1"></a>l10 → FDownFrom.sum <span class="co">[</span><span class="ot">l4</span><span class="co">]</span></span>
+<span id="cb8-40"><a href="#cb8-40" aria-hidden="true" tabindex="-1"></a>l21 → Cnat <span class="co">[</span><span class="ot">BAS</span><span class="co">]</span></span>
+<span id="cb8-41"><a href="#cb8-41" aria-hidden="true" tabindex="-1"></a>l22 → FDownFrom.downFrom <span class="co">[</span><span class="ot">l21</span><span class="co">]</span></span>
+<span id="cb8-42"><a href="#cb8-42" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb8-43"><a href="#cb8-43" aria-hidden="true" tabindex="-1"></a>Abstract env:</span>
+<span id="cb8-44"><a href="#cb8-44" aria-hidden="true" tabindex="-1"></a>x2 → l1</span>
+<span id="cb8-45"><a href="#cb8-45" aria-hidden="true" tabindex="-1"></a>x3 → l0</span>
+<span id="cb8-46"><a href="#cb8-46" aria-hidden="true" tabindex="-1"></a>x5 → l4</span>
+<span id="cb8-47"><a href="#cb8-47" aria-hidden="true" tabindex="-1"></a>x7 → BAS</span>
+<span id="cb8-48"><a href="#cb8-48" aria-hidden="true" tabindex="-1"></a>x8 → l1 ∪ l21</span>
+<span id="cb8-49"><a href="#cb8-49" aria-hidden="true" tabindex="-1"></a>x9 → CDownFrom.List._∷_ <span class="co">[</span><span class="ot">l1 ∪ l21, l4</span><span class="co">]</span> ∪ CDownFrom.List.[] []</span>
+<span id="cb8-50"><a href="#cb8-50" aria-hidden="true" tabindex="-1"></a>x11 → l10</span>
+<span id="cb8-51"><a href="#cb8-51" aria-hidden="true" tabindex="-1"></a>x13 → Cnat <span class="co">[</span><span class="ot">BAS</span><span class="co">]</span></span>
+<span id="cb8-52"><a href="#cb8-52" aria-hidden="true" tabindex="-1"></a>x14 → Cnat <span class="co">[</span><span class="ot">BAS</span><span class="co">]</span></span>
+<span id="cb8-53"><a href="#cb8-53" aria-hidden="true" tabindex="-1"></a>x15 → Cnat <span class="co">[</span><span class="ot">BAS</span><span class="co">]</span></span>
+<span id="cb8-54"><a href="#cb8-54" aria-hidden="true" tabindex="-1"></a>x16 → l1 ∪ l21</span>
+<span id="cb8-55"><a href="#cb8-55" aria-hidden="true" tabindex="-1"></a>x17 → l4</span>
+<span id="cb8-56"><a href="#cb8-56" aria-hidden="true" tabindex="-1"></a>x18 → CDownFrom.List._∷_ <span class="co">[</span><span class="ot">l1 ∪ l21, l4</span><span class="co">]</span> ∪ CDownFrom.List.[] []</span>
+<span id="cb8-57"><a href="#cb8-57" aria-hidden="true" tabindex="-1"></a>x19 → l4 ∪ l22</span>
+<span id="cb8-58"><a href="#cb8-58" aria-hidden="true" tabindex="-1"></a>x20 → Cnat <span class="co">[</span><span class="ot">BAS</span><span class="co">]</span></span>
+<span id="cb8-59"><a href="#cb8-59" aria-hidden="true" tabindex="-1"></a>x23 → l22</span>
+<span id="cb8-60"><a href="#cb8-60" aria-hidden="true" tabindex="-1"></a>x24 → l21</span>
+<span id="cb8-61"><a href="#cb8-61" aria-hidden="true" tabindex="-1"></a>x25 → BAS</span>
+<span id="cb8-62"><a href="#cb8-62" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb8-63"><a href="#cb8-63" aria-hidden="true" tabindex="-1"></a>Shared: {0, 1, 2, 3, 8, 21, 24}</span></code></pre></div></li>
 <li><p>Implemented eval inlining which uses the heap points-to analysis
 to generate specialized eval functions for each call.</p>
-<div class="sourceCode" id="cb7"><pre
-class="sourceCode markdown"><code class="sourceCode markdown"><span id="cb7-1"><a href="#cb7-1" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb7-2"><a href="#cb7-2" aria-hidden="true" tabindex="-1"></a>------------------------------------------------------------------------</span>
-<span id="cb7-3"><a href="#cb7-3" aria-hidden="true" tabindex="-1"></a>-- * Inlining eval</span>
-<span id="cb7-4"><a href="#cb7-4" aria-hidden="true" tabindex="-1"></a>------------------------------------------------------------------------</span>
-<span id="cb7-5"><a href="#cb7-5" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb7-6"><a href="#cb7-6" aria-hidden="true" tabindex="-1"></a>DownFrom.downFrom r9 x8 =</span>
-<span id="cb7-7"><a href="#cb7-7" aria-hidden="true" tabindex="-1"></a>  (fetch 0 ; λ x30 →</span>
-<span id="cb7-8"><a href="#cb7-8" aria-hidden="true" tabindex="-1"></a>   (case 0 of</span>
-<span id="cb7-9"><a href="#cb7-9" aria-hidden="true" tabindex="-1"></a>      CDownFrom.List._∷_ x27 x28 → unit 0</span>
-<span id="cb7-10"><a href="#cb7-10" aria-hidden="true" tabindex="-1"></a>      CDownFrom.List.[] → unit 0</span>
-<span id="cb7-11"><a href="#cb7-11" aria-hidden="true" tabindex="-1"></a>   ) ; λ x29 →</span>
-<span id="cb7-12"><a href="#cb7-12" aria-hidden="true" tabindex="-1"></a>   update 2 0 ; λ () →</span>
-<span id="cb7-13"><a href="#cb7-13" aria-hidden="true" tabindex="-1"></a>   unit 0</span>
-<span id="cb7-14"><a href="#cb7-14" aria-hidden="true" tabindex="-1"></a>  ) ; λ Cnat x7 →</span>
-<span id="cb7-15"><a href="#cb7-15" aria-hidden="true" tabindex="-1"></a>  case 0 of</span>
-<span id="cb7-16"><a href="#cb7-16" aria-hidden="true" tabindex="-1"></a>    0 → unit (CDownFrom.List.[])</span>
-<span id="cb7-17"><a href="#cb7-17" aria-hidden="true" tabindex="-1"></a>    _ → storel0 (Cnat #1) ; λ x3 →</span>
-<span id="cb7-18"><a href="#cb7-18" aria-hidden="true" tabindex="-1"></a>        storel1 (FPrim.sub 2 0) ; λ x2 →</span>
-<span id="cb7-19"><a href="#cb7-19" aria-hidden="true" tabindex="-1"></a>        storel4 (FDownFrom.downFrom 0) ; λ x5 →</span>
-<span id="cb7-20"><a href="#cb7-20" aria-hidden="true" tabindex="-1"></a>        unit (CDownFrom.List._∷_ 4 0)</span>
-<span id="cb7-21"><a href="#cb7-21" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb7-22"><a href="#cb7-22" aria-hidden="true" tabindex="-1"></a>DownFrom.sum r20 x19 =</span>
-<span id="cb7-23"><a href="#cb7-23" aria-hidden="true" tabindex="-1"></a>  (fetch 0 ; λ x34 →</span>
-<span id="cb7-24"><a href="#cb7-24" aria-hidden="true" tabindex="-1"></a>   (case 0 of</span>
-<span id="cb7-25"><a href="#cb7-25" aria-hidden="true" tabindex="-1"></a>      CDownFrom.List._∷_ x31 x32 → unit 0</span>
-<span id="cb7-26"><a href="#cb7-26" aria-hidden="true" tabindex="-1"></a>      CDownFrom.List.[] → unit 0</span>
-<span id="cb7-27"><a href="#cb7-27" aria-hidden="true" tabindex="-1"></a>   ) ; λ x33 →</span>
-<span id="cb7-28"><a href="#cb7-28" aria-hidden="true" tabindex="-1"></a>   update 2 0 ; λ () →</span>
-<span id="cb7-29"><a href="#cb7-29" aria-hidden="true" tabindex="-1"></a>   unit 0</span>
-<span id="cb7-30"><a href="#cb7-30" aria-hidden="true" tabindex="-1"></a>  ) ; λ x18 →</span>
-<span id="cb7-31"><a href="#cb7-31" aria-hidden="true" tabindex="-1"></a>  case 0 of</span>
-<span id="cb7-32"><a href="#cb7-32" aria-hidden="true" tabindex="-1"></a>    CDownFrom.List.[] → unit (Cnat #0)</span>
-<span id="cb7-33"><a href="#cb7-33" aria-hidden="true" tabindex="-1"></a>    CDownFrom.List._∷_ x16 x17 →</span>
-<span id="cb7-34"><a href="#cb7-34" aria-hidden="true" tabindex="-1"></a>      storel10 (FDownFrom.sum 0) ; λ x11 →</span>
-<span id="cb7-35"><a href="#cb7-35" aria-hidden="true" tabindex="-1"></a>      (fetch 0 ; λ x37 →</span>
-<span id="cb7-36"><a href="#cb7-36" aria-hidden="true" tabindex="-1"></a>       (case 0 of</span>
-<span id="cb7-37"><a href="#cb7-37" aria-hidden="true" tabindex="-1"></a>          FDownFrom.sum x35 → DownFrom.sum 0</span>
-<span id="cb7-38"><a href="#cb7-38" aria-hidden="true" tabindex="-1"></a>       ) ; λ x36 →</span>
-<span id="cb7-39"><a href="#cb7-39" aria-hidden="true" tabindex="-1"></a>       update 2 0 ; λ () →</span>
-<span id="cb7-40"><a href="#cb7-40" aria-hidden="true" tabindex="-1"></a>       unit 0</span>
-<span id="cb7-41"><a href="#cb7-41" aria-hidden="true" tabindex="-1"></a>      ) ; λ x15 →</span>
-<span id="cb7-42"><a href="#cb7-42" aria-hidden="true" tabindex="-1"></a>      (fetch 3 ; λ x42 →</span>
-<span id="cb7-43"><a href="#cb7-43" aria-hidden="true" tabindex="-1"></a>       (case 0 of</span>
-<span id="cb7-44"><a href="#cb7-44" aria-hidden="true" tabindex="-1"></a>          FPrim.sub x38 x39 → Prim.sub 1 0</span>
-<span id="cb7-45"><a href="#cb7-45" aria-hidden="true" tabindex="-1"></a>          Cnat x40 → unit 0</span>
-<span id="cb7-46"><a href="#cb7-46" aria-hidden="true" tabindex="-1"></a>       ) ; λ x41 →</span>
-<span id="cb7-47"><a href="#cb7-47" aria-hidden="true" tabindex="-1"></a>       update 2 0 ; λ () →</span>
-<span id="cb7-48"><a href="#cb7-48" aria-hidden="true" tabindex="-1"></a>       unit 0</span>
-<span id="cb7-49"><a href="#cb7-49" aria-hidden="true" tabindex="-1"></a>      ) ; λ x14 →</span>
-<span id="cb7-50"><a href="#cb7-50" aria-hidden="true" tabindex="-1"></a>      PAdd 1 0 ; λ x13 →</span>
-<span id="cb7-51"><a href="#cb7-51" aria-hidden="true" tabindex="-1"></a>      unit 0</span>
-<span id="cb7-52"><a href="#cb7-52" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb7-53"><a href="#cb7-53" aria-hidden="true" tabindex="-1"></a>DownFrom.main =</span>
-<span id="cb7-54"><a href="#cb7-54" aria-hidden="true" tabindex="-1"></a>  storel21 (Cnat #4) ; λ x24 →</span>
-<span id="cb7-55"><a href="#cb7-55" aria-hidden="true" tabindex="-1"></a>  storel22 (FDownFrom.downFrom 0) ; λ x23 →</span>
-<span id="cb7-56"><a href="#cb7-56" aria-hidden="true" tabindex="-1"></a>  DownFrom.sum 0 ; λ Cnat x25 →</span>
-<span id="cb7-57"><a href="#cb7-57" aria-hidden="true" tabindex="-1"></a>  printf 0</span></code></pre></div></li>
+<div class="sourceCode" id="cb9"><pre
+class="sourceCode markdown"><code class="sourceCode markdown"><span id="cb9-1"><a href="#cb9-1" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb9-2"><a href="#cb9-2" aria-hidden="true" tabindex="-1"></a>------------------------------------------------------------------------</span>
+<span id="cb9-3"><a href="#cb9-3" aria-hidden="true" tabindex="-1"></a>-- * Inlining eval</span>
+<span id="cb9-4"><a href="#cb9-4" aria-hidden="true" tabindex="-1"></a>------------------------------------------------------------------------</span>
+<span id="cb9-5"><a href="#cb9-5" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb9-6"><a href="#cb9-6" aria-hidden="true" tabindex="-1"></a>DownFrom.downFrom r9 x8 =</span>
+<span id="cb9-7"><a href="#cb9-7" aria-hidden="true" tabindex="-1"></a>  (fetch 0 ; λ x30 →</span>
+<span id="cb9-8"><a href="#cb9-8" aria-hidden="true" tabindex="-1"></a>   (case 0 of</span>
+<span id="cb9-9"><a href="#cb9-9" aria-hidden="true" tabindex="-1"></a>      CDownFrom.List._∷_ x27 x28 → unit 0</span>
+<span id="cb9-10"><a href="#cb9-10" aria-hidden="true" tabindex="-1"></a>      CDownFrom.List.[] → unit 0</span>
+<span id="cb9-11"><a href="#cb9-11" aria-hidden="true" tabindex="-1"></a>   ) ; λ x29 →</span>
+<span id="cb9-12"><a href="#cb9-12" aria-hidden="true" tabindex="-1"></a>   update 2 0 ; λ () →</span>
+<span id="cb9-13"><a href="#cb9-13" aria-hidden="true" tabindex="-1"></a>   unit 0</span>
+<span id="cb9-14"><a href="#cb9-14" aria-hidden="true" tabindex="-1"></a>  ) ; λ Cnat x7 →</span>
+<span id="cb9-15"><a href="#cb9-15" aria-hidden="true" tabindex="-1"></a>  case 0 of</span>
+<span id="cb9-16"><a href="#cb9-16" aria-hidden="true" tabindex="-1"></a>    0 → unit (CDownFrom.List.[])</span>
+<span id="cb9-17"><a href="#cb9-17" aria-hidden="true" tabindex="-1"></a>    _ → storel0 (Cnat #1) ; λ x3 →</span>
+<span id="cb9-18"><a href="#cb9-18" aria-hidden="true" tabindex="-1"></a>        storel1 (FPrim.sub 2 0) ; λ x2 →</span>
+<span id="cb9-19"><a href="#cb9-19" aria-hidden="true" tabindex="-1"></a>        storel4 (FDownFrom.downFrom 0) ; λ x5 →</span>
+<span id="cb9-20"><a href="#cb9-20" aria-hidden="true" tabindex="-1"></a>        unit (CDownFrom.List._∷_ 4 0)</span>
+<span id="cb9-21"><a href="#cb9-21" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb9-22"><a href="#cb9-22" aria-hidden="true" tabindex="-1"></a>DownFrom.sum r20 x19 =</span>
+<span id="cb9-23"><a href="#cb9-23" aria-hidden="true" tabindex="-1"></a>  (fetch 0 ; λ x34 →</span>
+<span id="cb9-24"><a href="#cb9-24" aria-hidden="true" tabindex="-1"></a>   (case 0 of</span>
+<span id="cb9-25"><a href="#cb9-25" aria-hidden="true" tabindex="-1"></a>      CDownFrom.List._∷_ x31 x32 → unit 0</span>
+<span id="cb9-26"><a href="#cb9-26" aria-hidden="true" tabindex="-1"></a>      CDownFrom.List.[] → unit 0</span>
+<span id="cb9-27"><a href="#cb9-27" aria-hidden="true" tabindex="-1"></a>   ) ; λ x33 →</span>
+<span id="cb9-28"><a href="#cb9-28" aria-hidden="true" tabindex="-1"></a>   update 2 0 ; λ () →</span>
+<span id="cb9-29"><a href="#cb9-29" aria-hidden="true" tabindex="-1"></a>   unit 0</span>
+<span id="cb9-30"><a href="#cb9-30" aria-hidden="true" tabindex="-1"></a>  ) ; λ x18 →</span>
+<span id="cb9-31"><a href="#cb9-31" aria-hidden="true" tabindex="-1"></a>  case 0 of</span>
+<span id="cb9-32"><a href="#cb9-32" aria-hidden="true" tabindex="-1"></a>    CDownFrom.List.[] → unit (Cnat #0)</span>
+<span id="cb9-33"><a href="#cb9-33" aria-hidden="true" tabindex="-1"></a>    CDownFrom.List._∷_ x16 x17 →</span>
+<span id="cb9-34"><a href="#cb9-34" aria-hidden="true" tabindex="-1"></a>      storel10 (FDownFrom.sum 0) ; λ x11 →</span>
+<span id="cb9-35"><a href="#cb9-35" aria-hidden="true" tabindex="-1"></a>      (fetch 0 ; λ x37 →</span>
+<span id="cb9-36"><a href="#cb9-36" aria-hidden="true" tabindex="-1"></a>       (case 0 of</span>
+<span id="cb9-37"><a href="#cb9-37" aria-hidden="true" tabindex="-1"></a>          FDownFrom.sum x35 → DownFrom.sum 0</span>
+<span id="cb9-38"><a href="#cb9-38" aria-hidden="true" tabindex="-1"></a>       ) ; λ x36 →</span>
+<span id="cb9-39"><a href="#cb9-39" aria-hidden="true" tabindex="-1"></a>       update 2 0 ; λ () →</span>
+<span id="cb9-40"><a href="#cb9-40" aria-hidden="true" tabindex="-1"></a>       unit 0</span>
+<span id="cb9-41"><a href="#cb9-41" aria-hidden="true" tabindex="-1"></a>      ) ; λ x15 →</span>
+<span id="cb9-42"><a href="#cb9-42" aria-hidden="true" tabindex="-1"></a>      (fetch 3 ; λ x42 →</span>
+<span id="cb9-43"><a href="#cb9-43" aria-hidden="true" tabindex="-1"></a>       (case 0 of</span>
+<span id="cb9-44"><a href="#cb9-44" aria-hidden="true" tabindex="-1"></a>          FPrim.sub x38 x39 → Prim.sub 1 0</span>
+<span id="cb9-45"><a href="#cb9-45" aria-hidden="true" tabindex="-1"></a>          Cnat x40 → unit 0</span>
+<span id="cb9-46"><a href="#cb9-46" aria-hidden="true" tabindex="-1"></a>       ) ; λ x41 →</span>
+<span id="cb9-47"><a href="#cb9-47" aria-hidden="true" tabindex="-1"></a>       update 2 0 ; λ () →</span>
+<span id="cb9-48"><a href="#cb9-48" aria-hidden="true" tabindex="-1"></a>       unit 0</span>
+<span id="cb9-49"><a href="#cb9-49" aria-hidden="true" tabindex="-1"></a>      ) ; λ x14 →</span>
+<span id="cb9-50"><a href="#cb9-50" aria-hidden="true" tabindex="-1"></a>      PAdd 1 0 ; λ x13 →</span>
+<span id="cb9-51"><a href="#cb9-51" aria-hidden="true" tabindex="-1"></a>      unit 0</span>
+<span id="cb9-52"><a href="#cb9-52" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb9-53"><a href="#cb9-53" aria-hidden="true" tabindex="-1"></a>DownFrom.main =</span>
+<span id="cb9-54"><a href="#cb9-54" aria-hidden="true" tabindex="-1"></a>  storel21 (Cnat #4) ; λ x24 →</span>
+<span id="cb9-55"><a href="#cb9-55" aria-hidden="true" tabindex="-1"></a>  storel22 (FDownFrom.downFrom 0) ; λ x23 →</span>
+<span id="cb9-56"><a href="#cb9-56" aria-hidden="true" tabindex="-1"></a>  DownFrom.sum 0 ; λ Cnat x25 →</span>
+<span id="cb9-57"><a href="#cb9-57" aria-hidden="true" tabindex="-1"></a>  printf 0</span></code></pre></div></li>
 <li><p>Read papers that have cited Boquist’s writings about GRIN (see <a
 href="#related-work">Related work</a>).</p></li>
 <li><p>I have decided to shift the focus from LLVM to GRIN because all
@@ -388,36 +456,36 @@ backend.</p></li>
 approximation<br />
 of the possible values of each abstract heap location.<br />
 It also determines the possible values of each variable.</p>
-<div class="sourceCode" id="cb8"><pre
-class="sourceCode markdown"><code class="sourceCode markdown"><span id="cb8-1"><a href="#cb8-1" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb8-2"><a href="#cb8-2" aria-hidden="true" tabindex="-1"></a>variable                                            location</span>
-<span id="cb8-3"><a href="#cb8-3" aria-hidden="true" tabindex="-1"></a>------------------------------------------------------------</span>
-<span id="cb8-4"><a href="#cb8-4" aria-hidden="true" tabindex="-1"></a>x1      DownFrom.downFrom #1 =</span>
-<span id="cb8-5"><a href="#cb8-5" aria-hidden="true" tabindex="-1"></a>x2        eval @0 ; λ Cnat #1 →</span>
-<span id="cb8-6"><a href="#cb8-6" aria-hidden="true" tabindex="-1"></a>          case @0 of</span>
-<span id="cb8-7"><a href="#cb8-7" aria-hidden="true" tabindex="-1"></a>            0 → unit (CDownFrom.List.[])</span>
-<span id="cb8-8"><a href="#cb8-8" aria-hidden="true" tabindex="-1"></a>x3          _ → store (Cnat 1) ; λ #1 →                   l0</span>
-<span id="cb8-9"><a href="#cb8-9" aria-hidden="true" tabindex="-1"></a>x4              store (FPrim.sub @2 @0) ; λ #1 →          l1</span>
-<span id="cb8-10"><a href="#cb8-10" aria-hidden="true" tabindex="-1"></a>x5              store (FDownFrom.downFrom @0) ; λ #1 →    l2</span>
-<span id="cb8-11"><a href="#cb8-11" aria-hidden="true" tabindex="-1"></a>                unit (CDownFrom.List._∷_ @4 @0) </span>
-<span id="cb8-12"><a href="#cb8-12" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb8-13"><a href="#cb8-13" aria-hidden="true" tabindex="-1"></a>... rest of the program ...</span>
-<span id="cb8-14"><a href="#cb8-14" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb8-15"><a href="#cb8-15" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb8-16"><a href="#cb8-16" aria-hidden="true" tabindex="-1"></a>Heap points-to analysis</span>
-<span id="cb8-17"><a href="#cb8-17" aria-hidden="true" tabindex="-1"></a>------------------------------------------------------------</span>
-<span id="cb8-18"><a href="#cb8-18" aria-hidden="true" tabindex="-1"></a>Solved heap:</span>
-<span id="cb8-19"><a href="#cb8-19" aria-hidden="true" tabindex="-1"></a>l0 → Cnat <span class="co">[</span><span class="ot">BAS</span><span class="co">]</span></span>
-<span id="cb8-20"><a href="#cb8-20" aria-hidden="true" tabindex="-1"></a>l1 → FPrim.sub <span class="co">[</span><span class="ot">l1 ∪ l4, l0</span><span class="co">]</span></span>
-<span id="cb8-21"><a href="#cb8-21" aria-hidden="true" tabindex="-1"></a>l2 → FDownFrom.downFrom <span class="co">[</span><span class="ot">l1</span><span class="co">]</span> ∪ CDownFrom.List.[] [] ∪ CDownFrom.List._∷_ <span class="co">[</span><span class="ot">l1 ∪ l4, l2</span><span class="co">]</span></span>
-<span id="cb8-22"><a href="#cb8-22" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb8-23"><a href="#cb8-23" aria-hidden="true" tabindex="-1"></a>Solved env:</span>
-<span id="cb8-24"><a href="#cb8-24" aria-hidden="true" tabindex="-1"></a>x0 → CDownFrom.List.[] [] ∪ CDownFrom.List._∷_ <span class="co">[</span><span class="ot">l1 ∪ l4, l2</span><span class="co">]</span></span>
-<span id="cb8-25"><a href="#cb8-25" aria-hidden="true" tabindex="-1"></a>x1 → l1 ∪ l4</span>
-<span id="cb8-26"><a href="#cb8-26" aria-hidden="true" tabindex="-1"></a>x2 → BAS</span>
-<span id="cb8-27"><a href="#cb8-27" aria-hidden="true" tabindex="-1"></a>x3 → l0</span>
-<span id="cb8-28"><a href="#cb8-28" aria-hidden="true" tabindex="-1"></a>x4 → l1</span>
-<span id="cb8-29"><a href="#cb8-29" aria-hidden="true" tabindex="-1"></a>x5 → l2</span></code></pre></div></li>
+<div class="sourceCode" id="cb10"><pre
+class="sourceCode markdown"><code class="sourceCode markdown"><span id="cb10-1"><a href="#cb10-1" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb10-2"><a href="#cb10-2" aria-hidden="true" tabindex="-1"></a>variable                                            location</span>
+<span id="cb10-3"><a href="#cb10-3" aria-hidden="true" tabindex="-1"></a>------------------------------------------------------------</span>
+<span id="cb10-4"><a href="#cb10-4" aria-hidden="true" tabindex="-1"></a>x1      DownFrom.downFrom #1 =</span>
+<span id="cb10-5"><a href="#cb10-5" aria-hidden="true" tabindex="-1"></a>x2        eval @0 ; λ Cnat #1 →</span>
+<span id="cb10-6"><a href="#cb10-6" aria-hidden="true" tabindex="-1"></a>          case @0 of</span>
+<span id="cb10-7"><a href="#cb10-7" aria-hidden="true" tabindex="-1"></a>            0 → unit (CDownFrom.List.[])</span>
+<span id="cb10-8"><a href="#cb10-8" aria-hidden="true" tabindex="-1"></a>x3          _ → store (Cnat 1) ; λ #1 →                   l0</span>
+<span id="cb10-9"><a href="#cb10-9" aria-hidden="true" tabindex="-1"></a>x4              store (FPrim.sub @2 @0) ; λ #1 →          l1</span>
+<span id="cb10-10"><a href="#cb10-10" aria-hidden="true" tabindex="-1"></a>x5              store (FDownFrom.downFrom @0) ; λ #1 →    l2</span>
+<span id="cb10-11"><a href="#cb10-11" aria-hidden="true" tabindex="-1"></a>                unit (CDownFrom.List._∷_ @4 @0) </span>
+<span id="cb10-12"><a href="#cb10-12" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb10-13"><a href="#cb10-13" aria-hidden="true" tabindex="-1"></a>... rest of the program ...</span>
+<span id="cb10-14"><a href="#cb10-14" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb10-15"><a href="#cb10-15" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb10-16"><a href="#cb10-16" aria-hidden="true" tabindex="-1"></a>Heap points-to analysis</span>
+<span id="cb10-17"><a href="#cb10-17" aria-hidden="true" tabindex="-1"></a>------------------------------------------------------------</span>
+<span id="cb10-18"><a href="#cb10-18" aria-hidden="true" tabindex="-1"></a>Solved heap:</span>
+<span id="cb10-19"><a href="#cb10-19" aria-hidden="true" tabindex="-1"></a>l0 → Cnat <span class="co">[</span><span class="ot">BAS</span><span class="co">]</span></span>
+<span id="cb10-20"><a href="#cb10-20" aria-hidden="true" tabindex="-1"></a>l1 → FPrim.sub <span class="co">[</span><span class="ot">l1 ∪ l4, l0</span><span class="co">]</span></span>
+<span id="cb10-21"><a href="#cb10-21" aria-hidden="true" tabindex="-1"></a>l2 → FDownFrom.downFrom <span class="co">[</span><span class="ot">l1</span><span class="co">]</span> ∪ CDownFrom.List.[] [] ∪ CDownFrom.List._∷_ <span class="co">[</span><span class="ot">l1 ∪ l4, l2</span><span class="co">]</span></span>
+<span id="cb10-22"><a href="#cb10-22" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb10-23"><a href="#cb10-23" aria-hidden="true" tabindex="-1"></a>Solved env:</span>
+<span id="cb10-24"><a href="#cb10-24" aria-hidden="true" tabindex="-1"></a>x0 → CDownFrom.List.[] [] ∪ CDownFrom.List._∷_ <span class="co">[</span><span class="ot">l1 ∪ l4, l2</span><span class="co">]</span></span>
+<span id="cb10-25"><a href="#cb10-25" aria-hidden="true" tabindex="-1"></a>x1 → l1 ∪ l4</span>
+<span id="cb10-26"><a href="#cb10-26" aria-hidden="true" tabindex="-1"></a>x2 → BAS</span>
+<span id="cb10-27"><a href="#cb10-27" aria-hidden="true" tabindex="-1"></a>x3 → l0</span>
+<span id="cb10-28"><a href="#cb10-28" aria-hidden="true" tabindex="-1"></a>x4 → l1</span>
+<span id="cb10-29"><a href="#cb10-29" aria-hidden="true" tabindex="-1"></a>x5 → l2</span></code></pre></div></li>
 <li><p>Started incorporating sharing analysis which makes the heap
 points-to<br />
 analysis more precise.</p></li>
@@ -440,31 +508,33 @@ analysis more precise.</p></li>
 <li><p>Manually translated the the following program first to GRIN and
 then to LLVM IR.</p>
 <pre class="Agda">
-<a id="8459" class="Keyword">open</a> <a id="8464" class="Keyword">import</a> <a id="8471" href="Agda.Builtin.Nat.html" class="Module">Agda.Builtin.Nat</a> <a id="8488" class="Keyword">using</a> <a id="8494" class="Symbol">(</a><a id="8495" href="Agda.Builtin.Nat.html#217" class="InductiveConstructor">suc</a><a id="8498" class="Symbol">;</a> <a id="8500" href="Agda.Builtin.Nat.html#204" class="InductiveConstructor">zero</a><a id="8504" class="Symbol">;</a> <a id="8506" href="Agda.Builtin.Nat.html#319" class="Primitive Operator">_+_</a><a id="8509" class="Symbol">)</a> <a id="8511" class="Keyword">renaming</a> <a id="8520" class="Symbol">(</a><a id="8521" href="Agda.Builtin.Nat.html#186" class="Datatype">Nat</a> <a id="8525" class="Symbol">to</a> <a id="8528" class="Datatype">ℕ</a><a id="8529" class="Symbol">)</a> 
+<a id="9830" class="Keyword">open</a> <a id="9835" class="Keyword">import</a> <a id="9842" href="Agda.Builtin.Nat.html" class="Module">Agda.Builtin.Nat</a> <a id="9859" class="Keyword">using</a> <a id="9865" class="Symbol">(</a><a id="9866" href="Agda.Builtin.Nat.html#217" class="InductiveConstructor">suc</a><a id="9869" class="Symbol">;</a> <a id="9871" href="Agda.Builtin.Nat.html#204" class="InductiveConstructor">zero</a><a id="9875" class="Symbol">;</a> <a id="9877" href="Agda.Builtin.Nat.html#319" class="Primitive Operator">_+_</a><a id="9880" class="Symbol">)</a> <a id="9882" class="Keyword">renaming</a> <a id="9891" class="Symbol">(</a><a id="9892" href="Agda.Builtin.Nat.html#186" class="Datatype">Nat</a> <a id="9896" class="Symbol">to</a> <a id="9899" class="Datatype">ℕ</a><a id="9900" class="Symbol">)</a> 
 
-<a id="8535" class="Keyword">infixr</a> <a id="8542" class="Number">5</a> <a id="8544" href="logbook.html#8611" class="InductiveConstructor Operator">_∷_</a>
-<a id="8550" class="Keyword">data</a> <a id="List"></a><a id="8555" href="logbook.html#8555" class="Datatype">List</a> <a id="8560" class="Symbol">{</a><a id="8561" href="logbook.html#8561" class="Bound">a</a><a id="8562" class="Symbol">}</a> <a id="8564" class="Symbol">(</a><a id="8565" href="logbook.html#8565" class="Bound">A</a> <a id="8567" class="Symbol">:</a> <a id="8569" href="Agda.Primitive.html#320" class="Primitive">Set</a> <a id="8573" href="logbook.html#8561" class="Bound">a</a><a id="8574" class="Symbol">)</a> <a id="8576" class="Symbol">:</a> <a id="8578" href="Agda.Primitive.html#320" class="Primitive">Set</a> <a id="8582" href="logbook.html#8561" class="Bound">a</a> <a id="8584" class="Keyword">where</a>
-  <a id="List.[]"></a><a id="8594" href="logbook.html#8594" class="InductiveConstructor">[]</a>  <a id="8598" class="Symbol">:</a> <a id="8600" href="logbook.html#8555" class="Datatype">List</a> <a id="8605" href="logbook.html#8565" class="Bound">A</a>
-  <a id="List._∷_"></a><a id="8611" href="logbook.html#8611" class="InductiveConstructor Operator">_∷_</a> <a id="8615" class="Symbol">:</a> <a id="8617" class="Symbol">(</a><a id="8618" href="logbook.html#8618" class="Bound">x</a> <a id="8620" class="Symbol">:</a> <a id="8622" href="logbook.html#8565" class="Bound">A</a><a id="8623" class="Symbol">)</a> <a id="8625" class="Symbol">(</a><a id="8626" href="logbook.html#8626" class="Bound">xs</a> <a id="8629" class="Symbol">:</a> <a id="8631" href="logbook.html#8555" class="Datatype">List</a> <a id="8636" href="logbook.html#8565" class="Bound">A</a><a id="8637" class="Symbol">)</a> <a id="8639" class="Symbol">→</a> <a id="8641" href="logbook.html#8555" class="Datatype">List</a> <a id="8646" href="logbook.html#8565" class="Bound">A</a>
+<a id="9906" class="Keyword">infixr</a> <a id="9913" class="Number">5</a> <a id="9915" href="logbook.html#9982" class="InductiveConstructor Operator">_∷_</a>
+<a id="9921" class="Keyword">data</a> <a id="List"></a><a id="9926" href="logbook.html#9926" class="Datatype">List</a> <a id="9931" class="Symbol">{</a><a id="9932" href="logbook.html#9932" class="Bound">a</a><a id="9933" class="Symbol">}</a> <a id="9935" class="Symbol">(</a><a id="9936" href="logbook.html#9936" class="Bound">A</a> <a id="9938" class="Symbol">:</a> <a id="9940" href="Agda.Primitive.html#320" class="Primitive">Set</a> <a id="9944" href="logbook.html#9932" class="Bound">a</a><a id="9945" class="Symbol">)</a> <a id="9947" class="Symbol">:</a> <a id="9949" href="Agda.Primitive.html#320" class="Primitive">Set</a> <a id="9953" href="logbook.html#9932" class="Bound">a</a> <a id="9955" class="Keyword">where</a>
+  <a id="List.[]"></a><a id="9965" href="logbook.html#9965" class="InductiveConstructor">[]</a>  <a id="9969" class="Symbol">:</a> <a id="9971" href="logbook.html#9926" class="Datatype">List</a> <a id="9976" href="logbook.html#9936" class="Bound">A</a>
+  <a id="List._∷_"></a><a id="9982" href="logbook.html#9982" class="InductiveConstructor Operator">_∷_</a> <a id="9986" class="Symbol">:</a> <a id="9988" class="Symbol">(</a><a id="9989" href="logbook.html#9989" class="Bound">x</a> <a id="9991" class="Symbol">:</a> <a id="9993" href="logbook.html#9936" class="Bound">A</a><a id="9994" class="Symbol">)</a> <a id="9996" class="Symbol">(</a><a id="9997" href="logbook.html#9997" class="Bound">xs</a> <a id="10000" class="Symbol">:</a> <a id="10002" href="logbook.html#9926" class="Datatype">List</a> <a id="10007" href="logbook.html#9936" class="Bound">A</a><a id="10008" class="Symbol">)</a> <a id="10010" class="Symbol">→</a> <a id="10012" href="logbook.html#9926" class="Datatype">List</a> <a id="10017" href="logbook.html#9936" class="Bound">A</a>
 
-<a id="downFrom"></a><a id="8651" href="logbook.html#8651" class="Function">downFrom</a> <a id="8660" class="Symbol">:</a> <a id="8662" href="logbook.html#8528" class="Datatype">ℕ</a> <a id="8664" class="Symbol">→</a> <a id="8666" href="logbook.html#8555" class="Datatype">List</a> <a id="8671" href="logbook.html#8528" class="Datatype">ℕ</a>
-<a id="8675" href="logbook.html#8651" class="Function">downFrom</a> <a id="8684" href="Agda.Builtin.Nat.html#204" class="InductiveConstructor">zero</a> <a id="8689" class="Symbol">=</a> <a id="8691" href="logbook.html#8594" class="InductiveConstructor">[]</a>
-<a id="8696" href="logbook.html#8651" class="Function">downFrom</a> <a id="8705" class="Symbol">(</a><a id="8706" href="Agda.Builtin.Nat.html#217" class="InductiveConstructor">suc</a> <a id="8710" href="logbook.html#8710" class="Bound">n</a><a id="8711" class="Symbol">)</a> <a id="8713" class="Symbol">=</a> <a id="8715" href="Agda.Builtin.Nat.html#217" class="InductiveConstructor">suc</a> <a id="8719" href="logbook.html#8710" class="Bound">n</a> <a id="8721" href="logbook.html#8611" class="InductiveConstructor Operator">∷</a> <a id="8723" href="logbook.html#8651" class="Function">downFrom</a> <a id="8732" href="logbook.html#8710" class="Bound">n</a> 
+<a id="downFrom"></a><a id="10022" href="logbook.html#10022" class="Function">downFrom</a> <a id="10031" class="Symbol">:</a> <a id="10033" href="logbook.html#9899" class="Datatype">ℕ</a> <a id="10035" class="Symbol">→</a> <a id="10037" href="logbook.html#9926" class="Datatype">List</a> <a id="10042" href="logbook.html#9899" class="Datatype">ℕ</a>
+<a id="10046" href="logbook.html#10022" class="Function">downFrom</a> <a id="10055" href="Agda.Builtin.Nat.html#204" class="InductiveConstructor">zero</a> <a id="10060" class="Symbol">=</a> <a id="10062" href="logbook.html#9965" class="InductiveConstructor">[]</a>
+<a id="10067" href="logbook.html#10022" class="Function">downFrom</a> <a id="10076" class="Symbol">(</a><a id="10077" href="Agda.Builtin.Nat.html#217" class="InductiveConstructor">suc</a> <a id="10081" href="logbook.html#10081" class="Bound">n</a><a id="10082" class="Symbol">)</a> <a id="10084" class="Symbol">=</a> <a id="10086" href="Agda.Builtin.Nat.html#217" class="InductiveConstructor">suc</a> <a id="10090" href="logbook.html#10081" class="Bound">n</a> <a id="10092" href="logbook.html#9982" class="InductiveConstructor Operator">∷</a> <a id="10094" href="logbook.html#10022" class="Function">downFrom</a> <a id="10103" href="logbook.html#10081" class="Bound">n</a> 
 
-<a id="sum"></a><a id="8740" href="logbook.html#8740" class="Function">sum</a> <a id="8744" class="Symbol">:</a> <a id="8746" href="logbook.html#8555" class="Datatype">List</a> <a id="8751" href="logbook.html#8528" class="Datatype">ℕ</a> <a id="8753" class="Symbol">→</a> <a id="8755" href="logbook.html#8528" class="Datatype">ℕ</a>
-<a id="8759" href="logbook.html#8740" class="Function">sum</a> <a id="8763" href="logbook.html#8594" class="InductiveConstructor">[]</a> <a id="8766" class="Symbol">=</a> <a id="8768" class="Number">0</a>
-<a id="8772" href="logbook.html#8740" class="Function">sum</a> <a id="8776" class="Symbol">(</a><a id="8777" href="logbook.html#8777" class="Bound">x</a> <a id="8779" href="logbook.html#8611" class="InductiveConstructor Operator">∷</a> <a id="8781" href="logbook.html#8781" class="Bound">xs</a><a id="8783" class="Symbol">)</a> <a id="8785" class="Symbol">=</a> <a id="8787" href="logbook.html#8777" class="Bound">x</a> <a id="8789" href="Agda.Builtin.Nat.html#319" class="Primitive Operator">+</a> <a id="8791" href="logbook.html#8740" class="Function">sum</a> <a id="8795" href="logbook.html#8781" class="Bound">xs</a>
+<a id="sum"></a><a id="10111" href="logbook.html#10111" class="Function">sum</a> <a id="10115" class="Symbol">:</a> <a id="10117" href="logbook.html#9926" class="Datatype">List</a> <a id="10122" href="logbook.html#9899" class="Datatype">ℕ</a> <a id="10124" class="Symbol">→</a> <a id="10126" href="logbook.html#9899" class="Datatype">ℕ</a>
+<a id="10130" href="logbook.html#10111" class="Function">sum</a> <a id="10134" href="logbook.html#9965" class="InductiveConstructor">[]</a> <a id="10137" class="Symbol">=</a> <a id="10139" class="Number">0</a>
+<a id="10143" href="logbook.html#10111" class="Function">sum</a> <a id="10147" class="Symbol">(</a><a id="10148" href="logbook.html#10148" class="Bound">x</a> <a id="10150" href="logbook.html#9982" class="InductiveConstructor Operator">∷</a> <a id="10152" href="logbook.html#10152" class="Bound">xs</a><a id="10154" class="Symbol">)</a> <a id="10156" class="Symbol">=</a> <a id="10158" href="logbook.html#10148" class="Bound">x</a> <a id="10160" href="Agda.Builtin.Nat.html#319" class="Primitive Operator">+</a> <a id="10162" href="logbook.html#10111" class="Function">sum</a> <a id="10166" href="logbook.html#10152" class="Bound">xs</a>
 
-<a id="main"></a><a id="8803" href="logbook.html#8803" class="Function">main</a> <a id="8808" class="Symbol">=</a> <a id="8810" href="logbook.html#8740" class="Function">sum</a> <a id="8814" class="Symbol">(</a><a id="8815" href="logbook.html#8651" class="Function">downFrom</a> <a id="8824" class="Number">4</a><a id="8825" class="Symbol">)</a>
+<a id="main"></a><a id="10174" href="logbook.html#10174" class="Function">main</a> <a id="10179" class="Symbol">=</a> <a id="10181" href="logbook.html#10111" class="Function">sum</a> <a id="10185" class="Symbol">(</a><a id="10186" href="logbook.html#10022" class="Function">downFrom</a> <a id="10195" class="Number">4</a><a id="10196" class="Symbol">)</a>
 </pre></li>
 <li><p>Created a transformation for the treeless syntax that simplify
 applications.</p>
-<div class="sourceCode" id="cb9"><pre
-class="sourceCode markdown"><code class="sourceCode markdown"><span id="cb9-1"><a href="#cb9-1" aria-hidden="true" tabindex="-1"></a>f a (g b) (h c)</span>
-<span id="cb9-2"><a href="#cb9-2" aria-hidden="true" tabindex="-1"></a>-- &gt;&gt;&gt;</span>
-<span id="cb9-3"><a href="#cb9-3" aria-hidden="true" tabindex="-1"></a>let b&#39; = g b in</span>
-<span id="cb9-4"><a href="#cb9-4" aria-hidden="true" tabindex="-1"></a>let c&#39; = h c in</span>
-<span id="cb9-5"><a href="#cb9-5" aria-hidden="true" tabindex="-1"></a>f a b&#39; c&#39;</span></code></pre></div></li>
+<div class="sourceCode" id="cb11"><pre
+class="sourceCode markdown"><code class="sourceCode markdown"><span id="cb11-1"><a href="#cb11-1" aria-hidden="true" tabindex="-1"></a>f a (g b) (h c)</span>
+<span id="cb11-2"><a href="#cb11-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb11-3"><a href="#cb11-3" aria-hidden="true" tabindex="-1"></a>-- &gt;&gt;&gt;</span>
+<span id="cb11-4"><a href="#cb11-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb11-5"><a href="#cb11-5" aria-hidden="true" tabindex="-1"></a>let b&#39; = g b in</span>
+<span id="cb11-6"><a href="#cb11-6" aria-hidden="true" tabindex="-1"></a>let c&#39; = h c in</span>
+<span id="cb11-7"><a href="#cb11-7" aria-hidden="true" tabindex="-1"></a>f a b&#39; c&#39;</span></code></pre></div></li>
 <li><p>Implemented treeless-to-GRIN transformation for the example
 program,<br />
 and started on the GRIN-to-LLVM transformation.</p></li>
@@ -486,9 +556,9 @@ variable is unique<br />
 and the constructors are identical. So, for example, an cons-node can
 only be reused by<br />
 another cons-node.</p>
-<div class="sourceCode" id="cb10"><pre
-class="sourceCode haskell"><code class="sourceCode haskell"><span id="cb10-1"><a href="#cb10-1" aria-hidden="true" tabindex="-1"></a>rev []         acc <span class="ot">=</span> acc</span>
-<span id="cb10-2"><a href="#cb10-2" aria-hidden="true" tabindex="-1"></a>rev l<span class="op">@</span>(x <span class="op">:</span> xs) acc <span class="ot">=</span> rev xs l<span class="op">@</span>(x <span class="op">:</span> acc)</span></code></pre></div>
+<div class="sourceCode" id="cb12"><pre
+class="sourceCode haskell"><code class="sourceCode haskell"><span id="cb12-1"><a href="#cb12-1" aria-hidden="true" tabindex="-1"></a>rev []         acc <span class="ot">=</span> acc</span>
+<span id="cb12-2"><a href="#cb12-2" aria-hidden="true" tabindex="-1"></a>rev l<span class="op">@</span>(x <span class="op">:</span> xs) acc <span class="ot">=</span> rev xs l<span class="op">@</span>(x <span class="op">:</span> acc)</span></code></pre></div>
 <p>The authors mention GRIN’s approach which enables reuse between nodes
 of different tags.<br />
 This is accomplished by a uniform node representation called the
@@ -613,6 +683,19 @@ Machinery, 77–78.
 <span class="smallcaps">Podlovics, P., Hruska, C., and Pénzes, A.</span>
 2021. A modern look at GRIN, an optimizing functional language back end.
 <em>Acta Cybern.</em> <em>25</em>, 847–876.
+</div>
+<div id="ref-racordon2021" class="csl-entry" role="doc-biblioentry">
+<span class="smallcaps">Racordon, D., Shabalin, D., Zheng, D., Abrahams,
+D., and Saeta, B.</span> 2021. Native implementation of mutable value
+semantics. <a
+href="https://arxiv.org/abs/2106.12678">https://arxiv.org/abs/2106.12678</a>.
+</div>
+<div id="ref-racordon2022" class="csl-entry" role="doc-biblioentry">
+<span class="smallcaps">Racordon, D., Shabalin, D., Zheng, D., Abrahams,
+D., and Saeta, B.</span> 2022. <a
+href="https://api.semanticscholar.org/CorpusID:248335097">Implementation
+strategies for mutable value semantics</a>. <em>J. Object Technol.</em>
+<em>21</em>, 2:1–11.
 </div>
 <div id="ref-reinking2020" class="csl-entry" role="doc-biblioentry">
 <span class="smallcaps">Reinking*, A., Xie*, N., Moura, L. de, and

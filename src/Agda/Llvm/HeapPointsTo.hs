@@ -43,7 +43,7 @@ module Agda.Llvm.HeapPointsTo
 import           Control.Monad.Reader      (MonadReader (ask, local), Reader,
                                             asks, runReader)
 import           Control.Monad.State       (State, evalState, gets, modify)
-import           Data.Foldable             (foldrM)
+import           Data.Foldable             (foldrM, toList)
 import           Data.Function             (on)
 import           Data.List                 (find, insert, intercalate,
                                             intersectBy, nub, partition, sortOn,
@@ -66,7 +66,6 @@ import           Agda.Utils.List
 import           Agda.Utils.List1          (List1, pattern (:|))
 import qualified Agda.Utils.List1          as List1
 import           Agda.Utils.Maybe
-import           Control.Arrow             (Arrow (second))
 
 -- TODO
 -- • Refactor H', HCxt, HRet
@@ -168,6 +167,7 @@ sortAbsHeap (AbsHeap heap) = AbsHeap $ sortOn fst heap
 sortAbsEnv :: AbsEnv -> AbsEnv
 sortAbsEnv (AbsEnv env) = AbsEnv $ sortOn fst env
 
+-- TODO add VTag?
 data Value = VNode Tag [Value]
            | Bas
            | Pick Value Tag Int
@@ -393,13 +393,13 @@ deriveEquations term = case term of
                   localLoc loc $
                   localAbs abs $
                   localAbsEnv (abs, Loc loc) $
-                  localAbsHeap (loc, VNode tag vs') $
+                  localAbsHeap (loc, VNode tag $ toList vs') $
                   deriveEquations t
                 _ ->
                   localLoc loc $
                   localAbs abs $
                   localAbsEnv (abs, Loc loc) $
-                  localAbsHeap (loc, VNode tag vs' `mkUnion` cnat) $
+                  localAbsHeap (loc, VNode tag (toList vs') `mkUnion` cnat) $
                   deriveEquations t
 
             -- non-primitve F-tag or P-tag
@@ -411,13 +411,13 @@ deriveEquations term = case term of
               --      localAbssEnv (zip def.gr_args vs') $
               --      deriveEquations t
 
-              -- Pessimistically add return varaible
+              -- Pessimistically add return variable
         --      if Set.member (unLoc loc) h.shared' then
               localLoc loc $
               localAbs abs $
               localAbsEnv (abs, Loc loc) $
-              localAbsHeap (loc, VNode tag vs' `mkUnion` Abs (fromMaybe __IMPOSSIBLE__ def.gr_return)) $
-              localAbssEnv (zip def.gr_args vs') $
+              localAbsHeap (loc, VNode tag (toList vs') `mkUnion` Abs (fromMaybe __IMPOSSIBLE__ def.gr_return)) $
+              localAbssEnv (zip def.gr_args $ toList vs') $
               deriveEquations t
               -- else
               --   pure h
@@ -512,8 +512,9 @@ deriveEquations term = case term of
       where
         valToValue :: MonadReader HCxt m => Val -> m Value
         valToValue (Var n) = Abs . fromMaybe __IMPOSSIBLE__ <$> deBruijnLookup n
-        valToValue (ConstantNode tag vs) = VNode tag <$> mapM valToValue vs
+        valToValue (ConstantNode tag vs) = VNode tag . toList <$> mapM valToValue vs
         valToValue (Lit _) = pure Bas
+        valToValue (Tag tag) = pure $ VNode tag []
         valToValue _ = __IMPOSSIBLE__
 
     App (Def "printf") _ -> retHCxt
