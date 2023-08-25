@@ -1,4 +1,4 @@
-{-# OPTIONS_GHC -Wno-name-shadowing #-}
+{-# LANGUAGE ViewPatterns #-}
 
 module Agda.Llvm.TreelessTransform
   ( definitionToTreeless
@@ -22,10 +22,12 @@ import           Agda.Syntax.Parser.Parser             (splitOnDots)
 import           Agda.TypeChecking.Substitute
 import           Agda.Utils.Functor
 import           Agda.Utils.Impossible
-import           Agda.Utils.List                       (downFrom, lastMaybe)
+import           Agda.Utils.List                       (downFrom, lastMaybe,
+                                                        snoc)
 import           Agda.Utils.Maybe
 import           Agda.Utils.Monad                      (mapMM)
 import           Data.Bitraversable                    (bimapM)
+import           Data.List                             (mapAccumR)
 import           Data.Tuple.Extra                      (first, firstM, second)
 
 data TreelessDefinition = TreelessDefinition
@@ -101,26 +103,13 @@ skipLambdas t        = t
 -- let c' = h c in
 -- f a b' c'
 simplifyApp :: TTerm -> TTerm
-simplifyApp t | (f, as@(_:_)) <- tAppView t  = go f as where
-  -- Create a let expression and raise de Bruijn indices, until
-  -- simple application
-  go f as
-    | Just (before, t, after) <- splitArgs as =
-      simplifyApp $ mkLet t
-                  $ mkTApp (raise1 f)
-                  $ raise1 before ++ TVar 0 : raise1 after
-    | otherwise = mkTApp f as
-
-  raise1 :: Subst a => a -> a
-  raise1 = applySubst $ raiseS 1
-
-  -- Split arguments on the first application
-  splitArgs :: Args -> Maybe (Args, TTerm, Args)
-  splitArgs []              = Nothing
-  splitArgs (a@TApp{} : as) = Just ([], a, as)
-  splitArgs (a : as)
-    | Just (before, t, after) <- splitArgs as = Just (a:before, t, after)
-    | otherwise = Nothing
+simplifyApp (tAppView -> (f, splitArgs -> Just (before, t, after))) =
+  simplifyApp (foldr TLet app ts)
+  where
+  app = mkTApp (raiseN f) $ raiseN before ++ TVar 0 : raiseN after
+  ts = uncurry snoc (tLetView (simplifyApp t))
+  raiseN :: Subst a => a -> a
+  raiseN = raise (length ts)
 
 simplifyApp t = case t of
   TCase n info def alts -> TCase n info (simplifyApp def) (simplifyAppAlts alts)
@@ -131,11 +120,22 @@ simplifyApp t = case t of
   TVar _                -> t
   TPrim _               -> t
   TDef _                -> t
-  TLam t                -> TLam $ simplifyApp t
+  TLam t                -> TLam (simplifyApp t)
+  TApp t ts             -> TApp t ts
   _                     -> error $ "TODO " ++ show t
 
 simplifyAppAlts :: [TAlt] -> [TAlt]
-simplifyAppAlts = map go where
+simplifyAppAlts = map go
+  where
   go alt@TACon{aBody} = alt{aBody = simplifyApp aBody}
   go alt@TALit{aBody} = alt{aBody = simplifyApp aBody}
   go _                = error "TODO"
+
+
+-- Split arguments on the first application
+splitArgs :: Args -> Maybe (Args, TTerm, Args)
+splitArgs []              = Nothing
+splitArgs (a@TApp{} : as) = Just ([], a, as)
+splitArgs (a : as)
+  | Just (before, t, after) <- splitArgs as = Just (a:before, t, after)
+  | otherwise = Nothing
