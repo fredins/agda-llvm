@@ -4,6 +4,28 @@ csl: acm-siggraph.csl
 css: Agda.css
 ---
 
+### W.34
+
+Did the following:  
+
+- Primitive operations are now wrapped in a function which forces the operands: 
+
+  ```markdown 
+  Agda.Builtin.Nat._+_ r30 x28 x29 =
+   eval 1 ; λ Cnat x27 →
+   eval 1 ; λ Cnat x26 →
+   PAdd 1 0 ; λ x25 →
+   unit (Cnat 0)
+  ```
+
+- Removed the register introduction transformation (see [W.33]) because LLVM IR does  
+  not allow literals to be assigned to registers. For example, `%1 = 100`{.llvm} is not allowed.  
+  Addionally, It doesn't make the LLVM code generator easier to implement, unlike  
+  the RISC code generator by @boquist1999. The register introduction is, however,  
+  a precondition for the (unimplemented) common sub-expression elimination optimization.  
+
+- Finished implementing the code generator.  
+
 ### W.33
 
 Read the following:  
@@ -13,7 +35,7 @@ Read the following:
 
 Did the following:  
 
-- Implemented the right hoisting fetch tranformation, which hoists fetches 
+- Implemented the right hoisting fetch tranformation, which hoists fetches  
   with offset > 0 into the the appropriate case alternatives. 
 
   ```markdown
