@@ -165,8 +165,8 @@ inputIntroduceRegisters1 =
   Unit (Var 4)
 
 
-testCodeGen1 :: List1 L.Instruction
-testCodeGen1 = evalCodeGen $ termToLlvm $ evalTest inputCodeGen1
+-- testCodeGen1 :: List1 L.Instruction
+-- testCodeGen1 = evalCodeGen $ termToLlvm $ evalTest inputCodeGen1
 
 -- DownFrom.main =
 --   unit Cnat ; λ x3706 →
@@ -184,6 +184,8 @@ inputCodeGen1 =
   Unit (mkLit 100) `bindVarR`
   Unit (VariableNode 1 $ Var 0 :| []) `bindVar`
   unreachable
+
+testTermToGrinR = undefined
 
 printLlvm :: Foldable t => t L.Instruction -> IO ()
 printLlvm = putStrLn . intercalate "\n" . map prettyShow . toList

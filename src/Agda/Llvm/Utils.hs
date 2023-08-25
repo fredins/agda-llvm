@@ -1,6 +1,9 @@
 
 module Agda.Llvm.Utils
   ((.:)
+  , list1zip3
+  , list1zipWith3
+  , list1unzip4
   , unionNub
   , differenceBy
   , (??)
@@ -16,15 +19,29 @@ module Agda.Llvm.Utils
 import           Control.Monad                (liftM)
 import           Data.Coerce                  (Coercible, coerce)
 import           Data.Functor                 (($>))
-import           Data.List                    (deleteBy, mapAccumR, union)
+import           Data.List                    (deleteBy, mapAccumR, union,
+                                               unzip4)
 import           GHC.IO                       (unsafePerformIO)
 
 import           Agda.Syntax.Common.Pretty
 import           Agda.TypeChecking.Substitute
+import           Agda.Utils.List1             (List1, pattern (:|), (<|))
+import qualified Agda.Utils.List1             as List1
 
 infixr 8 .:
 (.:) :: (c -> d) -> (a -> b -> c) -> a -> b -> d
 (f .: g) x y = f (g x y)
+
+list1zip3 :: List1 a -> List1 b -> List1 c -> List1 (a, b, c)
+list1zip3 = list1zipWith3 (,,)
+
+list1zipWith3 :: (a -> b -> c -> d) -> List1 a -> List1 b -> List1 c -> List1 d
+list1zipWith3 f (a :| as) (b :| bs) (c :| cs) = f a b c :| zipWith3 f as bs cs
+
+list1unzip4 :: List1 (a, b, c, d) -> (List1 a, List1 b, List1 c, List1 d)
+list1unzip4 ((a, b, c, d) :| xs) = (a :| as, b :| bs, c :| cs, d :| ds)
+  where
+    (as, bs, cs, ds) = unzip4 xs
 
 unionNub :: Eq a => [a] -> [a] -> [a]
 unionNub xs = union xs . filter (`notElem` xs)

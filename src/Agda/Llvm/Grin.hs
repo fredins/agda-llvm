@@ -28,13 +28,14 @@ import           Agda.Utils.Maybe
 
 
 data GrinDefinition = GrinDefinition
-  { gr_name   :: String
-  , gr_isMain :: Bool
-  , gr_arity  :: Int
-  , gr_type   :: Maybe Type
-  , gr_term   :: Term
-  , gr_args   :: [Abs]
-  , gr_return :: Maybe Abs
+  { gr_name      :: String
+  , gr_isMain    :: Bool
+  , gr_primitive :: Maybe TPrim
+  , gr_arity     :: Int
+  , gr_type      :: Maybe Type
+  , gr_term      :: Term
+  , gr_args      :: [Abs]
+  , gr_return    :: Maybe Abs
   }
 
 lensGrTerm :: Lens' GrinDefinition Term
@@ -42,6 +43,9 @@ lensGrTerm f def = f def.gr_term <&> \t -> def{gr_term = t}
 
 updateGrTerm :: LensMap GrinDefinition Term
 updateGrTerm = over lensGrTerm
+
+setGrTerm :: LensSet GrinDefinition Term
+setGrTerm = set lensGrTerm
 
 getShortName :: GrinDefinition -> String
 getShortName = lastWithDefault __IMPOSSIBLE__ . splitOnDots . gr_name
@@ -95,6 +99,15 @@ data Tag = CTag {tCon :: String, tArity :: Int}
 
 newtype Gid = Gid{unGid :: Int} deriving (Show, Eq, Ord, Enum)
 
+constantCNode :: String -> List1 Val -> Val
+constantCNode name vs = ConstantNode (CTag name (length vs)) vs
+
+cnat :: Val -> Val
+cnat = ConstantNode natTag . List1.singleton
+
+constantFNode :: String -> List1 Val -> Val
+constantFNode name vs = ConstantNode (FTag name (length vs)) vs
+
 freshAbs :: MonadFresh Int m => m Abs
 freshAbs = MkAbs <$> freshGid
 
@@ -104,8 +117,8 @@ freshLoc = MkLoc <$> freshGid
 freshGid :: MonadFresh Int m => m Gid
 freshGid = Gid <$> fresh
 
-data LAlt = LAltConstantNode Tag [Abs] Term
-          | LAltVariableNode Abs [Abs] Term
+data LAlt = LAltConstantNode Tag [Abs] Term -- List1
+          | LAltVariableNode Abs [Abs] Term -- List1
           | LAltEmpty Term
           | LAltVar Abs Term
             deriving (Show, Eq)
@@ -197,6 +210,7 @@ tagArity = \case
 
 infixr 2 `bindVar`, `bindVarL`, `bindVarR`, `bindVarM`
        , `bindEmptyL`, `bindEmptyR`, `bindEmptyM`
+       , `bindCnat`, `bindCnatL`, `bindCnatR`, `bindCnatM`
 
 bindVar :: MonadFresh Int m => Term -> Term -> m Term
 bindVar t1 t2 = Bind t1 <$> laltVar t2
@@ -219,6 +233,18 @@ bindEmptyR t1 t2 = Bind t1 . LAltEmpty <$> t2
 bindEmptyM :: MonadFresh Int m => m Term -> m Term -> m Term
 bindEmptyM t1 t2 = (Bind <$> t1) <*> (LAltEmpty <$> t2)
 
+bindCnat :: MonadFresh Int m => Term -> Term -> m Term
+bindCnat t1 t2 = Bind t1 <$> laltConstantNode natTag t2
+
+bindCnatL :: MonadFresh Int m => m Term -> Term -> m Term
+bindCnatL t1 t2 = (Bind <$> t1) <*> laltConstantNode natTag t2
+
+bindCnatR :: MonadFresh Int m => Term -> m Term -> m Term
+bindCnatR t1 t2 = Bind t1 <$> (laltConstantNode natTag =<< t2)
+
+bindCnatM :: MonadFresh Int m => m Term -> m Term -> m Term
+bindCnatM t1 t2 = (Bind <$> t1) <*> (laltConstantNode natTag =<< t2)
+
 mkLoc :: Int -> Loc
 mkLoc = MkLoc . Gid
 
@@ -227,6 +253,9 @@ mkAbs = MkAbs . Gid
 
 mkLit :: Integer -> Val
 mkLit = Lit . LitNat
+
+natTag :: Tag
+natTag = CTag{tCon = "nat" , tArity = 1}
 
 -----------------------------------------------------------------------
 -- * Substitute instances

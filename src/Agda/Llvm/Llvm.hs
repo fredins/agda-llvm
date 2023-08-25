@@ -34,7 +34,7 @@ data Instruction =
   | Label String (List1 Instruction)
   | Comment String
   | Unreachable
-  | Alloca Type
+  | Alloca Type -- not used
   | Inttoptr Type Val Type
   | Ptrtoint Type Val Type
   | Br LocalId
@@ -61,11 +61,14 @@ newtype GlobalId = MkGlobalId String deriving (Show, Eq, Ord, IsString)
 
 newtype LocalId = MkLocalId String deriving (Show, Eq, Ord, IsString)
 
+surroundWithQuotes :: String -> String
+surroundWithQuotes s = '"' : s `snoc` '"'
+
 mkLocalId :: Pretty a => a -> LocalId
 mkLocalId = MkLocalId . ('%' :) . prettyShow
 
 mkUnnamed :: (Pretty a, Num a) => a -> LocalId
-mkUnnamed = MkLocalId . ("%_" ++) . prettyShow
+mkUnnamed = MkLocalId . ("%" ++) . prettyShow
 
 mkGlobalId :: Pretty a => a -> GlobalId
 mkGlobalId (prettyShow -> s) =
@@ -120,14 +123,18 @@ size Varargs          = __IMPOSSIBLE__
 size Alias{}          = __IMPOSSIBLE__
 size Void             = __IMPOSSIBLE__
 
+nodeSize :: Int
+nodeSize = size nodeTySyn
+
 extractvalue :: Val -> Int -> Instruction
 extractvalue = Extractvalue nodeTySyn
 
 insertvalue :: Val -> Val -> Int -> Instruction
-insertvalue v = Insertvalue nodeTySyn v I64
+insertvalue v  = Insertvalue nodeTySyn v I64
 
 getelementptr :: LocalId -> Int -> Instruction
-getelementptr ptr offset = Getelementptr nodeTySyn $ (Ptr, LocalId ptr) :| [(I32, mkLit offset)]
+getelementptr ptr offset =
+  Getelementptr nodeTySyn $ (Ptr, LocalId ptr) :| [(I32, mkLit 0), (I64, mkLit offset)]
 
 switch :: LocalId -> LocalId -> [Alt] -> Instruction
 switch = Switch I64
@@ -153,11 +160,13 @@ store t v = Store t v Ptr
 malloc :: Int -> Instruction
 malloc n = Call Fastcc Ptr "@malloc" [(I64, mkLit n)]
 
+alloca :: Instruction
+alloca = Alloca nodeTySyn
+
 phi :: Type -> List1 (LocalId, LocalId) -> Instruction
 phi t = Phi t . List1.map (first LocalId)
 
 data CallingConvention = Tailcc | Fastcc deriving Show
-
 
 -----------------------------------------------------------------------
 -- * Pretty printing instances
@@ -179,7 +188,7 @@ instance Pretty Instruction where
       , text (prettyShow t ++ ",")
       , text $ intercalate ", " $ toList $ List1.map (\(t, v) -> render $ pretty t <+> pretty v) is
       ]
-    Label s is -> vcat [nest (-2) $ text $ s ++ ":", vcat $ map pretty $ toList is]
+    Label s is -> vcat [nest (-2) $ text (s `snoc` ':'), vcat $ map pretty $ toList is]
     Switch t x l alts ->
           text "switch"
       <+> pretty t
@@ -198,7 +207,7 @@ instance Pretty Instruction where
       , pretty v <> text ("(" ++ render (prettyArgs as) ++ ")")
       ]
     Load t1 t2 v -> text "load" <+> text (prettyShow t1 ++ ",") <+> pretty t2 <+> pretty v
-    Alloca t -> text "alloca" <+> pretty t
+    Alloca t -> text "alloca" <+> pretty t -- not used
     Declare{} -> undefined
     Store t1 v t2 x -> (text "store" <+> pretty t1 <+> pretty v) <> (text "," <+> pretty t2 <+> pretty x)
     Extractvalue t v n -> (text "extractvalue" <+> pretty t <+> pretty v) <> (text "," <+> pretty n)
@@ -208,7 +217,7 @@ instance Pretty Instruction where
     Ptrtoint t1 v t2 -> text "ptrtoint" <+> pretty t1 <+> pretty v <+> text "to" <+> pretty t2
     Phi t xs -> text "phi" <+> pretty t <+> text (intercalate ", " (map (\(v, x) -> '[' : prettyShow v <> ", " <> prettyShow x `snoc` ']') (toList xs)))
     Add t v1 v2 -> (text "add" <+> pretty t <+> pretty v1) <> (text "," <+> pretty v2)
-    Sub t v1 v2 -> (text "add" <+> pretty t <+> pretty v1) <> (text "," <+> pretty v2)
+    Sub t v1 v2 -> (text "sub" <+> pretty t <+> pretty v1) <> (text "," <+> pretty v2)
 
 instance Pretty Alt where
   pretty (Alt t v x) =
@@ -227,7 +236,6 @@ instance Pretty Val where
     Null            -> text "null"
     Structure vs -> text $ "{" ++ intercalate ", " (map prettyShow $ toList vs) ++ "}"
     Undef -> text "undef"
-
 
 instance Pretty CallingConvention where
   pretty = \case
