@@ -3,11 +3,6 @@ declare void @printf(ptr, ...)
 declare ptr @malloc(i64)
 %Node = type [3 x i64]
 @"%d" = private constant [4 x i8] c"%d\0A\00", align 1
-@"sum" = private constant [9 x i8] c"sum: %d\0A\00", align  1
-@"downFrom" = private constant [14 x i8] c"downFrom: %d\0A\00", align 1
-@"_-_" = private constant [9 x i8] c"_-_: %d\0A\00", align 1
-@"_+_" = private constant [9 x i8] c"_+_: %d\0A\00", align 1
-
 
 ; Tag numbering table:
 ; 0 Cnat

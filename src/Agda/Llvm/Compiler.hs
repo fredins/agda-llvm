@@ -267,13 +267,13 @@ llvmPostCompile _ _ mods = do
           , "%Node = type [3 x i64]" ]
          ++ "@\"%d\" = private constant [4 x i8] c\"%d\\0A\\00\", align 1"
 
-         -- debug
-         ++ unlines
-         [ "\n@\"sum\" = private constant [9 x i8] c\"sum: %d\\0A\\00\", align  1"
-         , "@\"downFrom\" = private constant [14 x i8] c\"downFrom: %d\\0A\\00\", align 1"
-         , "@\"_-_\" = private constant [9 x i8] c\"_-_: %d\\0A\\00\", align 1"
-         , "@\"_+_\" = private constant [9 x i8] c\"_+_: %d\\0A\\00\", align 1"
-         ]
+         -- -- debug
+         -- ++ unlines
+         -- [ "\n@\"sum\" = private constant [9 x i8] c\"sum: %d\\0A\\00\", align  1"
+         -- , "@\"downFrom\" = private constant [14 x i8] c\"downFrom: %d\\0A\\00\", align 1"
+         -- , "@\"_-_\" = private constant [9 x i8] c\"_-_: %d\\0A\\00\", align 1"
+         -- , "@\"_+_\" = private constant [9 x i8] c\"_+_: %d\\0A\\00\", align 1"
+         -- ]
 
       tags_table = "; Tag numbering table:\n" ++ prettyShow (align 20 (map (bimap ((++) "; " . show) pretty . swap) (sortOn snd (Map.toList tagsToInt))))
       defs = intercalate "\n\n" (map prettyShow llvm_ir)
