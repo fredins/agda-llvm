@@ -26,6 +26,10 @@ Did the following:
 
 - Finished implementing the code generator.  
 
+- Started refactoring the treeless-to-GRIN phase using de Bruijn substitution instances,  
+  and ReaderT instead of StateT. However, the refactor is currently archived and put on  
+  hold. 
+
 ### W.33
 
 Read the following:  
