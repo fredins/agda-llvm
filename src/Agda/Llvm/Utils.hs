@@ -8,6 +8,7 @@ module Agda.Llvm.Utils
   , differenceBy
   , (??)
   , caseEither
+  , mapMMM
   , swap01'
   , printPretty
   , trace'
@@ -16,7 +17,7 @@ module Agda.Llvm.Utils
   , forAccumM
   ) where
 
-import           Control.Monad                (liftM)
+import           Control.Monad                (join, liftM, (<=<))
 import           Data.Coerce                  (Coercible, coerce)
 import           Data.Functor                 (($>))
 import           Data.List                    (deleteBy, mapAccumR, union,
@@ -55,6 +56,10 @@ fab ?? a = fmap ($ a) fab
 
 caseEither :: Either a b -> (a -> c) -> (b -> c) -> c
 caseEither e f g = either f g e
+
+
+mapMMM :: (Monad m, Monad t, Traversable t) => (b -> m (t c)) -> (a -> m (t b)) -> a -> m (t c)
+mapMMM f = (fmap join . traverse f <=<)
 
 -- | This swaps @var 0@ and @var 1@.
 swap01' :: Subst a => a -> a

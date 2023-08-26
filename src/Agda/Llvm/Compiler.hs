@@ -8,22 +8,23 @@
 module Agda.Llvm.Compiler (module Agda.Llvm.Compiler) where
 
 import           Control.DeepSeq                (NFData)
-import           Control.Monad                  (forM, join, mapAndUnzipM,
-                                                 replicateM, when, (<=<))
+import           Control.Monad                  (forM, mapAndUnzipM, replicateM)
 import           Control.Monad.IO.Class         (liftIO)
+import           Control.Monad.Reader           (MonadReader,
+                                                 ReaderT (runReaderT), asks)
 import           Control.Monad.State            (MonadState, State, StateT,
-                                                 evalState, evalStateT, gets,
-                                                 modify, runState)
-import           Data.Foldable                  (foldlM, foldrM, toList)
+                                                 evalStateT, gets, modify,
+                                                 runState)
+import           Data.Bifunctor                 (Bifunctor (bimap, first))
+import           Data.Foldable                  (foldrM, toList)
 import           Data.Function                  (on)
 import           Data.List                      (intercalate, mapAccumL,
-                                                 mapAccumR, singleton, sortOn,
-                                                 unzip4)
+                                                 singleton, sortOn, unzip4)
 import           Data.List.NonEmpty.Extra       ((|:), (|>))
 import           Data.Map                       (Map)
 import qualified Data.Map                       as Map
+import           Data.Tuple.Extra               (swap)
 import           GHC.Generics                   (Generic)
-import           GHC.IO                         (unsafePerformIO)
 import           Prelude                        hiding ((!!))
 
 import           Agda.Compiler.Backend          hiding (Prim, getPrimitive,
@@ -33,7 +34,6 @@ import           Agda.Llvm.Grin
 import           Agda.Llvm.GrinInterpreter      (interpretGrin)
 import           Agda.Llvm.GrinTransformations
 import           Agda.Llvm.HeapPointsTo
-import           Agda.Llvm.Llvm                 (Instruction (SetVar))
 import qualified Agda.Llvm.Llvm                 as L
 import           Agda.Llvm.TreelessTransform
 import           Agda.Llvm.Utils
@@ -41,7 +41,6 @@ import           Agda.Syntax.Common.Pretty
 import           Agda.Syntax.Literal            (Literal (LitNat))
 import           Agda.Syntax.TopLevelModuleName
 import           Agda.TypeChecking.Substitute
-import           Agda.Utils.Function            (applyUnless)
 import           Agda.Utils.Functor
 import           Agda.Utils.Impossible
 import           Agda.Utils.Lens
@@ -49,12 +48,6 @@ import           Agda.Utils.List
 import           Agda.Utils.List1               (List1, pattern (:|), (<|))
 import qualified Agda.Utils.List1               as List1
 import           Agda.Utils.Maybe
-import           Agda.Utils.Monad               (mapMaybeM)
-import           Control.Monad.Reader           (MonadReader (local), Reader,
-                                                 ReaderT (runReaderT), asks,
-                                                 runReader)
-import           Data.Bifunctor                 (Bifunctor (bimap, first))
-import           Data.Tuple.Extra               (firstM, swap)
 
 
 
@@ -186,7 +179,7 @@ llvmPostCompile _ _ mods = do
   res_leftUnitLaw <- interpretGrin defs_leftUnitLaw
   liftIO $ putStrLn $ "\nResult: " ++ show res_leftUnitLaw
 
-  let defs_specializeUpdate = map (updateGrTerm specializeUpdate) defs_leftUnitLaw
+  defs_specializeUpdate <- mapM (specializeUpdate absCxt) defs_leftUnitLaw
   liftIO $ do
     putStrLn "\n------------------------------------------------------------------------"
     putStrLn "-- * Specialize Update"
@@ -196,7 +189,17 @@ llvmPostCompile _ _ mods = do
   res_specializeUpdate <- interpretGrin defs_specializeUpdate
   liftIO $ putStrLn $ "\nResult: " ++ show res_specializeUpdate
 
-  defs_vectorize <- mapM (lensGrTerm $ vectorize tagInfo_inlineEval) defs_specializeUpdate
+  let defs_normalize = map (updateGrTerm normalise) defs_specializeUpdate
+  liftIO $ do
+    putStrLn "\n------------------------------------------------------------------------"
+    putStrLn "-- * Normalise"
+    putStrLn "------------------------------------------------------------------------\n"
+    putStrLn $ intercalate "\n\n" $ map prettyShow defs_normalize
+
+  res_normalise <- interpretGrin defs_normalize
+  liftIO $ putStrLn $ "\nResult: " ++ show res_normalise
+
+  defs_vectorize <- mapM (lensGrTerm $ vectorize tagInfo_inlineEval) defs_normalize
   liftIO $ do
     putStrLn "\n------------------------------------------------------------------------"
     putStrLn "-- * Vectorization"
@@ -417,6 +420,10 @@ rScheme (TLet t1 t2)
     t1' <- cScheme t1
     t2' <- rScheme t2
     Bind t1' <$> laltVar t2'
+
+-- TODO need to keep track of evaluated variables
+-- 𝓡 [x] = eval 0 ; λ x → unit 0
+rScheme (TVar n) = eval n `bindVar` Unit (Var 0)
 
 rScheme t = error $ "TODO rScheme " ++ show t
 
@@ -701,7 +708,7 @@ termToLlvm (Case (Var n) t alts `Bind` alt) = do
         pure (alt, block, x_label, x_res)
 
       mkBlock s x t =
-        let cont i = pure $ SetVar x i <|  L.Br (L.mkLocalId continue) :| [] in
+        let cont i = pure $ L.SetVar x i <|  L.Br (L.mkLocalId continue) :| [] in
         L.Label s <$> continuationLocal cont (termToLlvm t)
 
 
@@ -752,7 +759,7 @@ termToLlvm (Store _ v `Bind` LAltVar (L.mkLocalId -> x) t) = do
   (instructions1, v') <- valToLlvm v
   (x_unnamed_ptr, instruction_malloc) <- setVar (L.malloc L.nodeSize)  -- L.alloca
   let instruction_store = L.store L.nodeTySyn v' x_unnamed_ptr
-      instruction_ptrtoint = SetVar x (L.ptrtoint x_unnamed_ptr)
+      instruction_ptrtoint = L.SetVar x (L.ptrtoint x_unnamed_ptr)
   instructions2 <- varLocal x (termToLlvm t)
   pure $ instructions1 `List1.prependList`
     (instruction_malloc <| instruction_store <| instruction_ptrtoint <| instructions2)
@@ -794,7 +801,7 @@ termToLlvm (Unit (VariableNode n vs) `Bind` LAltVar (L.mkLocalId -> x) t) = do
 
   xs <- (|: x) <$> replicateM (List1.length vs') freshUnnamedVar
   let instructions2 =
-        snd $ mapAccumL (\v_acc (v, offset, x) -> (L.LocalId x, SetVar x $ L.insertvalue v_acc v offset))
+        snd $ mapAccumL (\v_acc (v, offset, x) -> (L.LocalId x, L.SetVar x $ L.insertvalue v_acc v offset))
         L.Undef $ list1zip3 (v <| vs') (0 :| [1 ..]) xs
 
   instructions3 <- varLocal x (termToLlvm t)
@@ -847,16 +854,16 @@ termToLlvm (Error TUnreachable) = pure $ List1.singleton L.Unreachable
 termToLlvm t = error $ "BAD: " ++ show t
 
 laltToContinuation :: LAlt -> L.Instruction -> LlvmGen (List1 L.Instruction)
-laltToContinuation (LAltVar (L.mkLocalId -> x) t) i = (SetVar x i <|) <$> varLocal x (termToLlvm t)
+laltToContinuation (LAltVar (L.mkLocalId -> x) t) i = (L.SetVar x i <|) <$> varLocal x (termToLlvm t)
 laltToContinuation (LAltConstantNode _ (map L.mkLocalId -> xs) t) i = do
   (L.LocalId -> x_unnamed, i_setVar) <- setVar i
-  let is_extractvalue = zipWith (\x -> SetVar x . L.extractvalue x_unnamed) xs [1 ..]
+  let is_extractvalue = zipWith (\x -> L.SetVar x . L.extractvalue x_unnamed) xs [1 ..]
   let xs' = caseList xs __IMPOSSIBLE__ (:|)
   is <- varLocals xs' (termToLlvm t)
   pure $ (i_setVar :| is_extractvalue) <> is
 laltToContinuation (LAltVariableNode (L.mkLocalId -> x) (map L.mkLocalId -> xs) t) i = do
   (L.LocalId -> x_unnamed, i_setVar) <- setVar i
-  let is_extractvalue = zipWith (\x -> SetVar x . L.extractvalue x_unnamed) (x : xs) [0 ..]
+  let is_extractvalue = zipWith (\x -> L.SetVar x . L.extractvalue x_unnamed) (x : xs) [0 ..]
   is <- varLocals (x :| xs) (termToLlvm t)
   pure $ (i_setVar :| is_extractvalue) <> is
 laltToContinuation (LAltEmpty t) _ = termToLlvm t
@@ -956,7 +963,7 @@ lensVars :: Lens' LlvmGenCxt [L.LocalId]
 lensVars f cxt = f cxt.cg_vars <&> \xs -> cxt{cg_vars = xs}
 
 varLocals :: MonadReader LlvmGenCxt m => List1 L.LocalId -> m a -> m a
-varLocals = foldr (\x f -> locally lensVars (x :) . f) id
+varLocals = foldr (\x f -> varLocal x . f) id
 
 varLocal :: MonadReader LlvmGenCxt m => L.LocalId -> m a -> m a
 varLocal x = locally lensVars (x :)
@@ -988,4 +995,4 @@ tagToLlvm = fmap (LitNat . toInteger) . tagNumLookup
 todoLlvm s = pure $ L.Comment ("TODO: " ++ take 30 (prettyShow s)) :| []
 
 setVar :: L.Instruction -> LlvmGen (L.LocalId, L.Instruction)
-setVar i = freshUnnamedVar <&> \x -> (x, SetVar x i)
+setVar i = freshUnnamedVar <&> \x -> (x, L.SetVar x i)

@@ -35,6 +35,7 @@ import           Agda.Utils.List1                   (List1, pattern (:|), (<|))
 import qualified Agda.Utils.List1                   as List1
 import           Agda.Utils.Maybe
 import           Agda.Utils.Monad                   (forMaybeM)
+import           Control.Monad.Trans.Maybe          (MaybeT (..), hoistMaybe)
 
 newtype TagInfo = TagInfo{unTagInfo :: Map Abs (Set Tag)}
 
@@ -93,27 +94,6 @@ type E m = ReaderT [Abs] (StateT TagInfo m)
 
 -- | Specialize and inline calls to eval
 --
--- eval 3 ; λ x14 →
--- >>>
--- (fetch 3 ; λ x42 →
---  (case 0 of
---     FPrim.sub x38 x39 → Prim.sub 1 0
---     Cnat x40 → unit 0
---  ) ; λ x41 →
---  update 2 0 ; λ () →
---  unit 0
--- ) ; λ x14 →
--- FIXME
--- FIXME
--- FIXME non-terminating loop
--- FIXME maybe verify tag info
--- FIXME
--- FIXME
--- FIXME
-
-
-
-
 -- Abstract Heap:
 --   l1  → FAgda.Builtin.Nat._-_ [l1 ∪ l18, l0] ∪ Cnat [BAS]
 --   l18 → Cnat [BAS]
@@ -139,7 +119,6 @@ type E m = ReaderT [Abs] (StateT TagInfo m)
 -- Tag Info:
 --   x38 → {Cnat, FAgda.Builtin.Nat._-_}
 --   x39 → {Cnat}
---
 inlineEval :: forall mf. MonadFresh Int mf
            => [GrinDefinition]
            -> AbstractContext
@@ -271,8 +250,6 @@ inlineEval defs absCxt tagInfo =
   deBruijnLookup :: Int -> E mf Abs
   deBruijnLookup n = asks $ fromMaybe __IMPOSSIBLE__ . (!!! n)
 
-
-
 -- unit v ; λ x →
 -- <m>
 -- >>>
@@ -283,10 +260,10 @@ leftUnitLaw :: Term -> Term
 -- 〈t 〉
 -- >>>
 -- 〈t 〉[n / m]
-leftUnitLaw (Unit (Var n) `Bind` LAltVar abs t) =
-    applySubst rho $ leftUnitLaw t
+leftUnitLaw (Unit (Var n) `Bind` LAltVar _ t) =
+    applySubst rho (leftUnitLaw t)
   where
-    rho = strengthenS impossible 1 `composeS` singletonS 0 (Var $ n + 1)
+    rho = liftS 1 (strengthenS impossible 1 `composeS` inplaceS 0 (Var n))
 
 -- unit (tag v₁ v₂) ; λ tag x₁ x₂ →
 -- 〈t 〉
@@ -349,67 +326,121 @@ countBinders (LAltConstantNode _ abss _) = length abss
 countBinders LAltVar{}                   = 1
 countBinders LAltEmpty{}                 = 0
 
--- TODO Fix returning eval [Boquist 1999, p. 95]
-specializeUpdate :: Term -> Term
+data UpdateCxt = UpdateCxt
+  { absCxt :: AbstractContext
+  , vars   :: [Abs]
+  }
 
-    -- update n₁ n₂ ; λ () →
-    -- 〈m₁ 〉
-    -- case n₂ of
-    --   CNil       → 〈m₂ 〉
-    --   CCons x xs → 〈m₃ 〉
-    -- >>>
-    -- 〈m₁ 〉
-    -- case n₂ of
-    --   CNil       →
-    --     updateᶜᴺⁱˡ n₁' n₂' ; λ () →
-    --     〈m₂ 〉
-    --   CCons x xs →
-    --     updateᶜᶜᵒⁿˢ n₁' n₂' ; λ () →
-    --     〈m₃ 〉
-specializeUpdate (caseUpdateView -> Just (mkUpdate, m, Case t1 t2 alts)) =
-    specializeUpdate $ m $ Case t1 t2 alts'
+initUpdateCxt :: AbstractContext -> GrinDefinition -> UpdateCxt
+initUpdateCxt absCxt def = UpdateCxt{absCxt = absCxt, vars = reverse def.gr_args}
+
+specializeUpdate :: forall mf. MonadFresh Int mf => AbstractContext -> GrinDefinition -> mf GrinDefinition
+specializeUpdate _absCxt def = do
+  term <- runReaderT (go def.gr_term) (initUpdateCxt _absCxt def)
+  pure (setGrTerm term def)
   where
+
+  -- update n₁ n₂ ; λ () →
+  -- 〈m₁ 〉
+  -- case n₂ of
+  --   CNil       → 〈m₂ 〉
+  --   CCons x xs → 〈m₃ 〉
+  -- >>>
+  -- 〈m₁ 〉
+  -- case n₂ of
+  --   CNil       →
+  --     updateᶜᴺⁱˡ n₁' n₂' ; λ () →
+  --     〈m₂ 〉
+  --   CCons x xs →
+  --     updateᶜᶜᵒⁿˢ n₁' n₂' ; λ () →
+  --     〈m₃ 〉
+  go :: Term -> ReaderT UpdateCxt mf Term
+  go (caseUpdateView -> Just (mkUpdate, m, Case t1 t2 alts)) =
+    go $ m $ Case t1 t2 alts'
+    where
     alts' =
       for alts $ \case
-        CAltConstantNode tag abss t3 ->
+        CAltConstantNode tag xs t ->
           let update = raise tag.tArity $ mkUpdate tag in
-          CAltConstantNode tag abss $ update `BindEmpty` t3
+          CAltConstantNode tag xs $ update `BindEmpty` t
         _ -> __IMPOSSIBLE__
 
--- update n₁ n₂ ; λ () →
--- unit n₂ ; λ CNat x →
--- 〈m 〉
--- >>>
--- updateᶜᴺᵃᵗ n₁ n₂ ; λ () →
--- unit n₂ ; λ CNat x →
--- 〈m 〉
-specializeUpdate (
-  Update Nothing n1 n2 `BindEmpty`
-  Unit (Var n2') `Bind` LAltConstantNode tag abss t) =
+  -- update n₁ n₂ ; λ () →
+  -- unit n₂ ; λ CNat x →
+  -- 〈m 〉
   -- >>>
-  Update (Just tag) n1 n2 `BindEmpty`
-  Unit (Var n2') `Bind` LAltConstantNode tag abss (specializeUpdate t)
+  -- updateᶜᴺᵃᵗ n₁ n₂ ; λ () →
+  -- unit n₂ ; λ CNat x →
+  -- 〈m 〉
+  go (Update Nothing n1 (Var n2) `BindEmpty`
+      Unit (Var n2') `Bind` LAltConstantNode tag xs t) | n2 == n2' = do
+      t' <- varLocals xs (go t)
+      pure $
+        Update (Just tag) n1 (Var n2) `BindEmpty`
+        Unit (Var n2') `Bind` LAltConstantNode tag xs t'
 
-specializeUpdate (Bind t alt) =
-  specializeUpdate t `Bind` specializeUpdateLalt alt
-specializeUpdate (Case n t alts) =
-  Case n (specializeUpdate t) (map specializeUpdateCalt alts)
-specializeUpdate (Update mtag n1 n2)
-  | Nothing <- mtag = __IMPOSSIBLE__
-  | otherwise = Update mtag n1 n2
-specializeUpdate t = t
+  -- Returning eval/update [Boquist 1999, p. 95]
+  go term@(Fetch n1 offset      `Bind` LAltVar x1
+          (Case v1 t alts       `Bind` LAltVar x2
+          (Update Nothing n2 v2 `BindEmpty`
+           Unit v2')))
+    | v2' == v2 = do
+    x <- asks $ fromMaybe __IMPOSSIBLE__ . (!!! n1) . vars
+    tags <- maybe __IMPOSSIBLE__ toList <$> runMaybeT (fetchTagSet =<< fetchLocations x)
+    alts <- mapM (caltConstantNode <*> genBody) tags
+    -- Rerun the transformation so it matches the case pattern
+    go (Fetch n1 offset      `Bind` LAltVar x1
+       (Case v1 t alts       `Bind` LAltVar x2
+       (Update Nothing n2 v2 `BindEmpty`
+        Case v2 unreachable alts)))
 
--- TODO use splitCaltWithAbss
-specializeUpdateCalt :: CAlt -> CAlt
-specializeUpdateCalt (CAltConstantNode tag abss t) = CAltConstantNode tag abss $ specializeUpdate t
-specializeUpdateCalt (CAltLit lit t)       = CAltLit lit $ specializeUpdate t
 
 
--- TODO use splitLaltWithAbss
-specializeUpdateLalt :: LAlt -> LAlt
-specializeUpdateLalt (LAltVar abs t)       = LAltVar abs $ specializeUpdate t
-specializeUpdateLalt (LAltConstantNode tag abss t) = LAltConstantNode tag abss $ specializeUpdate t
-specializeUpdateLalt (LAltEmpty t)         = LAltEmpty $ specializeUpdate t
+    --(term `bindVar` Case (Var 0) unreachable alts)
+    where
+      genBody FTag{tDef, tArity} = App (Def tDef) $ map Var $ downFrom tArity
+      genBody tag@CTag{tArity = 0} = Unit (Tag tag)
+      genBody tag@CTag{tArity = downFrom -> v : vs} = Unit (ConstantNode tag (List1.map Var (v :| vs)))
+      genBody _ = __IMPOSSIBLE__
+
+      fetchTagSet :: List1 Loc -> MaybeT (ReaderT UpdateCxt mf) (Set Tag)
+      fetchTagSet locs = do
+        heap <- asks ((^. lensAbsHeap) . absCxt)
+        hoistMaybe (foldMap filterTags <$> mapM (`lookup` heap) locs)
+
+      fetchLocations :: Abs -> MaybeT (ReaderT UpdateCxt mf) (List1 Loc)
+      fetchLocations x = do
+        env <- asks ((^. lensAbsEnv) . absCxt)
+        hoistMaybe (mapM isLoc . valueToList =<< lookup x env)
+        where
+        isLoc = \case
+          Loc loc -> Just loc
+          _       -> Nothing
+
+      filterTags :: Value -> Set Tag
+      filterTags (valueToList -> vs) =
+        Set.fromList $ forMaybe (toList vs) $
+          \case
+            VNode tag _ -> Just tag
+            _           -> Nothing
+
+  go (Bind t1 (splitLaltWithAbss -> (mkAlt, t2, xs))) =
+    liftA2 (\t1 t2 -> t1 `Bind` mkAlt t2) (go t1) (varLocals xs (go t2))
+  go (Case n t alts) = do
+    alts' <- mapM (\(splitCaltAbss -> (mkAlt, t, xs)) -> mkAlt <$> varLocals xs (go t)) alts
+    t' <- go t
+    pure (Case n t' alts')
+  go (Update mtag n1 n2)
+    | Nothing <- mtag = __IMPOSSIBLE__
+    | otherwise = pure (Update mtag n1 n2)
+  go t = pure t
+
+
+  varLocals :: MonadReader UpdateCxt m => [Abs] -> m a -> m a
+  varLocals = foldr (\x f -> varLocal x . f) id
+
+  varLocal :: MonadReader UpdateCxt m => Abs -> m a -> m a
+  varLocal x = local $ \cxt -> cxt{vars = x : cxt.vars}
 
 -- Preconditions: Normalised
 --
@@ -522,8 +553,8 @@ simplifyCase (Case v t alts)
             foldr composeS IdS (zipWith inplaceS [0 .. arity - 1] vs')
          in
          CAltTag tag $ applySubst rho $ simplifyCase t
-      | otherwise = CAltTag tag t
-    mkAlt _ alt = alt
+      | otherwise = CAltTag tag (simplifyCase t)
+    mkAlt _ (splitCalt -> (mkAlt, t)) = mkAlt (simplifyCase t)
 
 simplifyCase (t1 `Bind` alt) =
     simplifyCase t1 `Bind` mkAlt (simplifyCase t2)
@@ -531,9 +562,6 @@ simplifyCase (t1 `Bind` alt) =
     (mkAlt, t2) = splitLalt alt
 
 simplifyCase term = term
-
-
-
 
 -- | Split fetch operations using offsets
 -- <t1>
@@ -608,15 +636,16 @@ hoistFetch x1 n x2 t offset =
         let v = strengthen impossible $ Var n
         (Case v t <$> updateAlts xs alts) <&> (`Bind` strengthen impossible alt)
 
-
     go (x1 :| xs) (t1 `Bind` (splitLaltWithAbss -> (mkAlt, t2, [x2]))) = do
       -- Swap indices 0 and 1
       t2' <- go (x1 <| x2 :| xs) (swap01' t2)
       pure $ strengthen impossible t1 `Bind` mkAlt t2'
 
-    -- TODO
-    go xs1 (t1 `Bind` (splitLaltWithAbss -> (mkAlt, t2, xs2))) = error "TODO need swap0n"
-    go _ _ = __IMPOSSIBLE__
+
+    -- -- TODO
+    -- go xs1 (t1 `Bind` (splitLaltWithAbss -> (mkAlt, t2, xs2))) = error "TODO need swap0n"
+
+    go xs1 t = error $ "HOIST FETCH: " ++ prettyShow xs1 ++ "\nTerm:\n" ++ prettyShow t
 
     updateAlts  :: List1 Abs -> [CAlt] -> mf [CAlt]
     updateAlts xs alts =

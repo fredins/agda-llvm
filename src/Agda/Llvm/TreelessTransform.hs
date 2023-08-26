@@ -5,8 +5,8 @@ module Agda.Llvm.TreelessTransform
   , TreelessDefinition(..)
   ) where
 
-import           Control.Monad.Cont                    (MonadIO (liftIO), when,
-                                                        zipWithM)
+import           Control.Monad                         (when, zipWithM)
+import           Control.Monad.IO.Class                (MonadIO (liftIO))
 import           Data.Function                         (on)
 
 import           Agda.Compiler.Backend                 hiding (Prim, initEnv)
