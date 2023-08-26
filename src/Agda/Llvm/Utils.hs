@@ -8,7 +8,6 @@ module Agda.Llvm.Utils
   , differenceBy
   , (??)
   , caseEither
-  , mapMMM
   , swap01'
   , printPretty
   , trace'
@@ -56,10 +55,6 @@ fab ?? a = fmap ($ a) fab
 
 caseEither :: Either a b -> (a -> c) -> (b -> c) -> c
 caseEither e f g = either f g e
-
-
-mapMMM :: (Monad m, Monad t, Traversable t) => (b -> m (t c)) -> (a -> m (t b)) -> a -> m (t c)
-mapMMM f = (fmap join . traverse f <=<)
 
 -- | This swaps @var 0@ and @var 1@.
 swap01' :: Subst a => a -> a
