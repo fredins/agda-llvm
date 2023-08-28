@@ -3,9 +3,6 @@
 % Support for Agda code.
 \usepackage{agda}
 
-% Use special font families without TeX ligatures for Agda code. (This
-% code is inspired by a comment by Enrico Gregorio/egreg:
-% https://tex.stackexchange.com/a/103078.)
 \usepackage{fontspec}
 \newfontfamily{\AgdaSerifFont}{Latin Modern Roman}
 \newfontfamily{\AgdaSansSerifFont}{Latin Modern Sans}
@@ -23,9 +20,6 @@
 % Cosmetics
 \linespread{1.25}
 
-% Workarounds for the fact that the Latin Modern Sans font does not
-% support certain characters. An alternative would be to use another
-% font.
 \usepackage{newunicodechar}
 \usepackage{colonequals}
 \newunicodechar{λ}{\ensuremath{\mathnormal{\lambda}}}
@@ -34,9 +28,7 @@
 \newunicodechar{∷}{\ensuremath{\mathnormal{\coloncolon}}}
 \newunicodechar{ω}{\ensuremath{\mathnormal{\omega}}}
 
-\title{
-Optimizing lazy functional languages: utilizing reference counting for memory reuse
-}
+\title{Optimizing lazy functional languages with precise reference counting}
 \author{Martin Fredin}
 \date{June 2023}
 
@@ -65,14 +57,35 @@ map f (x ∷ xs) = f x ∷ map f xs
 \end{code}
 This is great if the input list (\AgdaDatatype{List}\AgdaSpace\AgdaGeneralizable{A}) is used later in the program. 
 Otherwise, it is better to reuse the allocation for \AgdaDatatype{List}\AgdaSpace\AgdaGeneralizable{A} by updating the list in place. 
-This would avoid both the deallocation of \AgdaDatatype{List}\AgdaSpace\AgdaGeneralizable{A} and the allocation of \AgdaDatatype{List}\AgdaSpace\AgdaGeneralizable{B}.
+This avoids both the deallocation of \AgdaDatatype{List}\AgdaSpace\AgdaGeneralizable{A} and the allocation of \AgdaDatatype{List}\AgdaSpace\AgdaGeneralizable{B}.
+To preserve the semantics of the program, destructive updates should only be perfomed on values which are garanteed to be non-shared. 
+We call a value shared if there is multiple references to it.
 
-% TODO also Swift uses ARC and has plans of borrowing
-Precise reference counting has been proposed to identify when it is possible to update objects in place. 
-\citet{ullrich2021} uses reference counting with borrowed references in the Lean theorem prover. 
-\citet{reinking2020} \citet{lorenzen2022} and \citet{lorenzen2023} also uses reference counting in the Koka language.
+Reference counting \citep{collins1960} is a memory management technique which can detect and free resources as soon as value is no longer needed, allowing memory reuse and destructive updates. 
+Common reference counting algorithms are easy to implement; each allocation contains an extra field which tracks the number of references to a value, and reclaims the heap space once the reference count drops to zero. 
 
-Both Lean and Koka are, however, eagerly evaluated. Lazy languages...
+%the interleaved collection strategy result in low memory usage, and a continuous throughput without the pauses of
+%\emph{stop-the-world} garbage collectors \citep{jones1996}.
+
+
+%citet{} Precise reference counting 
+
+
+
+
+% ,which is escpecially true for purely functional languages.
+
+
+%Precise reference counting has been proposed to identify when it is possible to update objects in place.
+
+
+%\citet{ullrich2021} uses reference counting with 
+
+%borrowed references in the Lean programming language. Their algorithm 
+
+%\citet{reinking2021} 
+
+%Both Lean and Koka are, however, eagerly evaluated. Lazy languages...
 
 
 \section{Graph Reduction Intermediate Notation}
@@ -87,6 +100,11 @@ Both Lean and Koka are, however, eagerly evaluated. Lazy languages...
 % AST \& Rust: safe manual memory management through proofs and the borrow checker, respectively
 
 \section{Conclusion and Future Work}
+\begin{itemize}
+\item Add reuse and borrowing
+\item Utilse GRIN's whole program compilation strategy and the heap points-to analysis to statically determine unshared values during compile time, and thus minimizing the number of reference countinging operations.
+\item It would also be intresting to utilse 0-modality (erasure) in Agda's type system, and later also 1-modality when Agda gets it.
+\end{itemize}
 
 % Lambda lifting
 % The rest of the GRIN transformations and optimizations

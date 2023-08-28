@@ -13,7 +13,7 @@ data List A : Set where
   _∷_ : (x : A) (xs : List A) → List A
 
 downFrom : ℕ → List ℕ
-downFrom zero = []
+downFrom zero    = []
 downFrom (suc n) = n ∷ downFrom n 
 
 mapDouble : List ℕ → List ℕ
@@ -21,7 +21,14 @@ mapDouble []       = []
 mapDouble (x ∷ xs) = x + x ∷ mapDouble xs
 
 sum : List ℕ → ℕ
-sum [] = 0
+sum []       = 0
 sum (x ∷ xs) = x + sum xs
 
-main = sum (mapDouble (downFrom 100)) -- 9900
+main = sum (mapDouble (downFrom 10000)) 
+
+
+
+-- take : ℕ → List ℕ → List ℕ
+-- take zero    _        = []
+-- take (suc n) []       = []
+-- take (suc n) (x ∷ xs) = x ∷ take n xs

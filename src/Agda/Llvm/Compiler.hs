@@ -156,8 +156,8 @@ llvmPostCompile _ _ mods = do
     putStrLn $ intercalate "\n\n" $ map prettyShow defs_inlineEval
     putStrLn $ "\nTag Info:\n" ++ prettyShow tagInfo_inlineEval
 
-  res_inlineEval <- interpretGrin defs_inlineEval
-  liftIO $ putStrLn $ "\nResult: " ++ show res_inlineEval
+  -- res_inlineEval <- interpretGrin defs_inlineEval
+  -- liftIO $ putStrLn $ "\nResult: " ++ show res_inlineEval
 
   let defs_normalize = map (updateGrTerm normalise) defs_inlineEval
   liftIO $ do
@@ -166,8 +166,8 @@ llvmPostCompile _ _ mods = do
     putStrLn "------------------------------------------------------------------------\n"
     putStrLn $ intercalate "\n\n" $ map prettyShow defs_normalize
 
-  res_normalise <- interpretGrin defs_normalize
-  liftIO $ putStrLn $ "\nResult: " ++ show res_normalise
+  -- res_normalise <- interpretGrin defs_normalize
+  -- liftIO $ putStrLn $ "\nResult: " ++ show res_normalise
 
   let defs_leftUnitLaw = map (updateGrTerm leftUnitLaw) defs_normalize
   liftIO $ do
@@ -176,8 +176,8 @@ llvmPostCompile _ _ mods = do
     putStrLn "------------------------------------------------------------------------\n"
     putStrLn $ intercalate "\n\n" $ map prettyShow defs_leftUnitLaw
 
-  res_leftUnitLaw <- interpretGrin defs_leftUnitLaw
-  liftIO $ putStrLn $ "\nResult: " ++ show res_leftUnitLaw
+  -- res_leftUnitLaw <- interpretGrin defs_leftUnitLaw
+  -- liftIO $ putStrLn $ "\nResult: " ++ show res_leftUnitLaw
 
   defs_specializeUpdate <- mapM (specializeUpdate absCxt) defs_leftUnitLaw
   liftIO $ do
@@ -186,8 +186,8 @@ llvmPostCompile _ _ mods = do
     putStrLn "------------------------------------------------------------------------\n"
     putStrLn $ intercalate "\n\n" $ map prettyShow defs_specializeUpdate
 
-  res_specializeUpdate <- interpretGrin defs_specializeUpdate
-  liftIO $ putStrLn $ "\nResult: " ++ show res_specializeUpdate
+  -- res_specializeUpdate <- interpretGrin defs_specializeUpdate
+  -- liftIO $ putStrLn $ "\nResult: " ++ show res_specializeUpdate
 
   let defs_normalize = map (updateGrTerm normalise) defs_specializeUpdate
   liftIO $ do
@@ -196,8 +196,8 @@ llvmPostCompile _ _ mods = do
     putStrLn "------------------------------------------------------------------------\n"
     putStrLn $ intercalate "\n\n" $ map prettyShow defs_normalize
 
-  res_normalise <- interpretGrin defs_normalize
-  liftIO $ putStrLn $ "\nResult: " ++ show res_normalise
+  -- res_normalise <- interpretGrin defs_normalize
+  -- liftIO $ putStrLn $ "\nResult: " ++ show res_normalise
 
   defs_vectorize <- mapM (lensGrTerm $ vectorize tagInfo_inlineEval) defs_normalize
   liftIO $ do
@@ -206,8 +206,8 @@ llvmPostCompile _ _ mods = do
     putStrLn "------------------------------------------------------------------------\n"
     putStrLn $ intercalate "\n\n" $ map prettyShow defs_vectorize
 
-  res_vectorize <- interpretGrin defs_vectorize
-  liftIO $ putStrLn $ "\nResult: " ++ show res_vectorize
+  -- res_vectorize <- interpretGrin defs_vectorize
+  -- liftIO $ putStrLn $ "\nResult: " ++ show res_vectorize
 
   let defs_simplifyCase = map (updateGrTerm simplifyCase) defs_vectorize
   liftIO $ do
@@ -216,8 +216,8 @@ llvmPostCompile _ _ mods = do
     putStrLn "------------------------------------------------------------------------\n"
     putStrLn $ intercalate "\n\n" $ map prettyShow defs_simplifyCase
 
-  res_simplifyCase <- interpretGrin defs_simplifyCase
-  liftIO $ putStrLn $ "\nResult: " ++ show res_simplifyCase
+  -- res_simplifyCase <- interpretGrin defs_simplifyCase
+  -- liftIO $ putStrLn $ "\nResult: " ++ show res_simplifyCase
 
   let defs_splitFetch = map (updateGrTerm splitFetch) defs_simplifyCase
   liftIO $ do
@@ -226,8 +226,8 @@ llvmPostCompile _ _ mods = do
     putStrLn "------------------------------------------------------------------------\n"
     putStrLn $ intercalate "\n\n" $ map prettyShow defs_splitFetch
 
-  res_splitFetch <- interpretGrin defs_splitFetch
-  liftIO $ putStrLn $ "\nResult: " ++ show res_splitFetch
+  -- res_splitFetch <- interpretGrin defs_splitFetch
+  -- liftIO $ putStrLn $ "\nResult: " ++ show res_splitFetch
 
   let defs_leftUnitLaw = map (updateGrTerm leftUnitLaw) defs_splitFetch
   liftIO $ do
@@ -236,8 +236,8 @@ llvmPostCompile _ _ mods = do
     putStrLn "------------------------------------------------------------------------\n"
     putStrLn $ intercalate "\n\n" $ map prettyShow defs_leftUnitLaw
 
-  res_leftUnitLaw <- interpretGrin defs_leftUnitLaw
-  liftIO $ putStrLn $ "\nResult: " ++ show res_leftUnitLaw
+  -- res_leftUnitLaw <- interpretGrin defs_leftUnitLaw
+  -- liftIO $ putStrLn $ "\nResult: " ++ show res_leftUnitLaw
 
   defs_rightHoistFetch <- mapM (lensGrTerm rightHoistFetch) defs_leftUnitLaw
   liftIO $ do
@@ -246,8 +246,8 @@ llvmPostCompile _ _ mods = do
     putStrLn "------------------------------------------------------------------------\n"
     putStrLn $ intercalate "\n\n" $ map prettyShow defs_rightHoistFetch
 
-  res_rightHoistFetch <- interpretGrin defs_rightHoistFetch
-  liftIO $ putStrLn $ "\nResult: " ++ show res_rightHoistFetch
+  -- res_rightHoistFetch <- interpretGrin defs_rightHoistFetch
+  -- liftIO $ putStrLn $ "\nResult: " ++ show res_rightHoistFetch
 
   -- Not used
   --

@@ -74,6 +74,24 @@ number = {MSR-TR-2020-42},
 note = {(*) The first two authors contributed equally to this work. v4, 2021-06-07. Extended version of the PLDI'21 paper.},
 }
 
+@inproceedings{reinking2021,
+author = {Reinking, Alex and Xie, Ningning and de Moura, Leonardo and Leijen, Daan},
+title = {Perceus: Garbage Free Reference Counting with Reuse},
+year = {2021},
+isbn = {9781450383912},
+publisher = {Association for Computing Machinery},
+address = {New York, NY, USA},
+url = {https://doi.org/10.1145/3453483.3454032},
+doi = {10.1145/3453483.3454032},
+abstract = {We introduce Perceus, an algorithm for precise reference counting with reuse and specialization. Starting from a functional core language with explicit control-flow, Perceus emits precise reference counting instructions such that (cycle-free) programs are _garbage free_, where only live references are retained. This enables further optimizations, like reuse analysis that allows for guaranteed in-place updates at runtime. This in turn enables a novel programming paradigm that we call _functional but in-place_ (FBIP). Much like tail-call optimization enables writing loops with regular function calls, reuse analysis enables writing in-place mutating algorithms in a purely functional way. We give a novel formalization of reference counting in a linear resource calculus, and prove that Perceus is sound and garbage free. We show evidence that Perceus, as implemented in Koka, has good performance and is competitive with other state-of-the-art memory collectors.},
+booktitle = {Proceedings of the 42nd ACM SIGPLAN International Conference on Programming Language Design and Implementation},
+pages = {96–111},
+numpages = {16},
+keywords = {Handlers, Algebraic Effects, Reference Counting},
+location = {Virtual, Canada},
+series = {PLDI 2021}
+}
+
 @article{lorenzen2022,
 author = {Lorenzen, Anton and Leijen, Daan},
 title = {Reference Counting with Frame Limited Reuse},
@@ -198,26 +216,6 @@ numpages = {23},
 keywords = {compilation, type systems, type preservation, dependent types}
 }
 
-@article{10.1145/2775050.2633370,
-author = {Okabe, Kiwamu and Muranushi, Takayuki},
-title = {Systems Demonstration: Writing NetBSD Sound Drivers in Haskell},
-year = {2014},
-issue_date = {December 2014},
-publisher = {Association for Computing Machinery},
-address = {New York, NY, USA},
-volume = {49},
-number = {12},
-issn = {0362-1340},
-url = {https://doi.org/10.1145/2775050.2633370},
-doi = {10.1145/2775050.2633370},
-abstract = {Most strongly typed, functional programming languages are not equipped with a reentrant garbage collector. Therefore such languages are not used for operating systems programming, where the virtues of types are most desired. We propose the use of Context-Local Heaps (CLHs) to achieve reentrancy, which also increasing the speed of garbage collection. We have implemented CLHs in Ajhc, a Haskell compiler derived from jhc, rewritten some NetBSD sound drivers using Ajhc, and benchmarked them. The reentrant, faster garbage collection that CLHs provide opens the path to type-assisted operating systems programming.},
-journal = {SIGPLAN Not.},
-month = {sep},
-pages = {77–78},
-numpages = {2},
-keywords = {performance, languages}
-}
-
 @inproceedings{okabe2014,
 author = {Okabe, Kiwamu and Muranushi, Takayuki},
 title = {Systems Demonstration: Writing NetBSD Sound Drivers in Haskell},
@@ -269,3 +267,60 @@ series = {Haskell '14}
   archivePrefix={arXiv},
   primaryClass={cs.PL}
 }
+
+@inproceedings{boquist1995,
+author = {Boquist, Urban},
+title = {Interprocedural Register Allocation for Lazy Functional Languages},
+year = {1995},
+isbn = {0897917197},
+publisher = {Association for Computing Machinery},
+address = {New York, NY, USA},
+url = {https://doi.org/10.1145/224164.224215},
+doi = {10.1145/224164.224215},
+booktitle = {Proceedings of the Seventh International Conference on Functional Programming Languages and Computer Architecture},
+pages = {270–281},
+numpages = {12},
+location = {La Jolla, California, USA},
+series = {FPCA '95}
+}
+
+@article{collins1960,
+author = {Collins, George E.},
+title = {A Method for Overlapping and Erasure of Lists},
+year = {1960},
+issue_date = {Dec. 1960},
+publisher = {Association for Computing Machinery},
+address = {New York, NY, USA},
+volume = {3},
+number = {12},
+issn = {0001-0782},
+url = {https://doi.org/10.1145/367487.367501},
+doi = {10.1145/367487.367501},
+abstract = {An important property of the Newell Shaw-Simon scheme for computer storage of lists is that data having multiple occurrences need not be stored at more than one place in the computer. That is, lists may be “overlapped.” Unfortunately, overlapping poses a problem for subsequent erasure. Given a list that is no longer needed, it is desired to erase just those parts that do not overlap other lists. In LISP, McCarthy employs an elegant but inefficient solution to the problem. The present paper describes a general method which enables efficient erasure. The method employs interspersed reference counts to describe the extent of the overlapping.},
+journal = {Commun. ACM},
+month = {dec},
+pages = {655–657},
+numpages = {3}
+}
+
+@article{appel1997, title={Garbage Collection: Algorithms for Automatic Dynamic Memory Management by Richard Jones and Rafael Lins, John Wiley &amp; Sons, 1996.}, volume={7}, DOI={10.1017/S0956796897212682}, number={2}, journal={Journal of Functional Programming}, publisher={Cambridge University Press}, author={APPEL, ANDREW W.}, year={1997}, pages={227–229}}
+
+@book{jones1996,
+author = {Jones, Richard and Lins, Rafael},
+title = {Garbage Collection: Algorithms for Automatic Dynamic Memory Management},
+year = {1996},
+isbn = {0471941484},
+publisher = {John Wiley \& Sons, Inc.},
+address = {USA}
+}
+
+@article{peytonjones1992, title={Implementing lazy functional languages on stock hardware: the Spineless Tagless G-machine}, volume={2}, DOI={10.1017/S0956796800000319}, number={2}, journal={Journal of Functional Programming}, publisher={Cambridge University Press}, author={Jones, Simon L. Peyton}, year={1992}, pages={127–202}}
+
+@inproceedings{wilson1992,
+  title={Uniprocessor Garbage Collection Techniques},
+  author={Paul R. Wilson},
+  booktitle={IWMM},
+  year={1992},
+  url={https://api.semanticscholar.org/CorpusID:206841815}
+}
+
