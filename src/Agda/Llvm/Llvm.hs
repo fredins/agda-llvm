@@ -3,7 +3,7 @@
 
 module Agda.Llvm.Llvm (module Agda.Llvm.Llvm) where
 
-import           Data.List                 (intercalate)
+import           Data.List                 (intercalate, intersperse)
 import           Data.String               (IsString)
 
 import           Agda.Compiler.Backend     hiding (Name, Prim)
@@ -18,6 +18,7 @@ import           Agda.Utils.Monad          (forM')
 import           Control.Arrow             (Arrow (first))
 import           Control.Monad             (forM)
 import           Data.Foldable             (toList)
+import           Data.Semigroup            (sconcat)
 
 data Instruction =
     Define CallingConvention Type GlobalId [(Type, LocalId)] (List1 Instruction)
@@ -190,13 +191,8 @@ instance Pretty Instruction where
       ]
     Label s is -> vcat [nest (-2) $ text (s `snoc` ':'), vcat $ map pretty $ toList is]
     Switch t x l alts ->
-          text "switch"
-      <+> pretty t
-      <+> (pretty x <> text ", label")
-      <+> pretty l
-      <+> text "["
-      <+> vcat (map pretty alts)
-      <+> text "]"
+      (text "switch" <+> pretty t <+> (pretty x <> text ", label") <+> pretty l <+> text "[")
+      <> vcat (map pretty alts) <> text "]"
     RetVoid -> text "ret void"
     Ret t (Just v) -> text "ret" <+> pretty t <+> pretty v
     Ret{} -> __IMPOSSIBLE__
@@ -215,7 +211,11 @@ instance Pretty Instruction where
     Br x -> text "br label" <+> pretty x
     Inttoptr t1 v t2 -> text "inttoptr" <+> pretty t1 <+> pretty v <+> text "to" <+> pretty t2
     Ptrtoint t1 v t2 -> text "ptrtoint" <+> pretty t1 <+> pretty v <+> text "to" <+> pretty t2
-    Phi t xs -> text "phi" <+> pretty t <+> text (intercalate ", " (map (\(v, x) -> '[' : prettyShow v <> ", " <> prettyShow x `snoc` ']') (toList xs)))
+    Phi t xs -> (text "phi" <+> pretty t) <> vcat xs''
+      where
+      xs'' = List1.zipWith (<+>) (List1.map text (" " :| repeat ",")) xs'
+      xs' :: List1 Doc
+      xs' = List1.map (\(v, x) -> text "[" <> pretty v <> text ", " <> pretty x <> text "]") xs
     Add t v1 v2 -> (text "add" <+> pretty t <+> pretty v1) <> (text "," <+> pretty v2)
     Sub t v1 v2 -> (text "sub" <+> pretty t <+> pretty v1) <> (text "," <+> pretty v2)
 

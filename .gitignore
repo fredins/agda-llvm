@@ -5,5 +5,9 @@ output/
 plan.md
 latex/*
 !latex/report.pdf
-trace.log
 test/*.err
+*.log
+*.fls
+*.fdb_latexmk
+*.aux
+

@@ -4,7 +4,32 @@ csl: acm-siggraph.csl
 css: Agda.css
 ---
 
+  ```agda
+  module logbook where
+
+  open import Agda.Builtin.Nat using (suc; zero; _+_) renaming (Nat to ℕ) 
+
+  private 
+    variable
+      A B : Set
+
+  infixr 5 _∷_
+  data List A : Set where
+    []  : List A
+    _∷_ : (x : A) (xs : List A) → List A
+
+  ```
+
 ### W.34
+
+Read the following:  
+  
+- @boquist1995
+- @collins1960
+- @appel1996
+- @jones1996
+- @peytonjones1992
+- @wilson1992
 
 Did the following:  
 
@@ -29,6 +54,28 @@ Did the following:
 - Started refactoring the treeless-to-GRIN phase using de Bruijn substitution instances,  
   and ReaderT instead of StateT. However, the refactor is currently archived and put on  
   hold. 
+
+- I wrote another Agda test program which is more suitable for testing reuse. This program  
+  required "Returning eval" in the first clause of `mapDouble`{.agda} [@boquist1999, p. 95].
+
+  ```agda
+  module Example where
+
+    downFrom : ℕ → List ℕ
+    downFrom zero    = []
+    downFrom (suc n) = n ∷ downFrom n 
+
+    mapDouble : List ℕ → List ℕ
+    mapDouble []       = []
+    mapDouble (x ∷ xs) = x + x ∷ mapDouble xs
+
+    sum : List ℕ → ℕ
+    sum []       = 0
+    sum (x ∷ xs) = x + sum xs
+
+    main = sum (mapDouble (downFrom 10000)) 
+  ```
+
 
 ### W.33
 
@@ -436,23 +483,17 @@ Did the following:
   to LLVM IR.  
 
   ```agda  
+  module DownFrom where
 
-  open import Agda.Builtin.Nat using (suc; zero; _+_) renaming (Nat to ℕ) 
+    downFrom : ℕ → List ℕ
+    downFrom zero = []
+    downFrom (suc n) = suc n ∷ downFrom n 
 
-  infixr 5 _∷_
-  data List {a} (A : Set a) : Set a where
-    []  : List A
-    _∷_ : (x : A) (xs : List A) → List A
+    sum : List ℕ → ℕ
+    sum [] = 0
+    sum (x ∷ xs) = x + sum xs
 
-  downFrom : ℕ → List ℕ
-  downFrom zero = []
-  downFrom (suc n) = suc n ∷ downFrom n 
-  
-  sum : List ℕ → ℕ
-  sum [] = 0
-  sum (x ∷ xs) = x + sum xs
-  
-  main = sum (downFrom 4)
+    main = sum (downFrom 4)
   ```
 
 - Created a transformation for the treeless syntax that 
@@ -473,6 +514,14 @@ Did the following:
 - Prepared the documents for the logbook and the report.  
 
 ### Related work
+
+- @ullrich2021 proposes a mechanism for reclaiming non-shared allocations, and an  
+  approach to minimize reference counts operations through borrowed refereces. Owned  
+  references need to be consumed exactly once. A reference is consumed when it is  
+  returned, stored as a heap value, and passed to another function (as an owned reference).  
+  Addionally, there is `dec` and `inc` for consuming and copying references,   
+  respectively. A borrowed references is not allowed to be consumed.   
+
 
 - @hage2008 presented a destructive assignment operator `variable@constructor-expr`  
   to indicate when to reuse. The operator is designed to be compatible with existing  
