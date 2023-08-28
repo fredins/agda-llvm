@@ -26,7 +26,7 @@ Read the following:
   
 - @boquist1995
 - @collins1960
-- @appel1996
+- @appel1997
 - @jones1996
 - @peytonjones1992
 - @wilson1992
@@ -75,6 +75,8 @@ Did the following:
 
     main = sum (mapDouble (downFrom 10000)) 
   ```
+
+- Rewrote the introduction in the report. 
 
 
 ### W.33

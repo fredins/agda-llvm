@@ -61,22 +61,23 @@ This avoids both the deallocation of \AgdaDatatype{List}\AgdaSpace\AgdaGeneraliz
 To preserve the semantics of the program, destructive updates should only be perfomed on values which are garanteed to be non-shared. 
 We call a value shared if there is multiple references to it.
 
-Reference counting \citep{collins1960} is a memory management technique which can detect and free resources as soon as value is no longer needed, allowing memory reuse and destructive updates. 
+Reference counting \citep{collins1960} is a memory management technique which can detect and free resources as soon as they are no longer needed, allowing memory reuse and destructive updates. 
 Common reference counting algorithms are easy to implement; each allocation contains an extra field which tracks the number of references to a value, and reclaims the heap space once the reference count drops to zero. 
+As a result of the interleaved collection strategy, memory usage remain low and the throughput is continuous throughout the computation\footnote{Not entirely true.} \citep{jones1996}.
+However, ...
 
-%the interleaved collection strategy result in low memory usage, and a continuous throughput without the pauses of
-%\emph{stop-the-world} garbage collectors \citep{jones1996}.
-
-
-%citet{} Precise reference counting 
-
-
-
-
-% ,which is escpecially true for purely functional languages.
+\begin{itemize}
+\item Lower throughput than tracing GC
+\item Not very good at handling short lived values which is most values (especially in pure FP)
+\item \citet{reinking2021} and \citet{ullrich2021} minimize RC operations through precise reference counting and a linear calculus.
+\item more...
+\end{itemize}
 
 
-%Precise reference counting has been proposed to identify when it is possible to update objects in place.
+
+
+
+
 
 
 %\citet{ullrich2021} uses reference counting with 
