@@ -55,7 +55,7 @@ import           Data.Set                  (Set)
 import qualified Data.Set                  as Set
 import           Prelude                   hiding ((!!))
 
-import           Agda.Llvm.Grin
+import           Agda.Llvm.Grin            hiding (cnat)
 import           Agda.Llvm.Utils
 import           Agda.Syntax.Common.Pretty
 import           Agda.Utils.Function       (applyWhen)
@@ -377,54 +377,83 @@ localAbssEnv = foldl (.: localAbsEnv) id
 
 deriveEquations :: Term -> H' HRet
 deriveEquations term = case term of
+    App (Def "printf") _ -> retHCxt
 
-    Bind (Store loc v) (LAltVar abs t)
-      | ConstantNode tag vs <- v -> go tag vs
+    Store loc (ConstantNode tag vs) `Bind` LAltVar x t -> do
+      vs' <- mapM valToValue vs
+
+      case tag of
+        FTag name _ -> do
+          callee <- asks (fromMaybe __IMPOSSIBLE__ . find ((name==) . gr_name) . defs)
+          let callee_return = fromMaybe __IMPOSSIBLE__ callee.gr_return
+
+          localLoc loc $
+            localAbs x $
+            localAbsEnv (x, Loc loc) $
+            localAbsHeap (loc, VNode tag (toList vs') `mkUnion` Abs callee_return) $
+            localAbssEnv (zip callee.gr_args $ toList vs') $
+            deriveEquations t
+        CTag _ _ ->
+          localLoc loc $
+          localAbs x $
+          localAbsEnv (x, Loc loc) $
+          localAbsHeap (loc, VNode tag $ toList vs') $
+          deriveEquations t
+
+
+        PTag{} -> __IMPOSSIBLE__
+
+
+
       where
         -- FIXME ugly
-        go tag vs = do
-          vs' <- mapM valToValue vs
-          defs <- asks defs
-          case findName defs tag of
-            -- C-tag or primitive function (F-tag or P-tag)
-            Nothing ->
-              case tag of
-                CTag{} ->
-                  localLoc loc $
-                  localAbs abs $
-                  localAbsEnv (abs, Loc loc) $
-                  localAbsHeap (loc, VNode tag $ toList vs') $
-                  deriveEquations t
-                _ ->
-                  localLoc loc $
-                  localAbs abs $
-                  localAbsEnv (abs, Loc loc) $
-                  localAbsHeap (loc, VNode tag (toList vs') `mkUnion` cnat) $
-                  deriveEquations t
-
-            -- non-primitve F-tag or P-tag
-            Just def ->
-              -- h <- localLoc loc $
-              --      localAbs abs $
-              --      localAbsEnv (abs, Loc loc) $
-              --      localAbsHeap (loc, VNode tag vs'  ) $
-              --      localAbssEnv (zip def.gr_args vs') $
-              --      deriveEquations t
-
-              -- Pessimistically add return variable
-        --      if Set.member (unLoc loc) h.shared' then
-              localLoc loc $
-              localAbs abs $
-              localAbsEnv (abs, Loc loc) $
-              localAbsHeap (loc, VNode tag (toList vs') `mkUnion` Abs (fromMaybe __IMPOSSIBLE__ def.gr_return)) $
-              localAbssEnv (zip def.gr_args $ toList vs') $
-              deriveEquations t
-              -- else
-              --   pure h
-
-        findName defs FTag{tDef} = find ((==tDef) . gr_name) defs
-        findName defs PTag{tDef} = find ((==tDef) . gr_name) defs
-        findName _ _             = Nothing
+        -- go tag vs = do
+        --   vs' <- mapM valToValue vs
+        --   defs <- asks defs
+        --
+        --   -- asks $ find ((==). gr_name) defs
+        --
+        --
+        --   case findName defs tag of
+        --     -- C-tag or primitive function (F-tag or P-tag)
+        --     Nothing ->
+        --       case tag of
+        --         CTag{} ->
+        --           localLoc loc $
+        --           localAbs x $
+        --           localAbsEnv (x, Loc loc) $
+        --           localAbsHeap (loc, VNode tag $ toList vs') $
+        --           deriveEquations t
+        --         _ ->
+        --           localLoc loc $
+        --           localAbs x $
+        --           localAbsEnv (x, Loc loc) $
+        --           localAbsHeap (loc, VNode tag (toList vs') `mkUnion` cnat) $
+        --           deriveEquations t
+        --
+        --     -- non-primitve F-tag or P-tag
+        --     Just def ->
+        --       -- h <- localLoc loc $
+        --       --      localAbs abs $
+        --       --      localAbsEnv (abs, Loc loc) $
+        --       --      localAbsHeap (loc, VNode tag vs'  ) $
+        --       --      localAbssEnv (zip def.gr_args vs') $
+        --       --      deriveEquations t
+        --
+        --       -- Pessimistically add return variable
+        -- --      if Set.member (unLoc loc) h.shared' then
+        --       localLoc loc $
+        --       localAbs x $
+        --       localAbsEnv (x, Loc loc) $
+        --       localAbsHeap (loc, VNode tag (toList vs') `mkUnion` Abs (fromMaybe __IMPOSSIBLE__ def.gr_return)) $
+        --       localAbssEnv (zip def.gr_args $ toList vs') $
+        --       deriveEquations t
+        --       -- else
+        --       --   pure h
+        --
+        -- findName defs FTag{tDef} = find ((==tDef) . gr_name) defs
+        -- findName defs PTag{tDef} = find ((==tDef) . gr_name) defs
+        -- findName _ _             = Nothing
 
         valToValue :: MonadReader HCxt m => Val -> m Value
         valToValue (Var n) = Abs . fromMaybe __IMPOSSIBLE__ <$> deBruijnLookup n
@@ -480,6 +509,20 @@ deriveEquations term = case term of
         valToValue (Lit _) = pure Bas
         valToValue  _      = __IMPOSSIBLE__
 
+    App (Def defName) vs -> do
+        caller_return <- asks (fromMaybe __IMPOSSIBLE__ . gr_return . currentDef)
+        callee <- asks $ fromMaybe (error $ "can't find " ++ defName) . find ((defName==) . gr_name) . defs
+        let callee_return = fromMaybe __IMPOSSIBLE__ callee.gr_return
+        vs' <- mapM valToValue vs
+        localAbssEnv ((callee_return, Abs caller_return) : zip callee.gr_args vs') retHCxt
+      where
+        valToValue :: MonadReader HCxt m => Val -> m Value
+        valToValue (Var n) = Abs . fromMaybe __IMPOSSIBLE__ <$> deBruijnLookup n
+        valToValue (ConstantNode tag vs) = VNode tag . toList <$> mapM valToValue vs
+        valToValue (Lit _) = pure Bas
+        valToValue (Tag tag) = pure $ VNode tag []
+        valToValue _ = __IMPOSSIBLE__
+
     Bind (App (Def defName) vs) (LAltConstantNode tag abss t) -> do
       def <- asks $ fromMaybe __IMPOSSIBLE__ . find ((defName==) . gr_name) . defs
       let gr_return = maybe __IMPOSSIBLE__ Abs def.gr_return
@@ -493,7 +536,6 @@ deriveEquations term = case term of
         valToValue (Var n) = Abs . fromMaybe __IMPOSSIBLE__ <$> deBruijnLookup n
         valToValue (Lit _) = pure Bas
         valToValue  _      = __IMPOSSIBLE__
-
 
     Bind (App (Prim _) _) (LAltVar abs t)  ->
       localAbs abs $
@@ -517,9 +559,8 @@ deriveEquations term = case term of
         valToValue (Tag tag) = pure $ VNode tag []
         valToValue _ = __IMPOSSIBLE__
 
-    App (Def "printf") _ -> retHCxt
-    Error _ -> retHCxt
 
+    Error _ -> retHCxt
     t -> error $ "NOT IMPLEMENTED " ++ show t
 
 retHCxt :: MonadReader HCxt m => m HRet
@@ -836,6 +877,3 @@ listToValue = foldr1 mkUnion
 
 cnat :: Value
 cnat = VNode natTag [Bas]
-
-natTag :: Tag
-natTag = CTag{tCon = "nat" , tArity = 1}

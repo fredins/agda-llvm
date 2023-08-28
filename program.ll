@@ -1,243 +1,462 @@
-target triple = "x86_64-pc-linux-gnu"
-target datalayout = "p:64:64:64"
+target triple = "x86_64-unknown-linux-gnu"
 declare void @printf(ptr, ...)
 declare ptr @malloc(i64)
-%Node = type [4 x i64]
+%Node = type [3 x i64]
 @"%d" = private constant [4 x i8] c"%d\0A\00", align 1
+
+; Tag numbering table:
+; 0 Cnat
+; 1 FAgda.Builtin.Nat._-_
+; 2 CExample.List.[]
+; 3 FExample.downFrom
+; 4 CExample.List._∷_
+; 5 FAgda.Builtin.Nat._+_
+; 6 FExample.mapDouble
+; 7 FExample.sum
+
 define fastcc %Node
-@"DownFrom.downFrom"(i64 %x8){
-  %_1 = inttoptr i64 %x8 to ptr
-  %_2 = getelementptr inbounds %Node, ptr %_1, i32 0
-  %x1652 = load i64, ptr %_2
-  switch i64 %x1652, label %alt_default [ i64 0, label %alt_0
-                                          i64 1, label %alt_1 ]
-alt_0:
-  %_3 = inttoptr i64 %x8 to ptr
-  %_4 = getelementptr inbounds %Node, ptr %_3, i32 1
-  %x3271 = load i64, ptr %_4
-  %_5 = inttoptr i64 %x8 to ptr
-  %_6 = getelementptr inbounds %Node, ptr %_5, i32 2
-  %x3273 = load i64, ptr %_6
-  %x29 = add i64 %x3271, %x3273
-  %_8 = alloca i64
-  store i64 1, ptr %_8
-  %x3679 = ptrtoint ptr %_8 to i64
-  %_7 = insertvalue %Node undef, i64 %x3679, 0
-  %alt_0_res = insertvalue %Node %_7, i64 %x29, 1
-  br label %continue
-alt_1:
-  %_9 = inttoptr i64 %x8 to ptr
-  %_10 = getelementptr inbounds %Node, ptr %_9, i32 1
-  %x3272 = load i64, ptr %_10
-  %_12 = alloca i64
-  store i64 1, ptr %_12
-  %x3680 = ptrtoint ptr %_12 to i64
-  %_11 = insertvalue %Node undef, i64 %x3680, 0
-  %alt_1_res = insertvalue %Node %_11, i64 %x3272, 1
-  br label %continue
-alt_default:
+@"Example.downFrom"(i64 %x8){
+  %1 = inttoptr i64 %x8 to ptr
+  %2 = getelementptr inbounds %Node, ptr %1, i32 0, i64 0
+  %x3111 = load i64, ptr %2
+  switch i64 %x3111, label %default_0 [ i64 0, label %"Cnat_0"
+                                        i64 1, label %"FAgda.Builtin.Nat._-__0" ]
+"Cnat_0":
+  %3 = inttoptr i64 %x8 to ptr
+  %4 = getelementptr inbounds %Node, ptr %3, i32 0, i64 1
+  %x5557 = load i64, ptr %4
+  %5 = insertvalue %Node undef, i64 0, 0
+  %"Cnat_0_res" = insertvalue %Node %5, i64 %x5557, 1
+  br label %continue_0
+"FAgda.Builtin.Nat._-__0":
+  %6 = inttoptr i64 %x8 to ptr
+  %7 = getelementptr inbounds %Node, ptr %6, i32 0, i64 1
+  %x5558 = load i64, ptr %7
+  %8 = inttoptr i64 %x8 to ptr
+  %9 = getelementptr inbounds %Node, ptr %8, i32 0, i64 2
+  %x5559 = load i64, ptr %9
+  %"FAgda.Builtin.Nat._-__0_res" = call
+                                   fastcc
+                                   %Node
+                                   @"Agda.Builtin.Nat._-_"(i64 %x5558, i64 %x5559)
+  br label %continue_0
+default_0:
   unreachable
-continue:
-  %_13 = phi %Node [%alt_0_res, %alt_0], [%alt_1_res, %alt_1], [%alt_default_res, %alt_default]
-  %x1651 = extractvalue %Node %_13, 1
-  %_36 = alloca i64
-  store i64 1, ptr %_36
-  %x3682 = ptrtoint ptr %_36 to i64
-  %_14 = insertvalue %Node undef, i64 %x3682, 0
-  %_15 = insertvalue %Node %_14, i64 %x1651, 1
-  %_35 = alloca ptr
-  store i64 %_15, ptr %_35
-  %x3681 = ptrtoint ptr %_35 to i64
-  store i64 %x3681, ptr %x8
-  switch i64 %x1651, label %alt_default [ i64 0, label %alt_0 ]
-alt_0:
-  %_16 = insertvalue %Node undef, i64 2, 0
-  ret %Node %_16
-alt_default:
-  %_34 = alloca i64
-  store i64 1, ptr %_34
-  %x3685 = ptrtoint ptr %_34 to i64
-  %_33 = alloca i64
-  store i64 1, ptr %_33
-  %x3684 = ptrtoint ptr %_33 to i64
-  %_17 = insertvalue %Node undef, i64 %x3685, 0
-  %_18 = insertvalue %Node %_17, i64 %x3684, 1
-  %_32 = alloca ptr
-  store i64 %_18, ptr %_32
-  %x3683 = ptrtoint ptr %_32 to i64
-  %x3 = call fastcc ptr @malloc(i64 192)
-  store i64 %x3683, ptr %x3
-  %_31 = alloca i64
-  store i64 0, ptr %_31
-  %x3687 = ptrtoint ptr %_31 to i64
-  %_19 = insertvalue %Node undef, i64 %x3687, 0
-  %_20 = insertvalue %Node %_19, i64 %x8, 1
-  %_21 = insertvalue %Node %_20, i64 %x3, 2
-  %_30 = alloca ptr
-  store i64 %_21, ptr %_30
-  %x3686 = ptrtoint ptr %_30 to i64
-  %x2 = call fastcc ptr @malloc(i64 192)
-  store i64 %x3686, ptr %x2
-  %_29 = alloca i64
-  store i64 3, ptr %_29
-  %x3689 = ptrtoint ptr %_29 to i64
-  %_22 = insertvalue %Node undef, i64 %x3689, 0
-  %_23 = insertvalue %Node %_22, i64 %x2, 1
-  %_28 = alloca ptr
-  store i64 %_23, ptr %_28
-  %x3688 = ptrtoint ptr %_28 to i64
-  %x5 = call fastcc ptr @malloc(i64 192)
-  store i64 %x3688, ptr %x5
-  %_27 = alloca i64
-  store i64 4, ptr %_27
-  %x3690 = ptrtoint ptr %_27 to i64
-  %_24 = insertvalue %Node undef, i64 %x3690, 0
-  %_25 = insertvalue %Node %_24, i64 %x2, 1
-  %_26 = insertvalue %Node %_25, i64 %x5, 2
-  ret %Node %_26
+continue_0:
+  %10 = phi %Node [%"Cnat_0_res", %"Cnat_0"], [%"FAgda.Builtin.Nat._-__0_res", %"FAgda.Builtin.Nat._-__0"]
+  %x3110 = extractvalue %Node %10, 1
+  %11 = insertvalue %Node undef, i64 0, 0
+  %12 = insertvalue %Node %11, i64 %x3110, 1
+  %13 = inttoptr i64 %x8 to ptr
+  store %Node %12, ptr %13
+  switch i64 %x3110, label %default_1 [ i64 0, label %"0_1" ]
+"0_1":
+  %14 = insertvalue %Node undef, i64 2, 0
+  ret %Node %14
+default_1:
+  %15 = insertvalue %Node undef, i64 0, 0
+  %16 = insertvalue %Node %15, i64 1, 1
+  %17 = call fastcc ptr @malloc(i64 192)
+  store %Node %16, ptr %17
+  %x3 = ptrtoint ptr %17 to i64
+  %18 = insertvalue %Node undef, i64 1, 0
+  %19 = insertvalue %Node %18, i64 %x8, 1
+  %20 = insertvalue %Node %19, i64 %x3, 2
+  %21 = call fastcc ptr @malloc(i64 192)
+  store %Node %20, ptr %21
+  %x2 = ptrtoint ptr %21 to i64
+  %22 = insertvalue %Node undef, i64 3, 0
+  %23 = insertvalue %Node %22, i64 %x2, 1
+  %24 = call fastcc ptr @malloc(i64 192)
+  store %Node %23, ptr %24
+  %x5 = ptrtoint ptr %24 to i64
+  %25 = insertvalue %Node undef, i64 4, 0
+  %26 = insertvalue %Node %25, i64 %x2, 1
+  %27 = insertvalue %Node %26, i64 %x5, 2
+  ret %Node %27
 }
 
 define fastcc %Node
-@"DownFrom.sum"(i64 %x19){
-  %_1 = inttoptr i64 %x19 to ptr
-  %_2 = getelementptr inbounds %Node, ptr %_1, i32 1
-  %x34 = load i64, ptr %_2
-  %_3 = call fastcc %Node @"DownFrom.downFrom"(i64 %x34)
-  %x1660 = extractvalue %Node %_3, 0
-  %x1661 = extractvalue %Node %_3, 1
-  %x1662 = extractvalue %Node %_3, 2
-  switch i64 %x1660, label %alt_default [ i64 2, label %alt_2
-                                          i64 4, label %alt_4 ]
-alt_2:
-  %_4 = insertvalue %Node undef, i64 %x1660, 0
-  %_5 = insertvalue %Node %_4, i64 %x1661, 1
-  %_6 = insertvalue %Node %_5, i64 %x1662, 2
-  %_11 = alloca ptr
-  store i64 %_6, ptr %_11
-  %x3691 = ptrtoint ptr %_11 to i64
-  store i64 %x3691, ptr %x19
-  %_10 = alloca i64
-  store i64 1, ptr %_10
-  %x3693 = ptrtoint ptr %_10 to i64
-  %_9 = alloca i64
-  store i64 0, ptr %_9
-  %x3692 = ptrtoint ptr %_9 to i64
-  %_7 = insertvalue %Node undef, i64 %x3693, 0
-  %_8 = insertvalue %Node %_7, i64 %x3692, 1
-  ret %Node %_8
-alt_4:
-  %_12 = insertvalue %Node undef, i64 %x1660, 0
-  %_13 = insertvalue %Node %_12, i64 %x1661, 1
-  %_14 = insertvalue %Node %_13, i64 %x1662, 2
-  %_46 = alloca ptr
-  store i64 %_14, ptr %_46
-  %x3694 = ptrtoint ptr %_46 to i64
-  store i64 %x3694, ptr %x19
-  %_45 = alloca i64
-  store i64 5, ptr %_45
-  %x3696 = ptrtoint ptr %_45 to i64
-  %_15 = insertvalue %Node undef, i64 %x3696, 0
-  %_16 = insertvalue %Node %_15, i64 %x1662, 1
-  %_44 = alloca ptr
-  store i64 %_16, ptr %_44
-  %x3695 = ptrtoint ptr %_44 to i64
-  %x11 = call fastcc ptr @malloc(i64 192)
-  store i64 %x3695, ptr %x11
-  %_17 = inttoptr i64 %x11 to ptr
-  %_18 = getelementptr inbounds %Node, ptr %_17, i32 1
-  %x36 = load i64, ptr %_18
-  %_19 = call fastcc %Node @"DownFrom.sum"(i64 %x36)
-  %x1659 = extractvalue %Node %_19, 1
-  %_43 = alloca i64
-  store i64 1, ptr %_43
-  %x3698 = ptrtoint ptr %_43 to i64
-  %_20 = insertvalue %Node undef, i64 %x3698, 0
-  %_21 = insertvalue %Node %_20, i64 %x1659, 1
-  %_42 = alloca ptr
-  store i64 %_21, ptr %_42
-  %x3697 = ptrtoint ptr %_42 to i64
-  store i64 %x3697, ptr %x11
-  %_22 = inttoptr i64 %x1661 to ptr
-  %_23 = getelementptr inbounds %Node, ptr %_22, i32 0
-  %x1656 = load i64, ptr %_23
-  switch i64 %x1656, label %alt_default [ i64 0, label %alt_0
-                                          i64 1, label %alt_1 ]
-alt_0:
-  %_24 = inttoptr i64 %x1661 to ptr
-  %_25 = getelementptr inbounds %Node, ptr %_24, i32 1
-  %x3274 = load i64, ptr %_25
-  %_26 = inttoptr i64 %x1661 to ptr
-  %_27 = getelementptr inbounds %Node, ptr %_26, i32 2
-  %x3276 = load i64, ptr %_27
-  %x39 = add i64 %x3274, %x3276
-  %_29 = alloca i64
-  store i64 1, ptr %_29
-  %x3699 = ptrtoint ptr %_29 to i64
-  %_28 = insertvalue %Node undef, i64 %x3699, 0
-  %alt_0_res = insertvalue %Node %_28, i64 %x39, 1
-  br label %continue
-alt_1:
-  %_30 = inttoptr i64 %x1661 to ptr
-  %_31 = getelementptr inbounds %Node, ptr %_30, i32 1
-  %x3275 = load i64, ptr %_31
-  %_33 = alloca i64
-  store i64 1, ptr %_33
-  %x3700 = ptrtoint ptr %_33 to i64
-  %_32 = insertvalue %Node undef, i64 %x3700, 0
-  %alt_1_res = insertvalue %Node %_32, i64 %x3275, 1
-  br label %continue
-alt_default:
+@"Example.mapDouble"(i64 %x19){
+  %1 = inttoptr i64 %x19 to ptr
+  %2 = getelementptr inbounds %Node, ptr %1, i32 0, i64 0
+  %x3123 = load i64, ptr %2
+  switch i64 %x3123, label %default_2 [ i64 2, label %"CExample.List.[]_2"
+                                        i64 4, label %"CExample.List._∷__2"
+                                        i64 3, label %"FExample.downFrom_2" ]
+"CExample.List.[]_2":
+  %"CExample.List.[]_2_res" = insertvalue %Node undef, i64 2, 0
+  br label %continue_2
+"CExample.List._∷__2":
+  %3 = inttoptr i64 %x19 to ptr
+  %4 = getelementptr inbounds %Node, ptr %3, i32 0, i64 1
+  %x5560 = load i64, ptr %4
+  %5 = inttoptr i64 %x19 to ptr
+  %6 = getelementptr inbounds %Node, ptr %5, i32 0, i64 2
+  %x5562 = load i64, ptr %6
+  %7 = insertvalue %Node undef, i64 4, 0
+  %8 = insertvalue %Node %7, i64 %x5560, 1
+  %"CExample.List._∷__2_res" = insertvalue %Node %8, i64 %x5562, 2
+  br label %continue_2
+"FExample.downFrom_2":
+  %9 = inttoptr i64 %x19 to ptr
+  %10 = getelementptr inbounds %Node, ptr %9, i32 0, i64 1
+  %x5561 = load i64, ptr %10
+  %"FExample.downFrom_2_res" = call
+                               fastcc
+                               %Node
+                               @"Example.downFrom"(i64 %x5561)
+  br label %continue_2
+default_2:
   unreachable
-continue:
-  %_34 = phi %Node [%alt_0_res, %alt_0], [%alt_1_res, %alt_1], [%alt_default_res, %alt_default]
-  %x1655 = extractvalue %Node %_34, 1
-  %_41 = alloca i64
-  store i64 1, ptr %_41
-  %x3702 = ptrtoint ptr %_41 to i64
-  %_35 = insertvalue %Node undef, i64 %x3702, 0
-  %_36 = insertvalue %Node %_35, i64 %x1655, 1
-  %_40 = alloca ptr
-  store i64 %_36, ptr %_40
-  %x3701 = ptrtoint ptr %_40 to i64
-  store i64 %x3701, ptr %x1661
-  %x13 = add i64 %x1659, %x1655
-  %_39 = alloca i64
-  store i64 1, ptr %_39
-  %x3703 = ptrtoint ptr %_39 to i64
-  %_37 = insertvalue %Node undef, i64 %x3703, 0
-  %_38 = insertvalue %Node %_37, i64 %x13, 1
-  ret %Node %_38
-alt_default:
+continue_2:
+  %11 = phi %Node [%"CExample.List.[]_2_res", %"CExample.List.[]_2"], [%"CExample.List._∷__2_res", %"CExample.List._∷__2"], [%"FExample.downFrom_2_res", %"FExample.downFrom_2"]
+  %x3120 = extractvalue %Node %11, 0
+  %x3121 = extractvalue %Node %11, 1
+  %x3122 = extractvalue %Node %11, 2
+  switch i64 %x3120, label %default_3 [ i64 2, label %"CExample.List.[]_3"
+                                        i64 4, label %"CExample.List._∷__3" ]
+"CExample.List.[]_3":
+  %12 = insertvalue %Node undef, i64 %x3120, 0
+  %13 = insertvalue %Node %12, i64 %x3121, 1
+  %14 = insertvalue %Node %13, i64 %x3122, 2
+  %15 = inttoptr i64 %x19 to ptr
+  store %Node %14, ptr %15
+  %16 = inttoptr i64 %x19 to ptr
+  %17 = getelementptr inbounds %Node, ptr %16, i32 0, i64 0
+  %x3117 = load i64, ptr %17
+  switch i64 %x3117, label %default_4 [ i64 2, label %"CExample.List.[]_4"
+                                        i64 4, label %"CExample.List._∷__4"
+                                        i64 3, label %"FExample.downFrom_4" ]
+"CExample.List.[]_4":
+  %"CExample.List.[]_4_res" = insertvalue %Node undef, i64 2, 0
+  br label %continue_4
+"CExample.List._∷__4":
+  %18 = inttoptr i64 %x19 to ptr
+  %19 = getelementptr inbounds %Node, ptr %18, i32 0, i64 1
+  %x5563 = load i64, ptr %19
+  %20 = inttoptr i64 %x19 to ptr
+  %21 = getelementptr inbounds %Node, ptr %20, i32 0, i64 2
+  %x5565 = load i64, ptr %21
+  %22 = insertvalue %Node undef, i64 4, 0
+  %23 = insertvalue %Node %22, i64 %x5563, 1
+  %"CExample.List._∷__4_res" = insertvalue %Node %23, i64 %x5565, 2
+  br label %continue_4
+"FExample.downFrom_4":
+  %24 = inttoptr i64 %x19 to ptr
+  %25 = getelementptr inbounds %Node, ptr %24, i32 0, i64 1
+  %x5564 = load i64, ptr %25
+  %"FExample.downFrom_4_res" = call
+                               fastcc
+                               %Node
+                               @"Example.downFrom"(i64 %x5564)
+  br label %continue_4
+default_4:
+  unreachable
+continue_4:
+  %26 = phi %Node [%"CExample.List.[]_4_res", %"CExample.List.[]_4"], [%"CExample.List._∷__4_res", %"CExample.List._∷__4"], [%"FExample.downFrom_4_res", %"FExample.downFrom_4"]
+  %x3114 = extractvalue %Node %26, 0
+  %x3115 = extractvalue %Node %26, 1
+  %x3116 = extractvalue %Node %26, 2
+  switch i64 %x3114, label %default_5 [ i64 2, label %"CExample.List.[]_5"
+                                        i64 4, label %"CExample.List._∷__5"
+                                        i64 3, label %"FExample.downFrom_5" ]
+"CExample.List.[]_5":
+  %27 = insertvalue %Node undef, i64 %x3114, 0
+  %28 = insertvalue %Node %27, i64 %x3115, 1
+  %29 = insertvalue %Node %28, i64 %x3116, 2
+  %30 = inttoptr i64 %x19 to ptr
+  store %Node %29, ptr %30
+  %31 = insertvalue %Node undef, i64 2, 0
+  ret %Node %31
+"CExample.List._∷__5":
+  %32 = insertvalue %Node undef, i64 %x3114, 0
+  %33 = insertvalue %Node %32, i64 %x3115, 1
+  %34 = insertvalue %Node %33, i64 %x3116, 2
+  %35 = inttoptr i64 %x19 to ptr
+  store %Node %34, ptr %35
+  %36 = insertvalue %Node undef, i64 4, 0
+  %37 = insertvalue %Node %36, i64 %x3115, 1
+  %38 = insertvalue %Node %37, i64 %x3116, 2
+  ret %Node %38
+"FExample.downFrom_5":
+  %39 = insertvalue %Node undef, i64 %x3114, 0
+  %40 = insertvalue %Node %39, i64 %x3115, 1
+  %41 = insertvalue %Node %40, i64 %x3116, 2
+  %42 = inttoptr i64 %x19 to ptr
+  store %Node %41, ptr %42
+  %43 = call fastcc %Node @"Example.downFrom"(i64 %x3115)
+  ret %Node %43
+default_5:
+  unreachable
+"CExample.List._∷__3":
+  %44 = insertvalue %Node undef, i64 %x3120, 0
+  %45 = insertvalue %Node %44, i64 %x3121, 1
+  %46 = insertvalue %Node %45, i64 %x3122, 2
+  %47 = inttoptr i64 %x19 to ptr
+  store %Node %46, ptr %47
+  %48 = insertvalue %Node undef, i64 5, 0
+  %49 = insertvalue %Node %48, i64 %x3121, 1
+  %50 = insertvalue %Node %49, i64 %x3121, 2
+  %51 = call fastcc ptr @malloc(i64 192)
+  store %Node %50, ptr %51
+  %x12 = ptrtoint ptr %51 to i64
+  %52 = insertvalue %Node undef, i64 6, 0
+  %53 = insertvalue %Node %52, i64 %x3122, 1
+  %54 = call fastcc ptr @malloc(i64 192)
+  store %Node %53, ptr %54
+  %x14 = ptrtoint ptr %54 to i64
+  %55 = insertvalue %Node undef, i64 4, 0
+  %56 = insertvalue %Node %55, i64 %x12, 1
+  %57 = insertvalue %Node %56, i64 %x14, 2
+  ret %Node %57
+default_3:
+  unreachable
+}
+
+define fastcc %Node
+@"Example.sum"(i64 %x27){
+  %1 = inttoptr i64 %x27 to ptr
+  %2 = getelementptr inbounds %Node, ptr %1, i32 0, i64 0
+  %x3129 = load i64, ptr %2
+  switch i64 %x3129, label %default_6 [ i64 2, label %"CExample.List.[]_6"
+                                        i64 4, label %"CExample.List._∷__6"
+                                        i64 3, label %"FExample.downFrom_6"
+                                        i64 6, label %"FExample.mapDouble_6" ]
+"CExample.List.[]_6":
+  %"CExample.List.[]_6_res" = insertvalue %Node undef, i64 2, 0
+  br label %continue_6
+"CExample.List._∷__6":
+  %3 = inttoptr i64 %x27 to ptr
+  %4 = getelementptr inbounds %Node, ptr %3, i32 0, i64 1
+  %x5566 = load i64, ptr %4
+  %5 = inttoptr i64 %x27 to ptr
+  %6 = getelementptr inbounds %Node, ptr %5, i32 0, i64 2
+  %x5569 = load i64, ptr %6
+  %7 = insertvalue %Node undef, i64 4, 0
+  %8 = insertvalue %Node %7, i64 %x5566, 1
+  %"CExample.List._∷__6_res" = insertvalue %Node %8, i64 %x5569, 2
+  br label %continue_6
+"FExample.downFrom_6":
+  %9 = inttoptr i64 %x27 to ptr
+  %10 = getelementptr inbounds %Node, ptr %9, i32 0, i64 1
+  %x5567 = load i64, ptr %10
+  %"FExample.downFrom_6_res" = call
+                               fastcc
+                               %Node
+                               @"Example.downFrom"(i64 %x5567)
+  br label %continue_6
+"FExample.mapDouble_6":
+  %11 = inttoptr i64 %x27 to ptr
+  %12 = getelementptr inbounds %Node, ptr %11, i32 0, i64 1
+  %x5568 = load i64, ptr %12
+  %"FExample.mapDouble_6_res" = call
+                                fastcc
+                                %Node
+                                @"Example.mapDouble"(i64 %x5568)
+  br label %continue_6
+default_6:
+  unreachable
+continue_6:
+  %13 = phi %Node [%"CExample.List.[]_6_res", %"CExample.List.[]_6"], [%"CExample.List._∷__6_res", %"CExample.List._∷__6"], [%"FExample.downFrom_6_res", %"FExample.downFrom_6"], [%"FExample.mapDouble_6_res", %"FExample.mapDouble_6"]
+  %x3126 = extractvalue %Node %13, 0
+  %x3127 = extractvalue %Node %13, 1
+  %x3128 = extractvalue %Node %13, 2
+  switch i64 %x3126, label %default_7 [ i64 2, label %"CExample.List.[]_7"
+                                        i64 4, label %"CExample.List._∷__7" ]
+"CExample.List.[]_7":
+  %14 = insertvalue %Node undef, i64 %x3126, 0
+  %15 = insertvalue %Node %14, i64 %x3127, 1
+  %16 = insertvalue %Node %15, i64 %x3128, 2
+  %17 = inttoptr i64 %x27 to ptr
+  store %Node %16, ptr %17
+  %18 = insertvalue %Node undef, i64 0, 0
+  %19 = insertvalue %Node %18, i64 0, 1
+  ret %Node %19
+"CExample.List._∷__7":
+  %20 = insertvalue %Node undef, i64 %x3126, 0
+  %21 = insertvalue %Node %20, i64 %x3127, 1
+  %22 = insertvalue %Node %21, i64 %x3128, 2
+  %23 = inttoptr i64 %x27 to ptr
+  store %Node %22, ptr %23
+  %24 = insertvalue %Node undef, i64 7, 0
+  %25 = insertvalue %Node %24, i64 %x3128, 1
+  %26 = call fastcc ptr @malloc(i64 192)
+  store %Node %25, ptr %26
+  %x22 = ptrtoint ptr %26 to i64
+  %27 = call
+        fastcc
+        %Node
+        @"Agda.Builtin.Nat._+_"(i64 %x22, i64 %x3127)
+  ret %Node %27
+default_7:
   unreachable
 }
 
 define fastcc void
 @main(){
-  %_10 = alloca i64
-  store i64 1, ptr %_10
-  %x3706 = ptrtoint ptr %_10 to i64
-  %_9 = alloca i64
-  store i64 100, ptr %_9
-  %x3705 = ptrtoint ptr %_9 to i64
-  %_1 = insertvalue %Node undef, i64 %x3706, 0
-  %_2 = insertvalue %Node %_1, i64 %x3705, 1
-  %_8 = alloca ptr
-  store i64 %_2, ptr %_8
-  %x3704 = ptrtoint ptr %_8 to i64
-  %x24 = call fastcc ptr @malloc(i64 192)
-  store i64 %x3704, ptr %x24
-  %_7 = alloca i64
-  store i64 3, ptr %_7
-  %x3708 = ptrtoint ptr %_7 to i64
-  %_3 = insertvalue %Node undef, i64 %x3708, 0
-  %_4 = insertvalue %Node %_3, i64 %x24, 1
-  %_6 = alloca ptr
-  store i64 %_4, ptr %_6
-  %x3707 = ptrtoint ptr %_6 to i64
-  %x23 = call fastcc ptr @malloc(i64 192)
-  store i64 %x3707, ptr %x23
-  %_5 = call fastcc %Node @"DownFrom.sum"(i64 %x23)
-  %x25 = extractvalue %Node %_5, 1
-  call fastcc void @printf(ptr @"%d", i64 %x25)
+  %1 = insertvalue %Node undef, i64 0, 0
+  %2 = insertvalue %Node %1, i64 100, 1
+  %3 = call fastcc ptr @malloc(i64 192)
+  store %Node %2, ptr %3
+  %x32 = ptrtoint ptr %3 to i64
+  %4 = insertvalue %Node undef, i64 3, 0
+  %5 = insertvalue %Node %4, i64 %x32, 1
+  %6 = call fastcc ptr @malloc(i64 192)
+  store %Node %5, ptr %6
+  %x31 = ptrtoint ptr %6 to i64
+  %7 = insertvalue %Node undef, i64 6, 0
+  %8 = insertvalue %Node %7, i64 %x31, 1
+  %9 = call fastcc ptr @malloc(i64 192)
+  store %Node %8, ptr %9
+  %x34 = ptrtoint ptr %9 to i64
+  %10 = call fastcc %Node @"Example.sum"(i64 %x34)
+  %x35 = extractvalue %Node %10, 1
+  call fastcc void @printf(ptr @"%d", i64 %x35)
   ret void
+}
+
+define fastcc %Node
+@"Agda.Builtin.Nat._+_"(i64 %x41, i64 %x42){
+  %1 = inttoptr i64 %x41 to ptr
+  %2 = getelementptr inbounds %Node, ptr %1, i32 0, i64 0
+  %x3137 = load i64, ptr %2
+  switch i64 %x3137, label %default_8 [ i64 0, label %"Cnat_8"
+                                        i64 1, label %"FAgda.Builtin.Nat._-__8"
+                                        i64 7, label %"FExample.sum_8" ]
+"Cnat_8":
+  %3 = inttoptr i64 %x41 to ptr
+  %4 = getelementptr inbounds %Node, ptr %3, i32 0, i64 1
+  %x5570 = load i64, ptr %4
+  %5 = insertvalue %Node undef, i64 0, 0
+  %"Cnat_8_res" = insertvalue %Node %5, i64 %x5570, 1
+  br label %continue_8
+"FAgda.Builtin.Nat._-__8":
+  %6 = inttoptr i64 %x41 to ptr
+  %7 = getelementptr inbounds %Node, ptr %6, i32 0, i64 1
+  %x5571 = load i64, ptr %7
+  %8 = inttoptr i64 %x41 to ptr
+  %9 = getelementptr inbounds %Node, ptr %8, i32 0, i64 2
+  %x5573 = load i64, ptr %9
+  %"FAgda.Builtin.Nat._-__8_res" = call
+                                   fastcc
+                                   %Node
+                                   @"Agda.Builtin.Nat._-_"(i64 %x5571, i64 %x5573)
+  br label %continue_8
+"FExample.sum_8":
+  %10 = inttoptr i64 %x41 to ptr
+  %11 = getelementptr inbounds %Node, ptr %10, i32 0, i64 1
+  %x5572 = load i64, ptr %11
+  %"FExample.sum_8_res" = call
+                          fastcc
+                          %Node
+                          @"Example.sum"(i64 %x5572)
+  br label %continue_8
+default_8:
+  unreachable
+continue_8:
+  %12 = phi %Node [%"Cnat_8_res", %"Cnat_8"], [%"FAgda.Builtin.Nat._-__8_res", %"FAgda.Builtin.Nat._-__8"], [%"FExample.sum_8_res", %"FExample.sum_8"]
+  %x3136 = extractvalue %Node %12, 1
+  %13 = insertvalue %Node undef, i64 0, 0
+  %14 = insertvalue %Node %13, i64 %x3136, 1
+  %15 = inttoptr i64 %x41 to ptr
+  store %Node %14, ptr %15
+  %16 = inttoptr i64 %x42 to ptr
+  %17 = getelementptr inbounds %Node, ptr %16, i32 0, i64 0
+  %x3133 = load i64, ptr %17
+  switch i64 %x3133, label %default_9 [ i64 0, label %"Cnat_9"
+                                        i64 5, label %"FAgda.Builtin.Nat._+__9"
+                                        i64 1, label %"FAgda.Builtin.Nat._-__9" ]
+"Cnat_9":
+  %18 = inttoptr i64 %x42 to ptr
+  %19 = getelementptr inbounds %Node, ptr %18, i32 0, i64 1
+  %x5574 = load i64, ptr %19
+  %20 = insertvalue %Node undef, i64 0, 0
+  %"Cnat_9_res" = insertvalue %Node %20, i64 %x5574, 1
+  br label %continue_9
+"FAgda.Builtin.Nat._+__9":
+  %21 = inttoptr i64 %x42 to ptr
+  %22 = getelementptr inbounds %Node, ptr %21, i32 0, i64 1
+  %x5575 = load i64, ptr %22
+  %23 = inttoptr i64 %x42 to ptr
+  %24 = getelementptr inbounds %Node, ptr %23, i32 0, i64 2
+  %x5577 = load i64, ptr %24
+  %"FAgda.Builtin.Nat._+__9_res" = call
+                                   fastcc
+                                   %Node
+                                   @"Agda.Builtin.Nat._+_"(i64 %x5575, i64 %x5577)
+  br label %continue_9
+"FAgda.Builtin.Nat._-__9":
+  %25 = inttoptr i64 %x42 to ptr
+  %26 = getelementptr inbounds %Node, ptr %25, i32 0, i64 1
+  %x5576 = load i64, ptr %26
+  %27 = inttoptr i64 %x42 to ptr
+  %28 = getelementptr inbounds %Node, ptr %27, i32 0, i64 2
+  %x5578 = load i64, ptr %28
+  %"FAgda.Builtin.Nat._-__9_res" = call
+                                   fastcc
+                                   %Node
+                                   @"Agda.Builtin.Nat._-_"(i64 %x5576, i64 %x5578)
+  br label %continue_9
+default_9:
+  unreachable
+continue_9:
+  %29 = phi %Node [%"Cnat_9_res", %"Cnat_9"], [%"FAgda.Builtin.Nat._+__9_res", %"FAgda.Builtin.Nat._+__9"], [%"FAgda.Builtin.Nat._-__9_res", %"FAgda.Builtin.Nat._-__9"]
+  %x3132 = extractvalue %Node %29, 1
+  %30 = insertvalue %Node undef, i64 0, 0
+  %31 = insertvalue %Node %30, i64 %x3132, 1
+  %32 = inttoptr i64 %x42 to ptr
+  store %Node %31, ptr %32
+  %x38 = add i64 %x3136, %x3132
+  %33 = insertvalue %Node undef, i64 0, 0
+  %34 = insertvalue %Node %33, i64 %x38, 1
+  ret %Node %34
+}
+
+define fastcc %Node
+@"Agda.Builtin.Nat._-_"(i64 %x48, i64 %x49){
+  %1 = inttoptr i64 %x48 to ptr
+  %2 = getelementptr inbounds %Node, ptr %1, i32 0, i64 0
+  %x3142 = load i64, ptr %2
+  switch i64 %x3142, label %default_10 [ i64 0, label %"Cnat_10"
+                                         i64 1, label %"FAgda.Builtin.Nat._-__10" ]
+"Cnat_10":
+  %3 = inttoptr i64 %x48 to ptr
+  %4 = getelementptr inbounds %Node, ptr %3, i32 0, i64 1
+  %x5579 = load i64, ptr %4
+  %5 = insertvalue %Node undef, i64 0, 0
+  %"Cnat_10_res" = insertvalue %Node %5, i64 %x5579, 1
+  br label %continue_10
+"FAgda.Builtin.Nat._-__10":
+  %6 = inttoptr i64 %x48 to ptr
+  %7 = getelementptr inbounds %Node, ptr %6, i32 0, i64 1
+  %x5580 = load i64, ptr %7
+  %8 = inttoptr i64 %x48 to ptr
+  %9 = getelementptr inbounds %Node, ptr %8, i32 0, i64 2
+  %x5581 = load i64, ptr %9
+  %"FAgda.Builtin.Nat._-__10_res" = call
+                                    fastcc
+                                    %Node
+                                    @"Agda.Builtin.Nat._-_"(i64 %x5580, i64 %x5581)
+  br label %continue_10
+default_10:
+  unreachable
+continue_10:
+  %10 = phi %Node [%"Cnat_10_res", %"Cnat_10"], [%"FAgda.Builtin.Nat._-__10_res", %"FAgda.Builtin.Nat._-__10"]
+  %x3141 = extractvalue %Node %10, 1
+  %11 = insertvalue %Node undef, i64 0, 0
+  %12 = insertvalue %Node %11, i64 %x3141, 1
+  %13 = inttoptr i64 %x48 to ptr
+  store %Node %12, ptr %13
+  %14 = inttoptr i64 %x49 to ptr
+  %15 = getelementptr inbounds %Node, ptr %14, i32 0, i64 1
+  %x91 = load i64, ptr %15
+  %16 = insertvalue %Node undef, i64 0, 0
+  %17 = insertvalue %Node %16, i64 %x91, 1
+  %18 = inttoptr i64 %x49 to ptr
+  store %Node %17, ptr %18
+  %x45 = sub i64 %x3141, %x91
+  %19 = insertvalue %Node undef, i64 0, 0
+  %20 = insertvalue %Node %19, i64 %x45, 1
+  ret %Node %20
 }
