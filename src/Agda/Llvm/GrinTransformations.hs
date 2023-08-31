@@ -698,9 +698,6 @@ hoistFetch x1 n x2 t offset =
         isX2 xs n = caseMaybe (toList xs !!! n) False (== x2)
 
 
-
-
-
 -- | Introduce registers for all operands. A precondition
 --   the (unimplemented) common sub-expression elimination.
 --
@@ -789,5 +786,50 @@ mkRegister = \case
     let mkT vs' = Unit (VariableNode n vs') `Bind` alt
     useRegisters vs mkT
   v -> error $ "REG: " ++ prettyShow v
+
+{-
+
+DownFrom.sum r17 x16 =
+  fetch 0 [1] ; λ x44 →
+  DownFrom.downFrom 0 ; λ x63 x64 x65 →
+  case 2 of
+    CDownFrom.List.[] →
+      updateCDownFrom.List.[] 4 (2 1 0) ; λ () →
+      unit (Cnat #0)
+    CDownFrom.List._∷_ →
+      updateCDownFrom.List._∷_ 4 (2 1 0) ; λ () →
+      storel10 (FDownFrom.sum 0) ; λ x11 →
+      Agda.Builtin.Nat._+_ 0 2
+
+
+
+
+drop x₀ = 
+  fetch 0 [0] ; λ x₁ → 
+  case 0 of
+    0 → 
+      fetch 1 [1] ; x₂ →
+      case 0 of
+        _∷_ → 
+          fetch 2 [2] ; λ x₃ → 
+          fetch 3 [3] ; λ x₄ → 
+          drop x₃ ; λ () → 
+          drop x₄ ; λ () → 
+          free 4
+        [] → 
+          free 2
+        downFrom → 
+          fetch 2 [2] ; λ x₅ → 
+          drop x₅ ; λ () → 
+          free 4
+        ...
+    _ → 
+      decref 0
+-}
+
+
+
+
+
 
 

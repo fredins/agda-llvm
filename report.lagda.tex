@@ -70,14 +70,10 @@ However, ...
 \item Lower throughput than tracing GC
 \item Not very good at handling short lived values which is most values (especially in pure FP)
 \item \citet{reinking2021} and \citet{ullrich2021} minimize RC operations through precise reference counting and a linear calculus.
+% \item Perceus are more adapt to handle short lived valus, or rather unique values, because the fast path 
+%     in drop 
 \item more...
 \end{itemize}
-
-
-
-
-
-
 
 
 %\citet{ullrich2021} uses reference counting with 
@@ -105,6 +101,9 @@ However, ...
 \item Add reuse and borrowing
 \item Utilse GRIN's whole program compilation strategy and the heap points-to analysis to statically determine unshared values during compile time, and thus minimizing the number of reference countinging operations.
 \item It would also be intresting to utilse 0-modality (erasure) in Agda's type system, and later also 1-modality when Agda gets it.
+\item Currently decref and dup are primitives is GRIN however it would be intresting to adjust update
+      with offsets, similiar to fetch.
+\item In the current naive implementation drop enumerates all the possible tags 
 \end{itemize}
 
 % Lambda lifting

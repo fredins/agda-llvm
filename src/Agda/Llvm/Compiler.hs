@@ -456,7 +456,7 @@ cSchemeApp t as = do
           pure (s : ss, Var (length ss) : vs)
         f (TVar n)   (ss, vs) = pure (ss, Var (n + nLits) : vs)
         f TErased    (ss, vs) = pure (ss, vs)
-        f _          _        = __IMPOSSIBLE__
+        f t          _        = error $ "CSCHEMEAPP: " ++ show t
 
     (stores, vs) <-  foldrM f ([], []) as
 
