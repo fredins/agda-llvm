@@ -9,6 +9,7 @@
 module Agda.Llvm.Grin (module Agda.Llvm.Grin) where
 
 import           Control.Monad                (replicateM)
+import Data.List (singleton)
 
 import           Agda.Compiler.Backend        hiding (Prim)
 import           Agda.Llvm.Utils
@@ -61,6 +62,8 @@ data Term = Bind Term LAlt
           | Fetch Int (Maybe Int)
           | Update (Maybe Tag) Int Val
           | Error TError
+          | Decref Int
+          | Dup Int 
             deriving (Show, Eq)
 
 data Val = ConstantNode Tag (List1 Val)
@@ -98,6 +101,12 @@ data Tag = CTag {tCon :: String, tArity :: Int}
            deriving (Show, Eq, Ord)
 
 newtype Gid = Gid{unGid :: Int} deriving (Show, Eq, Ord, Enum)
+
+drop :: Int -> Term
+drop = App (Def "drop") . singleton . Var
+
+free :: Int -> Term
+free = App (Def "free") . singleton . Var
 
 constantCNode :: String -> List1 Val -> Val
 constantCNode name vs = ConstantNode (CTag name (length vs)) vs

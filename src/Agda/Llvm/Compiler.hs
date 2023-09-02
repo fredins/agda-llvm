@@ -4,15 +4,15 @@
 {-# LANGUAGE OverloadedStrings        #-}
 {-# LANGUAGE ScopedTypeVariables      #-}
 {-# LANGUAGE ViewPatterns             #-}
-
+{-# LANGUAGE OverloadedLists #-}
 module Agda.Llvm.Compiler (module Agda.Llvm.Compiler) where
 
 import           Control.DeepSeq                (NFData)
-import           Control.Monad                  (forM, mapAndUnzipM, replicateM)
+import           Control.Monad                  (forM, mapAndUnzipM, replicateM, ap)
 import           Control.Monad.IO.Class         (liftIO)
 import           Control.Monad.Reader           (MonadReader,
                                                  ReaderT (runReaderT), asks)
-import           Control.Monad.State            (MonadState, State, StateT,
+import           Control.Monad.State            (MonadState, State, StateT, evalState,
                                                  evalStateT, gets, modify,
                                                  runState)
 import           Data.Bifunctor                 (Bifunctor (bimap, first))
@@ -25,7 +25,7 @@ import           Data.Map                       (Map)
 import qualified Data.Map                       as Map
 import           Data.Tuple.Extra               (swap)
 import           GHC.Generics                   (Generic)
-import           Prelude                        hiding ((!!))
+import           Prelude                        hiding ((!!), drop)
 
 import           Agda.Compiler.Backend          hiding (Prim, getPrimitive,
                                                  initEnv)
@@ -261,13 +261,33 @@ llvmPostCompile _ _ mods = do
   -- res_introduceRegisters <- interpretGrin defs_introduceRegisters
   -- liftIO $ putStrLn $ "\nResult: " ++ show res_introduceRegisters
 
-  let (llvm_ir, tagsToInt) = grinToLlvm defs_rightHoistFetch
+
+  (llvm_ir, tagsToInt) <- grinToLlvm defs_rightHoistFetch
+  let 
       header =
         unlines
           [ "target triple = \"x86_64-unknown-linux-gnu\""
           , "declare void @printf(ptr, ...)"
           , "declare ptr @malloc(i64)"
-          , "%Node = type [3 x i64]" ]
+          , "declare void @free(ptr)"
+          -- TODO In all instances except Cnat the arguments are points and thus
+          --      only need 8 bits. Using 64 bits for pointers are wastefull.
+          --
+          -- Optimal layout? (Cnat will occupy all args)
+          --
+          --          88 bits
+          -- ----------------------------
+          -- | tag | rc | arg1 ... arg8 |
+          -- ----------------------------
+          --   16    8        8*8
+          --
+          -- Current layout:
+          --           256 bits
+          -- ---------------------------------------
+          -- | tag | rc | arg1 | arg2 |
+          -- ---------------------------------------
+          --   64    64    64     64
+          , "%Node = type [4 x i64]" ]
          ++ "@\"%d\" = private constant [4 x i8] c\"%d\\0A\\00\", align 1"
 
          -- -- debug
@@ -302,6 +322,63 @@ llvmPostCompile _ _ mods = do
 -- • Lambda lifted
 -- • No polymorphic functions?
 -- • Saturated constructors
+
+{-
+drop x₀ = 
+  fetch 0 [1] ; λ x₁ → 
+  case 0 of
+    0 → 
+      fetch 1 [0] ; x₂ →
+      case 0 of
+        _∷_ → 
+          fetch 2 [2] ; λ x₃ → 
+          drop 0 ; λ () → 
+          fetch 3 [3] ; λ x₄ → 
+          drop 0 ; λ () → 
+          free 4
+        [] → 
+          free 2
+        downFrom → 
+          fetch 2 [2] ; λ x₅ → 
+          drop 0 ; λ () → 
+          free 4
+        ...
+    _ → 
+      decref 0
+-}
+mkDrop :: forall mf. MonadFresh Int mf => [Tag] -> mf GrinDefinition
+mkDrop tags = do
+  term <- FetchOffset 0 1 `bindVarR` caseRc
+  arg <- freshAbs
+  pure GrinDefinition
+    { gr_name = "drop"
+    , gr_isMain = False
+    , gr_primitive = Nothing 
+    , gr_arity = 1
+    , gr_type = Nothing
+    , gr_term = term
+    , gr_args = [arg]
+    , gr_return = Nothing
+    }
+
+  where
+  caseRc = Case (Var 0) (Decref 0) . singleton . CAltLit (LitNat 0) <$> unique
+
+  unique :: mf Term
+  unique = 
+    FetchOffset 1 0 `bindVarR`
+    Case (Var 0) unreachable <$> mapM mkAlt tags
+
+  -- TODO big layout
+  mkAlt :: Tag -> mf CAlt
+  mkAlt tag = CAltTag tag <$> foldrM dropChild (free 2) (take arity [2 .. ])
+    where
+    arity = tagArity tag
+    dropChild offset t =
+      FetchOffset 2 offset `bindVar`
+      drop 0               `BindEmpty`
+      raise 1 t
+
 
 treelessToGrin :: [TreelessDefinition] -> TCM [GrinDefinition]
 treelessToGrin defs =
@@ -660,11 +737,16 @@ mkWithOffset n a = WithOffset{offset = n, value = a}
 -- * LLVM code generation
 -----------------------------------------------------------------------
 
-grinToLlvm :: [GrinDefinition] -> ([L.Instruction], Map Tag Int)
-grinToLlvm defs = (instructions, final_state.cg_tagNums)
+grinToLlvm :: MonadFresh Int mf => [GrinDefinition] -> mf ([L.Instruction], Map Tag Int)
+grinToLlvm defs = do
+  def_drop <- mkDrop (Map.keys tagNums)
+  let instruction_drop = evalState (go (defs `snoc` def_drop) def_drop) final_state
+  pure (instructions `snoc` instruction_drop, tagNums)
   where
-  (instructions, final_state) =
-    flip runState initLlvmGenEnv $ forM defs $ \def ->
+  tagNums = final_state.cg_tagNums
+
+  (instructions, final_state) = runState (ap forM go defs) initLlvmGenEnv 
+  go defs def = 
     let cxt = initLlvmGenCxt defs def in
     (freshUnnamedLens .= 1) *> runReaderT (runLlvmGen $ definitionToLlvm def) cxt
 
@@ -675,11 +757,14 @@ grinToLlvm defs = (instructions, final_state.cg_tagNums)
 
 mkGlobalTys :: [GrinDefinition] -> Map L.GlobalId ([L.Type], L.Type)
 mkGlobalTys defs =
-  Map.fromList $ for defs $ \def ->
-    let types
-          | getShortName def == "main" = ([], L.Void)
-          | otherwise = (replicate def.gr_arity L.I64, L.nodeTySyn) in
-    (L.mkGlobalId def.gr_name, types)
+  Map.insert (L.mkGlobalId @String "free") ([L.Ptr], L.Void) $ Map.fromList $ map go defs
+  where
+  go def = (L.mkGlobalId def.gr_name, types)
+    where
+    types 
+      | getShortName def == "main" = ([], L.Void)
+      | getShortName def == "drop" = ([L.I64], L.Void)
+      | otherwise = (replicate def.gr_arity L.I64, L.nodeTySyn)
 
 definitionToLlvm :: GrinDefinition -> LlvmGen L.Instruction
 definitionToLlvm def = do
@@ -688,6 +773,7 @@ definitionToLlvm def = do
   let args = zip argsTy $ map L.mkLocalId def.gr_args
   L.Define L.Fastcc returnTy f args <$> termToLlvm def.gr_term
 
+-- TODO should use valToLlvm for insertvalue stuff
 termToLlvm :: Term -> LlvmGen (List1 L.Instruction)
 -- FIXME ugly
 termToLlvm (Case (Var n) t alts `Bind` alt) = do
@@ -761,20 +847,14 @@ termToLlvm (Store _ v `Bind` LAltVar (L.mkLocalId -> x) t) = do
   let instruction_store = L.store L.nodeTySyn v' x_unnamed_ptr
       instruction_ptrtoint = L.SetVar x (L.ptrtoint x_unnamed_ptr)
   instructions2 <- varLocal x (termToLlvm t)
-  pure $ instructions1 `List1.prependList`
-    (instruction_malloc <| instruction_store <| instruction_ptrtoint <| instructions2)
+  pure $ instructions1 `List1.prependList` 
+    ([instruction_malloc, instruction_store, instruction_ptrtoint] <> instructions2)
 
 termToLlvm (FetchOffset n offset `Bind` alt) = do
   x <- fromMaybe __IMPOSSIBLE__ <$> varLookup n
   (x_unnamed_ptr, i_inttoptr) <- setVar (L.inttoptr x)
   (x_unnamed, i_getelemtptr) <- setVar (L.getelementptr x_unnamed_ptr offset)
   List1.prependList [i_inttoptr, i_getelemtptr] <$> laltToContinuation alt (L.load L.I64 x_unnamed)
-
-termToLlvm (App (Def (L.mkGlobalId -> f)) vs `Bind` alt) = do
-  (concat -> is, vs') <- mapAndUnzipM valToLlvm vs
-  (argsTy, returnTy) <- fromMaybe __IMPOSSIBLE__ <$> globalLookup f
-  let i_call = L.Call L.Fastcc returnTy f $ zip argsTy vs'
-  List1.prependList is <$> laltToContinuation alt i_call
 
 termToLlvm (App (Prim prim) [v1, v2] `Bind` alt) = do
   let op = case prim of
@@ -796,45 +876,25 @@ termToLlvm (UpdateTag _ n v `BindEmpty` t) = do
     (instructions_inttoptr <| instruction_store <| instructions2)
 
 termToLlvm (Unit (VariableNode n vs) `Bind` LAltVar (L.mkLocalId -> x) t) = do
-  v <- maybe __IMPOSSIBLE__ L.LocalId <$> varLookup n
-  (instructions1, vs') <- first concat . List1.unzip <$> mapM valToLlvm vs
+  tagNum <- maybe __IMPOSSIBLE__ L.LocalId <$> varLookup n
+  instructions1 <- insertValues (pure . List1.singleton . L.SetVar x) tagNum vs
+  instructions2 <- varLocal x (termToLlvm t)
+  pure (instructions1 <> instructions2)
 
-  xs <- (|: x) <$> replicateM (List1.length vs') freshUnnamedVar
-  let instructions2 =
-        snd $ mapAccumL (\v_acc (v, offset, x) -> (L.LocalId x, L.SetVar x $ L.insertvalue v_acc v offset))
-        L.Undef $ list1zip3 (v <| vs') (0 :| [1 ..]) xs
-
-  instructions3 <- varLocal x (termToLlvm t)
-
-  pure $ instructions1 `List1.prependList` instructions2 <> instructions3
-
--- Returning tags are different because they currently need to be boxed
 termToLlvm (Unit (Tag tag)) = do
-  v <- L.mkLit <$> tagNumLookup tag
-  let instruction_insertvalue = L.insertvalue L.Undef v 0
+  tagNum <- L.mkLit <$> tagNumLookup tag
   cont <- view continuationLens
-  cont instruction_insertvalue
+  insertValues cont tagNum [Tag tag]
 
 termToLlvm (Unit (VariableNode n vs)) = do
-  v <- maybe __IMPOSSIBLE__ L.LocalId <$> varLookup n
-  (is1, (vs', v')) <- bimap concat (List1.initLast . (v <|)) . List1.unzip <$> mapM valToLlvm vs
-  (v'', is2) <- forAccumM L.Undef (zip vs' [0 ..]) $ \acc (v, offset) -> do
-    (x_unnamed, i_insertvalue) <- first L.LocalId <$> setVar (L.insertvalue acc v offset)
-    pure (x_unnamed, i_insertvalue)
+  tagNum <- maybe __IMPOSSIBLE__ L.LocalId <$> varLookup n
   cont <- view continuationLens
-  let offset = length vs
-  is3 <- cont (L.insertvalue v'' v' offset)
-  pure $ (is1 ++ is2) `List1.prependList` is3
+  insertValues cont tagNum vs
 
 termToLlvm (Unit (ConstantNode tag vs)) = do
-  v <- L.mkLit <$> tagNumLookup tag
-  (instructions1, (vs', v')) <- bimap concat (List1.initLast . (v <|)). List1.unzip <$> mapM valToLlvm vs
-  (v'', instructions2) <- forAccumM L.Undef (zip vs' [0 ..]) $ \acc (v, offset) -> do
-    (x_unnamed, i_insertvalue) <- first L.LocalId <$> setVar (L.insertvalue acc v offset)
-    pure (x_unnamed, i_insertvalue)
-  let instruction_insertvalue = L.insertvalue v'' v' (length vs)
-  instructions3 <- ($ instruction_insertvalue) =<< view continuationLens
-  pure $ (instructions1 ++ instructions2) `List1.prependList` instructions3
+  tagNum <- L.mkLit <$> tagNumLookup tag
+  cont <- view continuationLens
+  insertValues cont tagNum vs
 
 termToLlvm (App (Def "printf") [v]) = do
   (is, v') <- valToLlvm v
@@ -842,7 +902,27 @@ termToLlvm (App (Def "printf") [v]) = do
       i_call = L.Call L.Fastcc L.Void "@printf" [(L.Ptr, format), (L.I64, v')]
   pure $ is `List1.prependList` (i_call <| L.RetVoid :| [])
 
+termToLlvm (App (Def (L.mkGlobalId -> f)) vs `Bind` alt) = do
+  (instructions, vs') <- first concat <$> mapAndUnzipM valToLlvm vs
+  (argsTy, returnTy) <- fromMaybe __IMPOSSIBLE__ <$> globalLookup f
+  let i_call = L.Call L.Fastcc returnTy f $ zip argsTy vs'
+  List1.prependList instructions <$> laltToContinuation alt i_call
+
+-- TODO free
 -- TODO tail call?
+
+termToLlvm (App (Def "free" ) [Var n]) = do
+  x <- fromMaybe __IMPOSSIBLE__ <$> varLookup n
+  (v_unnamed_ptr, instruction_inttoptr) <- first L.LocalId <$> setVar (L.inttoptr x)
+  let instruction_call = L.Call L.Fastcc L.Void "@free" [(L.Ptr, v_unnamed_ptr)]
+  -- LLVM is stupid and doesn't let you tail call in a switch. Hopefully 
+  -- the optimizer will tail call it when translating to native.
+      instruction_ret  = L.Ret L.Void Nothing 
+  pure 
+    [ instruction_inttoptr
+    , instruction_call 
+    , instruction_ret ]
+
 termToLlvm (App (Def (L.mkGlobalId -> f)) vs) = do
   (argsTy, returnTy) <- fromMaybe __IMPOSSIBLE__ <$> globalLookup f
   (instructions1, vs') <- first concat . unzip <$> mapM valToLlvm vs
@@ -851,21 +931,46 @@ termToLlvm (App (Def (L.mkGlobalId -> f)) vs) = do
   pure (instructions1 `List1.prependList` instructions2)
 
 termToLlvm (Error TUnreachable) = pure $ List1.singleton L.Unreachable
+
+
+-- termToLlvm (FetchOffset n offset `Bind` alt) = do
+--   x <- fromMaybe __IMPOSSIBLE__ <$> varLookup n
+--   (x_unnamed_ptr, i_inttoptr) <- setVar (L.inttoptr x)
+--   (x_unnamed, i_getelemtptr) <- setVar (L.getelementptr x_unnamed_ptr offset)
+--   List1.prependList [i_inttoptr, i_getelemtptr] <$> laltToContinuation alt (L.load L.I64 x_unnamed)
+
+termToLlvm (Decref n) = do
+  x <- fromMaybe __IMPOSSIBLE__ <$> varLookup n
+  (x_unnamed_ptr, instruction_inttoptr) <- setVar (L.inttoptr x)
+  (x_unnamed, instruction_getelementptr) <- setVar (L.getelementptr x_unnamed_ptr 0)
+  -- FIXME not 64 bits
+  (v_unnamed_rc, instruction_load) <- first L.LocalId <$> setVar (L.load L.I64 x_unnamed)
+  (v_unnamed_rc', instruction_sub) <- first L.LocalId <$> setVar (L.sub64 v_unnamed_rc (L.mkLit 1))
+  let instruction_store = L.store L.I64 v_unnamed_rc' x_unnamed_ptr
+      instruction_ret   = L.Ret L.Void Nothing
+  pure 
+    [ instruction_inttoptr  
+    , instruction_getelementptr 
+    , instruction_load 
+    , instruction_sub  
+    , instruction_store 
+    , instruction_ret ]
+
 termToLlvm t = error $ "BAD: " ++ show t
 
 laltToContinuation :: LAlt -> L.Instruction -> LlvmGen (List1 L.Instruction)
 laltToContinuation (LAltVar (L.mkLocalId -> x) t) i = (L.SetVar x i <|) <$> varLocal x (termToLlvm t)
-laltToContinuation (LAltConstantNode _ (map L.mkLocalId -> xs) t) i = do
-  (L.LocalId -> x_unnamed, i_setVar) <- setVar i
-  let is_extractvalue = zipWith (\x -> L.SetVar x . L.extractvalue x_unnamed) xs [1 ..]
-  let xs' = caseList xs __IMPOSSIBLE__ (:|)
-  is <- varLocals xs' (termToLlvm t)
-  pure $ (i_setVar :| is_extractvalue) <> is
+laltToContinuation (LAltConstantNode _ (map L.mkLocalId -> xs) t) instruction = do
+  (unnamed, instruction_setVar) <- first L.LocalId <$> setVar instruction
+  let instructions_extractvalue = zipWith (\x -> L.SetVar x . L.extractvalue unnamed) xs [2 ..]
+  let xs' = caseList xs __IMPOSSIBLE__ (:|) 
+  instructions <- varLocals xs' (termToLlvm t)
+  pure $ (instruction_setVar :| instructions_extractvalue) <> instructions
 laltToContinuation (LAltVariableNode (L.mkLocalId -> x) (map L.mkLocalId -> xs) t) i = do
-  (L.LocalId -> x_unnamed, i_setVar) <- setVar i
-  let is_extractvalue = zipWith (\x -> L.SetVar x . L.extractvalue x_unnamed) (x : xs) [0 ..]
+  (unnamed, i_setVar) <- first L.LocalId <$> setVar i
+  let instructions_extractvalue = List1.zipWith (\x -> L.SetVar x . L.extractvalue unnamed) (x :| xs) (0 :| [2 ..])
   is <- varLocals (x :| xs) (termToLlvm t)
-  pure $ (i_setVar :| is_extractvalue) <> is
+  pure $ i_setVar <| (instructions_extractvalue <> is)
 laltToContinuation (LAltEmpty t) _ = termToLlvm t
 
 valToLlvm :: Val -> LlvmGen ([L.Instruction], L.Val)
@@ -874,21 +979,31 @@ valToLlvm (Def s) = pure ([], L.LocalId $ L.mkLocalId s)
 valToLlvm (Prim _) = __IMPOSSIBLE__
 valToLlvm (Lit lit) = pure ([], L.Lit lit)
 valToLlvm (VariableNode n vs) = do
-  v <- maybe __IMPOSSIBLE__ L.LocalId <$> varLookup n
-  (instructions1, vs') <- bimap concat (v <|) . List1.unzip <$> mapM valToLlvm vs
-  (v', instructions2) <- forAccumM L.Undef (List1.zip vs' (0 :| [1 ..])) $ \acc (v, offset) -> do
-    (L.LocalId -> x_unnamed, i_insertvalue) <- setVar (L.insertvalue acc v offset)
-    pure (x_unnamed, i_insertvalue)
-  pure (instructions1  ++ toList instructions2, v')
+  tagNum <- maybe __IMPOSSIBLE__ L.LocalId <$> varLookup n
+  let cont instruction = freshUnnamedVar <&> \unnamed -> List1.singleton (L.SetVar unnamed instruction)
+  instructions <- insertValues cont tagNum vs
+  unnamed <- L.LocalId . L.mkLocalId . pred <$> use freshUnnamedLens
+  pure (toList instructions, unnamed)
 valToLlvm (ConstantNode tag vs) = do
-  v <- L.mkLit <$> tagNumLookup tag
-  (instructions1, vs') <- bimap concat (v <|) . List1.unzip <$> mapM valToLlvm vs
-  (v', instructions2) <- forAccumM L.Undef (List1.zip vs' (0 :| [1 ..])) $ \acc (v, offset) -> do
-    (L.LocalId -> x_unnamed, i_insertvalue) <- setVar (L.insertvalue acc v offset)
-    pure (x_unnamed, i_insertvalue)
-  pure (instructions1  ++ toList instructions2, v')
+  tagNum <- L.mkLit <$> tagNumLookup tag
+  let cont instruction = freshUnnamedVar <&> \unnamed -> List1.singleton (L.SetVar unnamed instruction)
+  instructions <- insertValues cont tagNum vs
+  unnamed <- L.LocalId . L.mkLocalId . pred <$> use freshUnnamedLens
+  pure (toList instructions, unnamed)
 valToLlvm (Tag tag) = ([], ) . L.Lit <$> tagToLlvm tag
 valToLlvm Empty = __IMPOSSIBLE__
+
+-- values should not include tag nor reference count
+insertValues :: Continuation -> L.Val -> List1 Val -> LlvmGen (List1 L.Instruction)
+insertValues cont tagNum args = do 
+  (instructions1, args') <- first concat . List1.unzip <$> mapM valToLlvm args
+  let (vs, v) = List1.initLast ([tagNum, L.mkLit 1] <> args')
+      (offsets, offset) = List1.initLast [0 .. length vs]
+  (acc, instructions2) <- mapAccumM insertValue L.Undef (zip vs offsets) 
+  instructions3 <- cont (L.insertvalue acc v offset)
+  pure (List1.prependList (instructions1 <> instructions2) instructions3)
+  where
+  insertValue acc (v, offset) = first L.LocalId <$> setVar (L.insertvalue acc v offset)
 
 data LlvmGenEnv = LlvmGenEnv
   { cg_freshUnnamed :: Int

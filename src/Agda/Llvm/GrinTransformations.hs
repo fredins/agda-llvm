@@ -1,10 +1,11 @@
-{-# LANGUAGE OverloadedLists     #-}
+-- {-# LANGUAGE OverloadedLists     #-}
 {-# LANGUAGE OverloadedRecordDot #-}
 {-# LANGUAGE ViewPatterns        #-}
 
 module Agda.Llvm.GrinTransformations (module Agda.Llvm.GrinTransformations) where
 
 
+import Prelude hiding (drop)
 import           Control.Applicative                (liftA2)
 import           Control.Monad                      (ap, forM, replicateM,
                                                      (<=<))
@@ -15,6 +16,7 @@ import           Control.Monad.State                (StateT (runStateT),
 import           Data.Foldable                      (find, foldrM, toList)
 import           Data.Function                      (on)
 import           Data.Map                           (Map)
+import Data.List (singleton)
 import qualified Data.Map                           as Map
 import           Data.Set                           (Set)
 import qualified Data.Set                           as Set
@@ -22,6 +24,7 @@ import qualified Data.Set                           as Set
 import           Agda.Compiler.Backend              hiding (Prim)
 import           Agda.Llvm.Grin
 import           Agda.Llvm.HeapPointsTo
+import           Agda.Syntax.Literal (Literal(LitNat))
 import           Agda.Llvm.Utils
 import           Agda.Syntax.Common.Pretty
 import           Agda.TypeChecking.SizedTypes.Utils (trace)
@@ -174,7 +177,7 @@ inlineEval defs absCxt tagInfo =
 
       eval <&> (, returnTags)
       where
-      returnTags = mkReturnTags [tag]
+      returnTags = mkReturnTags (tag :| [])
 
     genCase tags = do
       x1 <- freshAbs
@@ -380,10 +383,10 @@ specializeUpdate _absCxt def = do
         Unit (Var n2') `Bind` LAltConstantNode tag xs t'
 
   -- Returning eval/update [Boquist 1999, p. 95]
-  go term@(Fetch n1 offset      `Bind` LAltVar x1
-          (Case v1 t alts       `Bind` LAltVar x2
-          (Update Nothing n2 v2 `BindEmpty`
-           Unit v2')))
+  go (Fetch n1 offset      `Bind` LAltVar x1
+     (Case v1 t alts       `Bind` LAltVar x2
+     (Update Nothing n2 v2 `BindEmpty`
+      Unit v2')))
     | v2' == v2 = do
     x <- asks $ fromMaybe __IMPOSSIBLE__ . (!!! n1) . vars
     tags <- maybe __IMPOSSIBLE__ toList <$> runMaybeT (fetchTagSet =<< fetchLocations x)
@@ -577,14 +580,14 @@ simplifyCase term = term
 splitFetch :: Term -> Term
 splitFetch (FetchNode n `Bind` alt)
   | LAltVariableNode x xs t <- alt =
-    let mkFetch x m t = FetchOffset (n + m) m `Bind` LAltVar x t in
+    let mkFetch x m t = FetchOffset (n + m - 1) m `Bind` LAltVar x t in
     FetchOffset n 0 `Bind` LAltVar x
     (mkFetchs xs (splitFetch t) mkFetch)
   | LAltConstantNode tag xs t <- alt =
-    let mkFetch x m t = FetchOffset (n + m - 1) m `Bind` LAltVar x t in
+    let mkFetch x m t = FetchOffset (n + m - 2) m `Bind` LAltVar x t in
     mkFetchs xs (splitFetch t) mkFetch
   where
-    mkFetchs xs t f = foldr (uncurry f) t $ zip xs [1 ..]
+    mkFetchs xs t f = foldr (uncurry f) t $ zip xs [2 ..]
 
 splitFetch (t1 `Bind` alt) =
   splitFetch t1 `Bind` mkAlt (splitFetch t2)
@@ -787,45 +790,9 @@ mkRegister = \case
     useRegisters vs mkT
   v -> error $ "REG: " ++ prettyShow v
 
-{-
-
-DownFrom.sum r17 x16 =
-  fetch 0 [1] ; λ x44 →
-  DownFrom.downFrom 0 ; λ x63 x64 x65 →
-  case 2 of
-    CDownFrom.List.[] →
-      updateCDownFrom.List.[] 4 (2 1 0) ; λ () →
-      unit (Cnat #0)
-    CDownFrom.List._∷_ →
-      updateCDownFrom.List._∷_ 4 (2 1 0) ; λ () →
-      storel10 (FDownFrom.sum 0) ; λ x11 →
-      Agda.Builtin.Nat._+_ 0 2
 
 
-
-
-drop x₀ = 
-  fetch 0 [0] ; λ x₁ → 
-  case 0 of
-    0 → 
-      fetch 1 [1] ; x₂ →
-      case 0 of
-        _∷_ → 
-          fetch 2 [2] ; λ x₃ → 
-          fetch 3 [3] ; λ x₄ → 
-          drop x₃ ; λ () → 
-          drop x₄ ; λ () → 
-          free 4
-        [] → 
-          free 2
-        downFrom → 
-          fetch 2 [2] ; λ x₅ → 
-          drop x₅ ; λ () → 
-          free 4
-        ...
-    _ → 
-      decref 0
--}
+      
 
 
 
