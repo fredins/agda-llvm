@@ -1,12 +1,18 @@
+{-# LANGUAGE ViewPatterns #-}
+{-# LANGUAGE OverloadedLists     #-}
 
 module Agda.Llvm.Utils
-  ((.:)
+  ( pattern Snoc
+  , pattern Snoc1
+  , foldMapM
+  , list1scanr
   , list1zip3
   , list1zipWith3
   , list1unzip4
   , unionNub
   , differenceBy
   , (??)
+  , (.:)
   , caseEither
   , swap01'
   , printPretty
@@ -16,7 +22,7 @@ module Agda.Llvm.Utils
   , forAccumM
   ) where
 
-import           Control.Monad                (join, liftM, (<=<))
+import           Control.Monad                (liftM) 
 import           Data.Coerce                  (Coercible, coerce)
 import           Data.Functor                 (($>))
 import           Data.List                    (deleteBy, mapAccumR, union,
@@ -27,10 +33,26 @@ import           Agda.Syntax.Common.Pretty
 import           Agda.TypeChecking.Substitute
 import           Agda.Utils.List1             (List1, pattern (:|), (<|))
 import qualified Agda.Utils.List1             as List1
+import Agda.Utils.List 
 
-infixr 8 .:
-(.:) :: (c -> d) -> (a -> b -> c) -> a -> b -> d
-(f .: g) x y = f (g x y)
+pattern Snoc xs x <- (initLast -> Just (xs, x)) 
+  where
+  Snoc xs x = snoc xs x
+
+pattern Snoc1 xs x <- (List1.initLast -> (xs, x)) 
+  where
+  Snoc1 xs x = List1.snoc xs x
+
+foldMapM :: (Monoid b, Monad m, Foldable f) => (a -> m b) -> f a -> m b
+foldMapM f xs = foldr step pure xs mempty
+  where
+  step x g acc = g . (acc <>) =<< f x
+
+list1scanr :: (a -> b -> b) -> (a -> b) -> List1 a -> List1 b
+list1scanr _ g (x :| [])      =  [g x]
+list1scanr f g (x1 :| x2 : xs) = f x1 (List1.head ys) <| ys
+  where 
+  ys = list1scanr f g (x2 :| xs)
 
 list1zip3 :: List1 a -> List1 b -> List1 c -> List1 (a, b, c)
 list1zip3 = list1zipWith3 (,,)
@@ -49,6 +71,10 @@ unionNub xs = union xs . filter (`notElem` xs)
 -- | Non-overloaded version of '\\' (non-associative).
 differenceBy :: (a -> a -> Bool) -> [a] -> [a] -> [a]
 differenceBy eq =  foldl (flip $ deleteBy eq)
+
+infixr 8 .:
+(.:) :: (c -> d) -> (a -> b -> c) -> a -> b -> d
+(f .: g) x y = f (g x y)
 
 (??) :: Functor f => f (a -> b) -> a -> f b
 fab ?? a = fmap ($ a) fab

@@ -5,40 +5,32 @@
 module Agda.Llvm.GrinTransformations (module Agda.Llvm.GrinTransformations) where
 
 
-import Prelude hiding (drop)
-import           Control.Applicative                (liftA2)
-import           Control.Monad                      (ap, forM, replicateM,
-                                                     (<=<))
-import           Control.Monad.Reader               (MonadReader (local),
-                                                     ReaderT (runReaderT), asks)
-import           Control.Monad.State                (StateT (runStateT),
-                                                     evalStateT, gets, modify)
-import           Data.Foldable                      (find, foldrM, toList)
-import           Data.Function                      (on)
-import           Data.Map                           (Map)
-import Data.List (singleton)
-import qualified Data.Map                           as Map
-import           Data.Set                           (Set)
-import qualified Data.Set                           as Set
+import           Control.Applicative          (liftA2)
+import           Control.Monad                (forM, (<=<))
+import           Control.Monad.Reader         (MonadReader (local),
+                                               ReaderT (runReaderT), asks)
+import           Control.Monad.State          (StateT (runStateT), modify)
+import           Control.Monad.Trans.Maybe    (MaybeT (..), hoistMaybe)
+import           Data.Foldable                (find, toList)
+import           Data.Map                     (Map)
+import qualified Data.Map                     as Map
+import           Data.Set                     (Set)
+import qualified Data.Set                     as Set
+import           Prelude                      hiding (drop)
 
-import           Agda.Compiler.Backend              hiding (Prim)
+import           Agda.Compiler.Backend        hiding (Prim)
 import           Agda.Llvm.Grin
 import           Agda.Llvm.HeapPointsTo
-import           Agda.Syntax.Literal (Literal(LitNat))
 import           Agda.Llvm.Utils
 import           Agda.Syntax.Common.Pretty
-import           Agda.TypeChecking.SizedTypes.Utils (trace)
 import           Agda.TypeChecking.Substitute
-import           Agda.Utils.Applicative             (forA)
 import           Agda.Utils.Functor
 import           Agda.Utils.Impossible
 import           Agda.Utils.Lens
 import           Agda.Utils.List
-import           Agda.Utils.List1                   (List1, pattern (:|), (<|))
-import qualified Agda.Utils.List1                   as List1
+import           Agda.Utils.List1             (List1, pattern (:|), (<|))
+import qualified Agda.Utils.List1             as List1
 import           Agda.Utils.Maybe
-import           Agda.Utils.Monad                   (forMaybeM)
-import           Control.Monad.Trans.Maybe          (MaybeT (..), hoistMaybe)
 
 newtype TagInfo = TagInfo{unTagInfo :: Map Abs (Set Tag)}
 
@@ -142,8 +134,8 @@ inlineEval defs absCxt tagInfo =
     App (Def "eval") [Var n] -> do
       fst <$> generateEval n
     Case i t alts ->
-      liftA2 (Case i) (go t) $ forM alts $ \(splitCaltAbss -> (mkAlt, t, xs)) -> mkAlt <$> localAbss xs (go t)
-    Bind t1 (splitLaltWithAbss -> (mkAlt, t2, xs)) ->
+      liftA2 (Case i) (go t) $ forM alts $ \(splitCaltWithVars -> (mkAlt, t, xs)) -> mkAlt <$> localAbss xs (go t)
+    Bind t1 (splitLaltWithVars -> (mkAlt, t2, xs)) ->
       liftA2 Bind (go t1) (mkAlt <$> localAbss xs (go t2))
     term -> pure term
 
@@ -303,31 +295,13 @@ removeUnitBindCalt (CAltTag tag t) = CAltTag tag $ leftUnitLaw t
 
 -- | Normalise the GRIN expression by making the expression right-skewed.
 normalise :: Term -> Term
-normalise (Bind t1 alt1)
-  | Bind t2 alt2 <- normalise t1 =
-    let alt1' = raise (countBinders alt2) $ normaliseLalt alt1
-        (mkAlt2, t_alt2) = splitLalt alt2 in
-    normalise $ Bind t2 (mkAlt2 (Bind t_alt2 alt1'))
-
-normalise term = case term of
-  Bind t alt    -> Bind (normalise t) (normaliseLalt alt)
-  Case n t alts -> Case n (normalise t) (map normaliseCalt alts)
-  _             -> term
-
-normaliseLalt :: LAlt -> LAlt
-normaliseLalt (LAltVar abs t)       = LAltVar abs $ normalise t
-normaliseLalt (LAltConstantNode tag abss t) = LAltConstantNode tag abss $ normalise t
-normaliseLalt (LAltEmpty t)         = LAltEmpty $ normalise t
-
-
-normaliseCalt :: CAlt -> CAlt
-normaliseCalt (CAltConstantNode tag abss t) = CAltConstantNode tag abss $ normalise t
-normaliseCalt (CAltLit lit t)       = CAltLit lit $ normalise t
-
-countBinders :: LAlt -> Int
-countBinders (LAltConstantNode _ abss _) = length abss
-countBinders LAltVar{}                   = 1
-countBinders LAltEmpty{}                 = 0
+normalise (Bind (Bind t (splitLaltWithVars -> (mkAlt1, t1, xs))) (splitLalt -> (mkAlt2, t2))) =
+  normalise $ Bind t $ mkAlt1 $ Bind t1 $ raise (length xs) (mkAlt2 t2)
+normalise (Bind t1 (splitLalt -> (mkAlt, t2))) = normalise t1 `Bind` mkAlt (normalise t2)
+normalise (Case n t alts) = Case n (normalise t) (map step alts)
+  where
+  step (splitCalt -> (mkAlt, t)) = mkAlt (normalise t)
+normalise t = t
 
 data UpdateCxt = UpdateCxt
   { absCxt :: AbstractContext
@@ -427,10 +401,10 @@ specializeUpdate _absCxt def = do
             VNode tag _ -> Just tag
             _           -> Nothing
 
-  go (Bind t1 (splitLaltWithAbss -> (mkAlt, t2, xs))) =
+  go (Bind t1 (splitLaltWithVars -> (mkAlt, t2, xs))) =
     liftA2 (\t1 t2 -> t1 `Bind` mkAlt t2) (go t1) (varLocals xs (go t2))
   go (Case n t alts) = do
-    alts' <- mapM (\(splitCaltAbss -> (mkAlt, t, xs)) -> mkAlt <$> varLocals xs (go t)) alts
+    alts' <- mapM (\(splitCaltWithVars -> (mkAlt, t, xs)) -> mkAlt <$> varLocals xs (go t)) alts
     t' <- go t
     pure (Case n t' alts')
   go (Update mtag n1 n2)
@@ -452,7 +426,7 @@ specializeUpdate _absCxt def = do
 -- case n₂ of alts
 --
 -- Returns: (update n₁' n₂', 〈m 〉, case n₂ of alts)
--- TODO use splitLaltWithAbss
+-- TODO use splitLaltWithVars
 caseUpdateView :: Term -> Maybe (Tag -> Term, Term -> Term, Term)
 caseUpdateView (Update Nothing n t1 `BindEmpty` t) = go IdS id t where
   go :: Substitution' Val
@@ -583,7 +557,7 @@ splitFetch (FetchNode n `Bind` alt)
     let mkFetch x m t = FetchOffset (n + m - 1) m `Bind` LAltVar x t in
     FetchOffset n 0 `Bind` LAltVar x
     (mkFetchs xs (splitFetch t) mkFetch)
-  | LAltConstantNode tag xs t <- alt =
+  | LAltConstantNode _ xs t <- alt =
     let mkFetch x m t = FetchOffset (n + m - 2) m `Bind` LAltVar x t in
     mkFetchs xs (splitFetch t) mkFetch
   where
@@ -614,7 +588,7 @@ rightHoistFetch term@(FetchOffset n1 0       `Bind` LAltVar x1
     t3 <- hoistFetch x1 n1' x2 t2 offset
     rightHoistFetch $ FetchOffset n1 0 `Bind` LAltVar x1 t3
 
-rightHoistFetch (Bind t1 (splitLaltWithAbss -> (mkAlt, t2, xs))) =
+rightHoistFetch (Bind t1 (splitLaltWithVars -> (mkAlt, t2, xs))) =
   Bind t1 . mkAlt <$> rightHoistFetch t2
 
 rightHoistFetch (Case v t alts) =
@@ -625,81 +599,78 @@ rightHoistFetch (Case v t alts) =
 rightHoistFetch term = pure term
 
 hoistFetch :: forall mf. MonadFresh Int mf => Abs -> Int -> Abs -> Term -> Int -> mf Term
-hoistFetch x1 n x2 t offset =
-    go (x2 <| x1 :| []) t
+hoistFetch x1 n x2 t offset = go (x2 <| x1 :| []) t
   where
-    go :: List1 Abs -> Term -> mf Term
-    go xs (Case (Var n) t alts)
-      | x1 `elem` (toList xs !!! n) =
-        let v = strengthen impossible $ Var n in
-        Case v t <$> updateAlts xs alts
+  go :: List1 Abs -> Term -> mf Term
+  go xs (Case (Var n) t alts)
+    | x1 `elem` (toList xs !!! n) =
+      let v = strengthen impossible (Var n) in
+      Case v t <$> updateAlts xs alts
 
-    go xs (Case (Var n) t alts `Bind` alt)
-      | x1 `elem` (toList xs !!! n) = do
-        let v = strengthen impossible $ Var n
-        (Case v t <$> updateAlts xs alts) <&> (`Bind` strengthen impossible alt)
+  go xs (Case (Var n) t alts `Bind` alt)
+    | x1 `elem` (toList xs !!! n) = do
+      let v = strengthen impossible $ Var n
+      (Case v t <$> updateAlts xs alts) <&> (`Bind` strengthen impossible alt)
 
-    go (x1 :| xs) (t1 `Bind` (splitLaltWithAbss -> (mkAlt, t2, [x2]))) = do
-      -- Swap indices 0 and 1
-      t2' <- go (x1 <| x2 :| xs) (swap01' t2)
-      pure $ strengthen impossible t1 `Bind` mkAlt t2'
-
+  go (x1 :| xs) (t1 `Bind` (splitLaltWithVars -> (mkAlt, t2, [x2]))) = do
+    -- Swap indices 0 and 1
+    t2' <- go (x1 <| x2 :| xs) (swap01' t2)
+    pure $ strengthen impossible t1 `Bind` mkAlt t2'
 
     -- -- TODO
-    -- go xs1 (t1 `Bind` (splitLaltWithAbss -> (mkAlt, t2, xs2))) = error "TODO need swap0n"
+    -- go xs1 (t1 `Bind` (splitLaltWithVars -> (mkAlt, t2, xs2))) = error "TODO need swap0n"
 
-    go xs1 t = error $ "HOIST FETCH: " ++ prettyShow xs1 ++ "\nTerm:\n" ++ prettyShow t
+  go xs1 t = error $ "HOIST FETCH: " ++ prettyShow xs1 ++ "\nTerm:\n" ++ prettyShow t
 
-    updateAlts  :: List1 Abs -> [CAlt] -> mf [CAlt]
-    updateAlts xs alts =
-      forM alts $ \(splitCalt -> (mkAlt, t)) -> mkAlt <$>
-        caseMaybe (prependFetchOnUse xs t)
-          -- Strengthen alternatives which didn't prepend fetch
-          (pure $ strengthen impossible t)
-          id
+  updateAlts  :: List1 Abs -> [CAlt] -> mf [CAlt]
+  updateAlts xs alts =
+    forM alts $ \(splitCalt -> (mkAlt, t)) -> mkAlt <$>
+      caseMaybe (prependFetchOnUse xs t)
+        -- Strengthen alternatives which didn't prepend fetch
+        (pure $ strengthen impossible t)
+        id
 
-    prependFetchOnUse :: List1 Abs -> Term -> Maybe (mf Term)
-    prependFetchOnUse (x1 :| xs) (Bind t1 (splitLaltWithAbss -> (mkAlt, t2, [x2])))
-      | usesX2 (x1 :| xs) t1 =
-        Just $ prependFetch (x1 :| xs) (t1 `Bind` mkAlt t2)
-      | otherwise =
-        ifJust (prependFetchOnUse (x1 :| xs) t1)
-          -- Keep t2 unchanged
-          (Just . fmap (`Bind` mkAlt t2)) $
+  prependFetchOnUse :: List1 Abs -> Term -> Maybe (mf Term)
+  prependFetchOnUse (x1 :| xs) (Bind t1 (splitLaltWithVars -> (mkAlt, t2, [x2])))
+    | usesX2 (x1 :| xs) t1 =
+      Just $ prependFetch (x1 :| xs) (t1 `Bind` mkAlt t2)
+    | otherwise =
+      ifJust (prependFetchOnUse (x1 :| xs) t1)
+        -- Keep t2 unchanged
+        (Just . fmap (`Bind` mkAlt t2)) $
 
-          (fmap . fmap)
-             -- Strengthen t1 if fetch is prepended to t2
-            (\t2' -> strengthen impossible t1 `Bind` mkAlt t2')
-            -- Swap indices 0 and 1
-            (prependFetchOnUse (x1 <| x2 :| xs) (swap01' t2))
+        (fmap . fmap)
+           -- Strengthen t1 if fetch is prepended to t2
+          (\t2' -> strengthen impossible t1 `Bind` mkAlt t2')
+          -- Swap indices 0 and 1
+          (prependFetchOnUse (x1 <| x2 :| xs) (swap01' t2))
 
-    prependFetchOnUse xs1 (Bind t1 (splitLaltWithAbss -> (mkAlt, t2, xs2))) = error "TODO need swap0n"
-    prependFetchOnUse xs t = boolToMaybe (usesX2 xs t) (prependFetch xs t)
+  prependFetchOnUse xs1 (Bind t1 (splitLaltWithVars -> (mkAlt, t2, xs2))) = error "TODO need swap0n"
+  prependFetchOnUse xs t = boolToMaybe (usesX2 xs t) (prependFetch xs t)
 
-    prependFetch :: List1 Abs -> Term -> mf Term
-    prependFetch xs t =  FetchOffset (n + length xs - 2) offset `bindVar` t
+  prependFetch :: List1 Abs -> Term -> mf Term
+  prependFetch xs t =  FetchOffset (n + length xs - 2) offset `bindVar` t
 
-    usesX2 :: List1 Abs -> Term -> Bool
-    usesX2 xs = \case
-        App v vs        -> any (usesX2Val xs) (v : vs)
-        Store _ v       -> usesX2Val xs v
-        Unit v          -> usesX2Val xs v
-        Update _ n v    -> isX2 xs n || usesX2Val xs v
-        Error _         -> False
-        FetchOffset n _ -> isX2 xs n
-        Bind{}          -> __IMPOSSIBLE__
-        Case{}          -> __IMPOSSIBLE__
-        Fetch{}         -> __IMPOSSIBLE__
-      where
-        usesX2Val :: List1 Abs -> Val -> Bool
-        usesX2Val xs = \case
-          ConstantNode _ vs -> any (usesX2Val xs) vs
-          VariableNode n vs -> isX2 xs n || any (usesX2Val xs) vs
-          Var n             -> isX2 xs n
-          _                 -> False
+  usesX2 :: List1 Abs -> Term -> Bool
+  usesX2 xs = \case
+      App v vs        -> any (usesX2Val xs) (v : vs)
+      Store _ v       -> usesX2Val xs v
+      Unit v          -> usesX2Val xs v
+      Update _ n v    -> isX2 xs n || usesX2Val xs v
+      Error _         -> False
+      FetchOffset n _ -> isX2 xs n
+      Bind{}          -> __IMPOSSIBLE__
+      Case{}          -> __IMPOSSIBLE__
+      Fetch{}         -> __IMPOSSIBLE__
+    where
+      usesX2Val :: List1 Abs -> Val -> Bool
+      usesX2Val xs = \case
+        ConstantNode _ vs -> any (usesX2Val xs) vs
+        VariableNode n vs -> isX2 xs n || any (usesX2Val xs) vs
+        Var n             -> isX2 xs n
+        _                 -> False
 
-        isX2 xs n = caseMaybe (toList xs !!! n) False (== x2)
-
+      isX2 xs n = caseMaybe (toList xs !!! n) False (== x2)
 
 -- | Introduce registers for all operands. A precondition
 --   the (unimplemented) common sub-expression elimination.
@@ -792,7 +763,7 @@ mkRegister = \case
 
 
 
-      
+
 
 
 

@@ -14,7 +14,7 @@ data Vec A : ℕ → Set where
   []  : Vec A zero
   _∷_ : ∀ (x : A) (xs : Vec A n) → Vec A (suc n)
 
-downFrom : (n : ℕ) -> Vec ℕ n
+downFrom : (n : ℕ) → Vec ℕ n
 downFrom zero = []
 downFrom (suc n) = n ∷ downFrom n
 

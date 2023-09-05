@@ -1,31 +1,32 @@
 {-# LANGUAGE DuplicateRecordFields    #-}
 {-# LANGUAGE NondecreasingIndentation #-}
+{-# LANGUAGE OverloadedLists          #-}
 {-# LANGUAGE OverloadedRecordDot      #-}
 {-# LANGUAGE OverloadedStrings        #-}
 {-# LANGUAGE ScopedTypeVariables      #-}
 {-# LANGUAGE ViewPatterns             #-}
-{-# LANGUAGE OverloadedLists #-}
 module Agda.Llvm.Compiler (module Agda.Llvm.Compiler) where
 
 import           Control.DeepSeq                (NFData)
-import           Control.Monad                  (forM, mapAndUnzipM, replicateM, ap)
+import           Control.Monad                  (forM, mapAndUnzipM, replicateM)
 import           Control.Monad.IO.Class         (liftIO)
 import           Control.Monad.Reader           (MonadReader,
                                                  ReaderT (runReaderT), asks)
-import           Control.Monad.State            (MonadState, State, StateT, evalState,
+import           Control.Monad.State            (MonadState, State, StateT,
                                                  evalStateT, gets, modify,
                                                  runState)
 import           Data.Bifunctor                 (Bifunctor (bimap, first))
 import           Data.Foldable                  (foldrM, toList)
 import           Data.Function                  (on)
-import           Data.List                      (intercalate, mapAccumL,
-                                                 singleton, sortOn, unzip4)
+import           Data.List                      (intercalate, singleton, sortOn,
+                                                 unzip4)
 import           Data.List.NonEmpty.Extra       ((|:), (|>))
 import           Data.Map                       (Map)
 import qualified Data.Map                       as Map
-import           Data.Tuple.Extra               (swap)
+import qualified Data.Set                       as Set
+import           Data.Tuple.Extra               (second, swap)
 import           GHC.Generics                   (Generic)
-import           Prelude                        hiding ((!!), drop)
+import           Prelude                        hiding (drop, (!!))
 
 import           Agda.Compiler.Backend          hiding (Prim, getPrimitive,
                                                  initEnv)
@@ -35,6 +36,7 @@ import           Agda.Llvm.GrinInterpreter      (interpretGrin)
 import           Agda.Llvm.GrinTransformations
 import           Agda.Llvm.HeapPointsTo
 import qualified Agda.Llvm.Llvm                 as L
+import           Agda.Llvm.Perceus              (perceus)
 import           Agda.Llvm.TreelessTransform
 import           Agda.Llvm.Utils
 import           Agda.Syntax.Common.Pretty
@@ -249,6 +251,14 @@ llvmPostCompile _ _ mods = do
   -- res_rightHoistFetch <- interpretGrin defs_rightHoistFetch
   -- liftIO $ putStrLn $ "\nResult: " ++ show res_rightHoistFetch
 
+
+  let defs_perceus = map (updateGrTerm normalise . perceus) defs_rightHoistFetch
+  liftIO $ do
+    putStrLn "\n------------------------------------------------------------------------"
+    putStrLn "-- * Perceus"
+    putStrLn "------------------------------------------------------------------------\n"
+    putStrLn $ intercalate "\n\n" $ map prettyShow defs_perceus
+
   -- Not used
   --
   -- defs_introduceRegisters  <- mapM (lensGrTerm introduceRegisters) defs_rightHoistFetch
@@ -262,8 +272,9 @@ llvmPostCompile _ _ mods = do
   -- liftIO $ putStrLn $ "\nResult: " ++ show res_introduceRegisters
 
 
-  (llvm_ir, tagsToInt) <- grinToLlvm defs_rightHoistFetch
-  let 
+  -- (llvm_ir, tagsToInt) <- grinToLlvm defs_rightHoistFetch
+  (llvm_ir, tagsToInt) <- grinToLlvm defs_perceus
+  let
       header =
         unlines
           [ "target triple = \"x86_64-unknown-linux-gnu\""
@@ -324,48 +335,48 @@ llvmPostCompile _ _ mods = do
 -- • Saturated constructors
 
 {-
-drop x₀ = 
-  fetch 0 [1] ; λ x₁ → 
+drop x₀ =
+  fetch 0 [1] ; λ x₁ →
   case 0 of
-    0 → 
+    0 →
       fetch 1 [0] ; x₂ →
       case 0 of
-        _∷_ → 
-          fetch 2 [2] ; λ x₃ → 
-          drop 0 ; λ () → 
-          fetch 3 [3] ; λ x₄ → 
-          drop 0 ; λ () → 
+        _∷_ →
+          fetch 2 [2] ; λ x₃ →
+          drop 0 ; λ () →
+          fetch 3 [3] ; λ x₄ →
+          drop 0 ; λ () →
           free 4
-        [] → 
+        [] →
           free 2
-        downFrom → 
-          fetch 2 [2] ; λ x₅ → 
-          drop 0 ; λ () → 
+        downFrom →
+          fetch 2 [2] ; λ x₅ →
+          drop 0 ; λ () →
           free 4
         ...
-    _ → 
+    _ →
       decref 0
 -}
-mkDrop :: forall mf. MonadFresh Int mf => [Tag] -> mf GrinDefinition
-mkDrop tags = do
+mkDrop :: forall mf. MonadFresh Int mf => [GrinDefinition] -> mf GrinDefinition
+mkDrop defs = do
   term <- FetchOffset 0 1 `bindVarR` caseRc
   arg <- freshAbs
   pure GrinDefinition
     { gr_name = "drop"
     , gr_isMain = False
-    , gr_primitive = Nothing 
+    , gr_primitive = Nothing
     , gr_arity = 1
     , gr_type = Nothing
     , gr_term = term
     , gr_args = [arg]
     , gr_return = Nothing
     }
-
   where
+  tags = Set.toList $ foldMap (gatherTags . gr_term) defs
   caseRc = Case (Var 0) (Decref 0) . singleton . CAltLit (LitNat 0) <$> unique
 
   unique :: mf Term
-  unique = 
+  unique =
     FetchOffset 1 0 `bindVarR`
     Case (Var 0) unreachable <$> mapM mkAlt tags
 
@@ -376,7 +387,7 @@ mkDrop tags = do
     arity = tagArity tag
     dropChild offset t =
       FetchOffset 2 offset `bindVar`
-      drop 0               `BindEmpty`
+      Drop 0               `BindEmpty`
       raise 1 t
 
 
@@ -739,37 +750,33 @@ mkWithOffset n a = WithOffset{offset = n, value = a}
 
 grinToLlvm :: MonadFresh Int mf => [GrinDefinition] -> mf ([L.Instruction], Map Tag Int)
 grinToLlvm defs = do
-  def_drop <- mkDrop (Map.keys tagNums)
-  let instruction_drop = evalState (go (defs `snoc` def_drop) def_drop) final_state
-  pure (instructions `snoc` instruction_drop, tagNums)
-  where
-  tagNums = final_state.cg_tagNums
-
-  (instructions, final_state) = runState (ap forM go defs) initLlvmGenEnv 
-  go defs def = 
-    let cxt = initLlvmGenCxt defs def in
-    (freshUnnamedLens .= 1) *> runReaderT (runLlvmGen $ definitionToLlvm def) cxt
-
--- evalLlvmGen :: GlobalsTy -> LlvmGen a -> a
--- evalLlvmGen globalsTy x =
---   evalState (runReaderT (runLlvmGen x) $ initLlvmGenCxt globalsTy) initLlvmGenEnv
---
+  defs <- snoc defs <$> mkDrop defs
+  pure $ second cg_tagNums $ flip runState initLlvmGenEnv $ forM defs $ \def ->
+    (freshUnnamedLens .= 1) *>
+    runReaderT (runLlvmGen $ definitionToLlvm def) (initLlvmGenCxt defs def)
 
 mkGlobalTys :: [GrinDefinition] -> Map L.GlobalId ([L.Type], L.Type)
 mkGlobalTys defs =
-  Map.insert (L.mkGlobalId @String "free") ([L.Ptr], L.Void) $ Map.fromList $ map go defs
+  Map.insert "@free" ([L.Ptr], L.Void) $ Map.fromList $ map go defs
   where
   go def = (L.mkGlobalId def.gr_name, types)
     where
-    types 
+    types
       | getShortName def == "main" = ([], L.Void)
       | getShortName def == "drop" = ([L.I64], L.Void)
       | otherwise = (replicate def.gr_arity L.I64, L.nodeTySyn)
 
+-- TODO make it so main's continuation is printf
+mkCont :: GrinDefinition -> Continuation
+mkCont (getShortName -> "drop") _ = pure [L.RetVoid]
+mkCont _ i = do
+  (x_unnamed, i_setVar) <- first L.LocalId <$> setVar i
+  pure [i_setVar, L.RetNode x_unnamed]
+
 definitionToLlvm :: GrinDefinition -> LlvmGen L.Instruction
 definitionToLlvm def = do
   let f = L.mkGlobalId def.gr_name
-  (argsTy, returnTy) <- fromMaybe __IMPOSSIBLE__ <$> globalLookup f
+  (argsTy, returnTy) <- fromMaybe (error $ "CANT FIND " ++ prettyShow f) <$> globalLookup f
   let args = zip argsTy $ map L.mkLocalId def.gr_args
   L.Define L.Fastcc returnTy f args <$> termToLlvm def.gr_term
 
@@ -847,7 +854,7 @@ termToLlvm (Store _ v `Bind` LAltVar (L.mkLocalId -> x) t) = do
   let instruction_store = L.store L.nodeTySyn v' x_unnamed_ptr
       instruction_ptrtoint = L.SetVar x (L.ptrtoint x_unnamed_ptr)
   instructions2 <- varLocal x (termToLlvm t)
-  pure $ instructions1 `List1.prependList` 
+  pure $ instructions1 `List1.prependList`
     ([instruction_malloc, instruction_store, instruction_ptrtoint] <> instructions2)
 
 termToLlvm (FetchOffset n offset `Bind` alt) = do
@@ -864,16 +871,6 @@ termToLlvm (App (Prim prim) [v1, v2] `Bind` alt) = do
   (is1, v1') <- valToLlvm v1
   (is2, v2') <- valToLlvm v2
   List1.prependList (is1 ++ is2) <$> laltToContinuation alt (op v1' v2')
-
-
-termToLlvm (UpdateTag _ n v `BindEmpty` t) = do
-  x <- fromMaybe __IMPOSSIBLE__ <$> varLookup n
-  (instructions1, v') <- valToLlvm v
-  (x_unnamed_ptr, instructions_inttoptr) <- setVar (L.inttoptr x)
-  let instruction_store = L.store L.nodeTySyn v' x_unnamed_ptr
-  instructions2 <- termToLlvm t
-  pure $ instructions1 `List1.prependList`
-    (instructions_inttoptr <| instruction_store <| instructions2)
 
 termToLlvm (Unit (VariableNode n vs) `Bind` LAltVar (L.mkLocalId -> x) t) = do
   tagNum <- maybe __IMPOSSIBLE__ L.LocalId <$> varLookup n
@@ -908,19 +905,17 @@ termToLlvm (App (Def (L.mkGlobalId -> f)) vs `Bind` alt) = do
   let i_call = L.Call L.Fastcc returnTy f $ zip argsTy vs'
   List1.prependList instructions <$> laltToContinuation alt i_call
 
--- TODO free
--- TODO tail call?
-
+-- TODO tail call
 termToLlvm (App (Def "free" ) [Var n]) = do
   x <- fromMaybe __IMPOSSIBLE__ <$> varLookup n
   (v_unnamed_ptr, instruction_inttoptr) <- first L.LocalId <$> setVar (L.inttoptr x)
   let instruction_call = L.Call L.Fastcc L.Void "@free" [(L.Ptr, v_unnamed_ptr)]
-  -- LLVM is stupid and doesn't let you tail call in a switch. Hopefully 
+  -- LLVM is stupid and doesn't let you tail call in a switch. Hopefully
   -- the optimizer will tail call it when translating to native.
-      instruction_ret  = L.Ret L.Void Nothing 
-  pure 
+      instruction_ret  = L.Ret L.Void Nothing
+  pure
     [ instruction_inttoptr
-    , instruction_call 
+    , instruction_call
     , instruction_ret ]
 
 termToLlvm (App (Def (L.mkGlobalId -> f)) vs) = do
@@ -930,40 +925,50 @@ termToLlvm (App (Def (L.mkGlobalId -> f)) vs) = do
   instructions2 <- ($ instruction_call) =<< view continuationLens
   pure (instructions1 `List1.prependList` instructions2)
 
-termToLlvm (Error TUnreachable) = pure $ List1.singleton L.Unreachable
+termToLlvm (UpdateTag _ n v `BindEmpty` t) = do
+  x <- fromMaybe __IMPOSSIBLE__ <$> varLookup n
+  (instructions1, v') <- valToLlvm v
+  (x_unnamed_ptr, instructions_inttoptr) <- setVar (L.inttoptr x)
+  let instruction_store = L.store L.nodeTySyn v' x_unnamed_ptr
+  instructions2 <- termToLlvm t
+  pure $ (instructions1 |: instructions_inttoptr |> instruction_store) <> instructions2
 
-
--- termToLlvm (FetchOffset n offset `Bind` alt) = do
---   x <- fromMaybe __IMPOSSIBLE__ <$> varLookup n
---   (x_unnamed_ptr, i_inttoptr) <- setVar (L.inttoptr x)
---   (x_unnamed, i_getelemtptr) <- setVar (L.getelementptr x_unnamed_ptr offset)
---   List1.prependList [i_inttoptr, i_getelemtptr] <$> laltToContinuation alt (L.load L.I64 x_unnamed)
+termToLlvm (Dup n `BindEmpty` t) = do
+  instructions1 <- termToLlvmChangeRc n (`L.add64` L.mkLit 1)
+  instructions2 <- termToLlvm t
+  pure (instructions1 <> instructions2)
 
 termToLlvm (Decref n) = do
+  instructions1 <- termToLlvmChangeRc n (`L.sub64` L.mkLit 1)
+  instructions2 <- ($ __IMPOSSIBLE__) =<< view continuationLens
+  pure (instructions1 <> instructions2)
+
+termToLlvm (Error TUnreachable) = pure $ List1.singleton L.Unreachable
+termToLlvm t = error $ "BAD: " ++ show t
+
+termToLlvmChangeRc :: Int -> (L.Val -> L.Instruction) -> LlvmGen (List1 L.Instruction)
+termToLlvmChangeRc n operation = do
   x <- fromMaybe __IMPOSSIBLE__ <$> varLookup n
   (x_unnamed_ptr, instruction_inttoptr) <- setVar (L.inttoptr x)
-  (x_unnamed, instruction_getelementptr) <- setVar (L.getelementptr x_unnamed_ptr 0)
+  (x_unnamed, instruction_getelementptr) <- setVar (L.getelementptr x_unnamed_ptr 1)
   -- FIXME not 64 bits
   (v_unnamed_rc, instruction_load) <- first L.LocalId <$> setVar (L.load L.I64 x_unnamed)
-  (v_unnamed_rc', instruction_sub) <- first L.LocalId <$> setVar (L.sub64 v_unnamed_rc (L.mkLit 1))
+  (v_unnamed_rc', instruction_operation) <- first L.LocalId <$> setVar (operation v_unnamed_rc)
   let instruction_store = L.store L.I64 v_unnamed_rc' x_unnamed_ptr
-      instruction_ret   = L.Ret L.Void Nothing
-  pure 
-    [ instruction_inttoptr  
-    , instruction_getelementptr 
-    , instruction_load 
-    , instruction_sub  
-    , instruction_store 
-    , instruction_ret ]
+  pure
+    [ instruction_inttoptr
+    , instruction_getelementptr
+    , instruction_load
+    , instruction_operation
+    , instruction_store ]
 
-termToLlvm t = error $ "BAD: " ++ show t
 
 laltToContinuation :: LAlt -> L.Instruction -> LlvmGen (List1 L.Instruction)
 laltToContinuation (LAltVar (L.mkLocalId -> x) t) i = (L.SetVar x i <|) <$> varLocal x (termToLlvm t)
 laltToContinuation (LAltConstantNode _ (map L.mkLocalId -> xs) t) instruction = do
   (unnamed, instruction_setVar) <- first L.LocalId <$> setVar instruction
   let instructions_extractvalue = zipWith (\x -> L.SetVar x . L.extractvalue unnamed) xs [2 ..]
-  let xs' = caseList xs __IMPOSSIBLE__ (:|) 
+  let xs' = caseList xs __IMPOSSIBLE__ (:|)
   instructions <- varLocals xs' (termToLlvm t)
   pure $ (instruction_setVar :| instructions_extractvalue) <> instructions
 laltToContinuation (LAltVariableNode (L.mkLocalId -> x) (map L.mkLocalId -> xs) t) i = do
@@ -995,11 +1000,11 @@ valToLlvm Empty = __IMPOSSIBLE__
 
 -- values should not include tag nor reference count
 insertValues :: Continuation -> L.Val -> List1 Val -> LlvmGen (List1 L.Instruction)
-insertValues cont tagNum args = do 
+insertValues cont tagNum args = do
   (instructions1, args') <- first concat . List1.unzip <$> mapM valToLlvm args
   let (vs, v) = List1.initLast ([tagNum, L.mkLit 1] <> args')
       (offsets, offset) = List1.initLast [0 .. length vs]
-  (acc, instructions2) <- mapAccumM insertValue L.Undef (zip vs offsets) 
+  (acc, instructions2) <- mapAccumM insertValue L.Undef (zip vs offsets)
   instructions3 <- cont (L.insertvalue acc v offset)
   pure (List1.prependList (instructions1 <> instructions2) instructions3)
   where
@@ -1061,18 +1066,10 @@ type Continuation = L.Instruction -> LlvmGen (List1 L.Instruction)
 type GlobalsTy = Map L.GlobalId ([L.Type], L.Type)
 
 initLlvmGenCxt :: [GrinDefinition] -> GrinDefinition -> LlvmGenCxt
-initLlvmGenCxt defs def =
-    LlvmGenCxt
-      { cg_vars = vars
-      , cg_globalsTy = globalsTy
-      , cg_continuation = cont
-      }
-  where
-    vars = map L.mkLocalId (reverse def.gr_args)
-    globalsTy = mkGlobalTys defs
-    cont i = do
-      (x_unnamed, i_setVar) <- first L.LocalId <$> setVar i
-      pure $ i_setVar <| L.RetNode x_unnamed :| []
+initLlvmGenCxt defs def = LlvmGenCxt
+  { cg_vars         = map L.mkLocalId (reverse def.gr_args)
+  , cg_globalsTy    = mkGlobalTys defs
+  , cg_continuation = mkCont def }
 
 lensVars :: Lens' LlvmGenCxt [L.LocalId]
 lensVars f cxt = f cxt.cg_vars <&> \xs -> cxt{cg_vars = xs}

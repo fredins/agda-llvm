@@ -1,5 +1,4 @@
-{-# OPTIONS_GHC -Wno-name-shadowing #-}
-
+{-# LANGUAGE ViewPatterns #-}
 {-# LANGUAGE LambdaCase          #-}
 {-# LANGUAGE OverloadedRecordDot #-}
 {-# LANGUAGE RecordWildCards     #-}
@@ -10,6 +9,9 @@ module Agda.Llvm.Grin (module Agda.Llvm.Grin) where
 
 import           Control.Monad                (replicateM)
 import Data.List (singleton)
+import Data.Function (on)
+import           Data.Set               (Set)
+import qualified Data.Set               as Set
 
 import           Agda.Compiler.Backend        hiding (Prim)
 import           Agda.Llvm.Utils
@@ -64,7 +66,7 @@ data Term = Bind Term LAlt
           | Error TError
           | Decref Int
           | Dup Int 
-            deriving (Show, Eq)
+            deriving (Show, Eq, Ord)
 
 data Val = ConstantNode Tag (List1 Val)
          | VariableNode Int (List1 Val)
@@ -74,7 +76,7 @@ data Val = ConstantNode Tag (List1 Val)
          | Var Int
          | Def String
          | Prim TPrim
-           deriving (Show, Eq)
+           deriving (Show, Eq, Ord)
 
 pattern FetchNode :: Int -> Term
 pattern FetchNode n = Fetch n Nothing
@@ -83,6 +85,8 @@ pattern FetchOffset n1 n2 = Fetch n1 (Just n2)
 
 pattern UpdateTag :: Tag -> Int -> Val -> Term
 pattern UpdateTag tag n v = Update (Just tag) n v
+
+pattern Drop n = App (Def "drop") [Var n]
 
 store :: MonadFresh Int m => Val -> m Term
 store t = (`Store` t) <$> freshLoc
@@ -102,8 +106,6 @@ data Tag = CTag {tCon :: String, tArity :: Int}
 
 newtype Gid = Gid{unGid :: Int} deriving (Show, Eq, Ord, Enum)
 
-drop :: Int -> Term
-drop = App (Def "drop") . singleton . Var
 
 free :: Int -> Term
 free = App (Def "free") . singleton . Var
@@ -130,12 +132,12 @@ data LAlt = LAltConstantNode Tag [Abs] Term -- List1
           | LAltVariableNode Abs [Abs] Term -- List1
           | LAltEmpty Term
           | LAltVar Abs Term
-            deriving (Show, Eq)
+            deriving (Show, Eq, Ord)
 
 data CAlt = CAltConstantNode Tag [Abs] Term
           | CAltTag Tag Term
           | CAltLit Literal Term
-            deriving (Show, Eq)
+            deriving (Show, Eq, Ord)
 
 
 
@@ -194,28 +196,37 @@ splitLalt (LAltConstantNode tag abss t) = (LAltConstantNode tag abss, t)
 splitLalt (LAltVariableNode n xs t)     = (LAltVariableNode n xs, t)
 splitLalt (LAltEmpty t)                 = (LAltEmpty, t)
 
-splitLaltWithAbss :: LAlt -> (Term -> LAlt, Term, [Abs])
-splitLaltWithAbss (LAltVar abs t)               = (LAltVar abs, t, [abs])
-splitLaltWithAbss (LAltConstantNode tag abss t) = (LAltConstantNode tag abss, t, abss)
-splitLaltWithAbss (LAltVariableNode n xs t)     = (LAltVariableNode n xs, t, xs)
-splitLaltWithAbss (LAltEmpty t)                 = (LAltEmpty, t, [])
+splitLaltWithVars :: LAlt -> (Term -> LAlt, Term, [Abs])
+splitLaltWithVars (LAltVar abs t)               = (LAltVar abs, t, [abs])
+splitLaltWithVars (LAltConstantNode tag abss t) = (LAltConstantNode tag abss, t, abss)
+splitLaltWithVars (LAltVariableNode x xs t)     = (LAltVariableNode x xs, t, x : xs)
+splitLaltWithVars (LAltEmpty t)                 = (LAltEmpty, t, [])
 
 splitCalt :: CAlt -> (Term -> CAlt, Term)
 splitCalt (CAltConstantNode tag abss t) = (CAltConstantNode tag abss, t)
 splitCalt (CAltTag tag t)               = (CAltTag tag, t)
 splitCalt (CAltLit lit t)               = (CAltLit lit, t)
 
-splitCaltAbss :: CAlt -> (Term -> CAlt, Term, [Abs])
-splitCaltAbss (CAltConstantNode tag abss t) = (CAltConstantNode tag abss, t, abss)
-splitCaltAbss (CAltTag tag t)               = (CAltTag tag, t, [])
-splitCaltAbss (CAltLit lit t)               = (CAltLit lit, t, [])
-
+splitCaltWithVars :: CAlt -> (Term -> CAlt, Term, [Abs])
+splitCaltWithVars (CAltConstantNode tag abss t) = (CAltConstantNode tag abss, t, abss)
+splitCaltWithVars (CAltTag tag t)               = (CAltTag tag, t, [])
+splitCaltWithVars (CAltLit lit t)               = (CAltLit lit, t, [])
 
 tagArity :: Tag -> Int
 tagArity = \case
   CTag{..} -> tArity
   FTag{..} -> tArity
   PTag{..} -> tArity
+
+-- Note: the bind should make sense. For example, `unreachable ; λ x → ...` is a bad input.
+bindEnd :: Term -> LAlt -> Term
+bindEnd (t1 `Bind` (splitLalt -> (mkAlt, t2))) alt = t1 `Bind` mkAlt (bindEnd t2 alt)
+bindEnd t alt = t `Bind` alt
+
+unBind :: LAlt -> Term -> Maybe Term
+unBind alt1 (t `Bind` alt2) | alt1 == alt2 = Just t
+unBind alt (t1 `Bind` (splitLalt -> (mkAlt, t2))) = (t1 `Bind`) . mkAlt <$> unBind alt t2
+unBind _ _ = Nothing
 
 infixr 2 `bindVar`, `bindVarL`, `bindVarR`, `bindVarM`
        , `bindEmptyL`, `bindEmptyR`, `bindEmptyM`
@@ -266,6 +277,13 @@ mkLit = Lit . LitNat
 natTag :: Tag
 natTag = CTag{tCon = "nat" , tArity = 1}
 
+gatherTags :: Term -> Set Tag
+gatherTags (Store _ (ConstantNode tag _)) = Set.singleton tag
+gatherTags (Store _ (Tag tag)) = Set.singleton tag
+gatherTags (t1 `Bind` (snd . splitLalt -> t2)) = on (<>) gatherTags t1 t2
+gatherTags (Case _ t alts) = gatherTags t <> foldMap (gatherTags . snd . splitCalt) alts
+gatherTags _ = mempty
+
 -----------------------------------------------------------------------
 -- * Substitute instances
 -----------------------------------------------------------------------
@@ -278,10 +296,10 @@ instance Subst Term where
 applySubstTerm :: Substitution' (SubstArg Term) -> Term -> Term
 applySubstTerm IdS term = term
 applySubstTerm rho term = case term of
-  App t ts      -> App (applySubst rho t) (applySubst rho ts)
+  App v vs      -> App (applySubst rho v) (applySubst rho vs)
   Bind t alt    -> Bind (applySubst rho t) (applySubst rho alt)
-  Case t1 t2 alts -> Case (applySubst rho t1) (applySubst rho t2) (applySubst rho alts)
-  Unit t -> Unit (applySubst rho t)
+  Case v t alts -> Case (applySubst rho v) (applySubst rho t) (applySubst rho alts)
+  Unit v -> Unit (applySubst rho v)
   Store loc v -> Store loc (applySubst rho v)
   Fetch n mn
     | Var n' <- lookupS rho n -> Fetch n' mn
@@ -404,6 +422,8 @@ instance Pretty Term where
     | otherwise = (text "update" <> pretty tag) <+> pretty v1 <+> pretty v2
   pretty (Error TUnreachable) = text "unreachable"
   pretty (Error (TMeta _)) = __IMPOSSIBLE__
+  pretty (Decref n) = text "decref" <+> pretty n
+  pretty (Dup n) = text "dup" <+> pretty n
 
 instance Pretty Val where
   pretty (VariableNode tag vs) = sep (pretty tag <| List1.map pretty vs)
