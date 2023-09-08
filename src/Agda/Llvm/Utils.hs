@@ -5,6 +5,7 @@ module Agda.Llvm.Utils
   ( pattern Snoc
   , pattern Snoc1
   , foldMapM
+  , list1splitOnDots
   , list1scanr
   , list1zip3
   , list1zipWith3
@@ -34,6 +35,8 @@ import           Agda.TypeChecking.Substitute
 import           Agda.Utils.List1             (List1, pattern (:|), (<|))
 import qualified Agda.Utils.List1             as List1
 import Agda.Utils.List 
+import Data.List.Extra (splitOn)
+import Control.Arrow (Arrow(second))
 
 pattern Snoc xs x <- (initLast -> Just (xs, x)) 
   where
@@ -47,6 +50,22 @@ foldMapM :: (Monoid b, Monad m, Foldable f) => (a -> m b) -> f a -> m b
 foldMapM f xs = foldr step pure xs mempty
   where
   step x g acc = g . (acc <>) =<< f x
+
+
+-- | Breaks up a string into substrings. Returns every maximal
+-- subsequence of zero or more characters distinct from @'.'@.
+--
+-- > splitOnDots ""         == [""]
+-- > splitOnDots "foo.bar"  == ["foo", "bar"]
+-- > splitOnDots ".foo.bar" == ["", "foo", "bar"]
+-- > splitOnDots "foo.bar." == ["foo", "bar", ""]
+-- > splitOnDots "foo..bar" == ["foo", "", "bar"]
+list1splitOnDots :: String -> List1 String
+list1splitOnDots "" = [""]
+list1splitOnDots ('.' : s) = [] <| list1splitOnDots s
+list1splitOnDots (c : s) = (c : p) :| ps
+  where
+  (p :| ps) = list1splitOnDots s
 
 list1scanr :: (a -> b -> b) -> (a -> b) -> List1 a -> List1 b
 list1scanr _ g (x :| [])      =  [g x]

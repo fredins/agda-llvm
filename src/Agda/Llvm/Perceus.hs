@@ -1,28 +1,32 @@
 {-# LANGUAGE OverloadedRecordDot #-}
 {-# LANGUAGE ViewPatterns        #-}
 
-module Agda.Llvm.Perceus (perceus) where
+module Agda.Llvm.Perceus (perceus, mkDrop) where
 
-import           Control.Applicative    ((<|>))
-import           Control.Monad          (filterM)
-import           Control.Monad.Reader   (MonadReader, Reader, asks, local,
-                                         runReader)
-import           Data.Bool              (bool)
-import           Data.Foldable          (fold)
-import           Data.Function          (on)
-import           Data.List              (partition)
-import           Data.Set               (Set)
-import qualified Data.Set               as Set
-import           Data.Tuple.Extra       (first)
+import           Control.Applicative          ((<|>))
+import           Control.Monad                (filterM)
+import           Control.Monad.Reader         (MonadReader, Reader, asks, local,
+                                               runReader)
+import           Data.Bool                    (bool)
+import           Data.Foldable                (fold, foldrM)
+import           Data.Function                (on)
+import           Data.List                    (partition, singleton)
+import           Data.Set                     (Set)
+import qualified Data.Set                     as Set
+import           Data.Tuple.Extra             (first)
 
+
+import           Agda.Compiler.Backend        (MonadFresh)
 import           Agda.Llvm.Grin
-import           Agda.Llvm.Utils        
-import           Agda.Utils.Impossible  
+import           Agda.Llvm.Utils
+import           Agda.Syntax.Literal          (Literal (LitNat))
+import           Agda.TypeChecking.Substitute
+import           Agda.Utils.Impossible
 import           Agda.Utils.List
-import           Agda.Utils.List1       (List1, pattern (:|), (<|))
-import qualified Agda.Utils.List1       as List1
-import           Agda.Utils.Maybe       
-import           Agda.Utils.Monad       
+import           Agda.Utils.List1             (List1, pattern (:|), (<|))
+import qualified Agda.Utils.List1             as List1
+import           Agda.Utils.Maybe
+import           Agda.Utils.Monad
 
 -- Properties:
 -- • Δ ∩ Γ = ∅
@@ -65,9 +69,9 @@ fvVal :: Val -> Perceus (Set Abs)
 fvVal (Var n) = do
   x <- fromMaybe __IMPOSSIBLE__ <$> deBruijnLookup n
   bool mempty (Set.singleton x) <$> isPointer x
-fvVal (ConstantNode tag (_ :| _)) | tag == natTag = pure mempty
-fvVal (ConstantNode _ vs) = foldMapM fvVal vs
-fvVal (VariableNode n vs) = foldMapM fvVal (Var n <| vs)
+fvVal (ConstantNode tag _ (_ : _)) | tag == natTag = pure mempty
+fvVal (ConstantNode _ _ vs) = foldMapM fvVal vs
+fvVal (VariableNode n _ vs) = foldMapM fvVal (Var n : vs)
 fvVal _ = pure mempty
 
 data PerceusCxt = PerceusCxt
@@ -111,10 +115,10 @@ gatherPointers (Store _ _ `Bind` LAltVar x t) = Set.insert x (gatherPointers t)
 gatherPointers (App Def{} _ `Bind` alt) =
   case alt of
     LAltVar _ t -> gatherPointers t
-    LAltConstantNode tag xs t
+    LAltConstantNode tag _ xs t
      | tag == natTag -> gatherPointers t
      | otherwise -> Set.fromList xs <> gatherPointers t
-    LAltVariableNode _ xs t -> Set.fromList xs <> gatherPointers t
+    LAltVariableNode _ _ xs t -> Set.fromList xs <> gatherPointers t
     LAltEmpty t -> gatherPointers t
 gatherPointers (t1 `Bind` (snd . splitLalt -> t2)) = on (<>) gatherPointers t1 t2
 gatherPointers (Case _ t alts) = gatherPointers t <> foldMap step alts
@@ -132,7 +136,6 @@ perceusTerm c (App f vs) = do
   cs <- splitContext c vs'
   dups <- fold <$> List1.zipWithM perceusVal cs vs'
   pure (foldr BindEmpty (App f vs) dups)
-
 
 perceusTerm c (t1 `Bind` (splitLaltWithVars -> (mkAlt, t2, xs))) = do
   xs_ptr <- filterM isPointer xs
@@ -206,13 +209,15 @@ perceusVal c (Var n) = do
       svar_dup = boolToMaybe (p && Set.member x c.delta) [Dup n]
   pure $ fromMaybe __IMPOSSIBLE__ (not_ptr <|> svar <|> svar_dup)
 
-perceusVal c (ConstantNode _ vs) = do
-    contexts <- splitContext c vs
-    fold <$> List1.zipWithM perceusVal contexts vs
+perceusVal _ (ConstantNode _ _ []) = pure []
+perceusVal c (ConstantNode _ _ (v : vs)) = do
+    contexts <- splitContext c (v :| vs)
+    fold <$> List1.zipWithM perceusVal contexts (v :| vs)
 
-perceusVal c (VariableNode n vs) = do
-    contexts <- splitContext c (Var n <| vs)
-    fold <$> List1.zipWithM perceusVal contexts vs
+perceusVal _ (VariableNode _ _ []) = pure []
+perceusVal c (VariableNode n _ (v : vs)) = do
+    contexts <- splitContext c (Var n <| v :| vs)
+    fold <$> List1.zipWithM perceusVal contexts (v :| vs)
 
 perceusVal _ _ = pure []
 
@@ -226,6 +231,66 @@ splitContext c vs = list1scanr step (Context c.delta) <$> gammas
   gammas = List1.scanr1 step <$> mapM fvVal vs
     where
     step fv after = Set.difference c.gamma after `Set.intersection` fv
+
+{-
+drop x₀ =
+  fetch 0 [1] ; λ x₁ →
+  case 0 of
+    0 →
+      fetch 1 [0] ; x₂ →
+      case 0 of
+        _∷_ →
+          fetch 2 [2] ; λ x₃ →
+          drop 0 ; λ () →
+          fetch 3 [3] ; λ x₄ →
+          drop 0 ; λ () →
+          free 4
+        [] →
+          free 2
+        downFrom →
+          fetch 2 [2] ; λ x₅ →
+          drop 0 ; λ () →
+          free 4
+        ...
+    _ →
+      decref 0
+-}
+mkDrop :: forall mf. MonadFresh Int mf => [GrinDefinition] -> mf GrinDefinition
+mkDrop defs = do
+  term <- FetchOffset 0 1 `bindVarR` caseRc
+  arg <- freshAbs
+  pure GrinDefinition
+    { gr_name = "drop"
+    , gr_isMain = False
+    , gr_primitive = Nothing
+    , gr_arity = 1
+    , gr_type = Nothing
+    , gr_term = term
+    , gr_args = [arg]
+    , gr_return = Nothing
+    }
+  where
+  tags = Set.toList $ foldMap (gatherTags . gr_term) defs
+  caseRc = Case (Var 0) (Decref 0) . singleton . CAltLit (LitNat 1) <$> unique
+
+  unique :: mf Term
+  unique =
+    FetchOffset 1 0 `bindVarR`
+    Case (Var 0) unreachable <$> mapM mkAlt tags
+
+  -- TODO big layout
+  mkAlt :: Tag -> mf CAlt
+  mkAlt tag | tag == natTag = pure $ CAltTag tag (free 2)
+  mkAlt tag = CAltTag tag <$> foldrM dropChild (free 2) (take arity [2 .. ])
+    where
+    arity = tagArity tag
+    dropChild offset t =
+      FetchOffset 2 offset `bindVar`
+      Drop 0               `BindEmpty`
+      raise 1 t
+
+
+
 
 {- Maybe remove. Would be nice to ensure invariants better than the current approach.
 

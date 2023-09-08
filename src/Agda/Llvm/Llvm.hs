@@ -9,7 +9,6 @@ import           Data.String               (IsString)
 import           Agda.Compiler.Backend     hiding (Name, Prim)
 import           Agda.Syntax.Common.Pretty
 import           Agda.Syntax.Literal
-import           Agda.Syntax.Parser.Parser (splitOnDots)
 import           Agda.Utils.Impossible     (__IMPOSSIBLE__)
 import           Agda.Utils.List
 import           Agda.Utils.List1          (List1, pattern (:|), (<|))
@@ -19,6 +18,7 @@ import           Control.Arrow             (Arrow (first))
 import           Control.Monad             (forM)
 import           Data.Foldable             (toList)
 import           Data.Semigroup            (sconcat)
+import Agda.Llvm.Utils (list1splitOnDots)
 
 data Instruction =
     Define CallingConvention Type GlobalId [(Type, LocalId)] (List1 Instruction)
@@ -73,14 +73,13 @@ mkUnnamed = MkLocalId . ("%" ++) . prettyShow
 
 mkGlobalId :: Pretty a => a -> GlobalId
 mkGlobalId (prettyShow -> s) =
-    MkGlobalId $ case shortName of
-      "main"   -> "@main"
-      "printf" -> "@printf"
-      "malloc" -> "@malloc"
-      _        -> '@' : '"' : s `snoc` '"'
-
+  MkGlobalId $ case shortName of
+    "main"   -> "@main"
+    "printf" -> "@printf"
+    "malloc" -> "@malloc"
+    _        -> '@' : '"' : s `snoc` '"'
   where
-    shortName = lastWithDefault __IMPOSSIBLE__ $ splitOnDots s
+  shortName = List1.last (list1splitOnDots s)
 
 
 mkLit :: Int -> Val

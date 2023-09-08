@@ -18,7 +18,6 @@ import           Agda.Llvm.Utils
 import           Agda.Syntax.Common.Pretty
 import           Agda.Syntax.Internal         (Type)
 import           Agda.Syntax.Literal
-import           Agda.Syntax.Parser.Parser    (splitOnDots)
 import           Agda.TypeChecking.Substitute hiding (applySubstTerm)
 import           Agda.Utils.Function
 import           Agda.Utils.Impossible
@@ -51,7 +50,7 @@ setGrTerm :: LensSet GrinDefinition Term
 setGrTerm = set lensGrTerm
 
 getShortName :: GrinDefinition -> String
-getShortName = lastWithDefault __IMPOSSIBLE__ . splitOnDots . gr_name
+getShortName = List1.last . list1splitOnDots . gr_name
 
 
 -- TODO
@@ -68,8 +67,8 @@ data Term = Bind Term LAlt
           | Dup Int 
             deriving (Show, Eq, Ord)
 
-data Val = ConstantNode Tag (List1 Val)
-         | VariableNode Int (List1 Val)
+data Val = ConstantNode Tag Val [Val]
+         | VariableNode Int Val [Val]
          | Tag Tag
          | Empty
          | Lit Literal
@@ -110,14 +109,14 @@ newtype Gid = Gid{unGid :: Int} deriving (Show, Eq, Ord, Enum)
 free :: Int -> Term
 free = App (Def "free") . singleton . Var
 
-constantCNode :: String -> List1 Val -> Val
-constantCNode name vs = ConstantNode (CTag name (length vs)) vs
+constantCNode :: String -> [Val] -> Val
+constantCNode name vs = ConstantNode (CTag name (length vs)) (mkLit 1) vs
 
 cnat :: Val -> Val
-cnat = ConstantNode natTag . List1.singleton
+cnat = ConstantNode natTag (mkLit 1) . singleton
 
-constantFNode :: String -> List1 Val -> Val
-constantFNode name vs = ConstantNode (FTag name (length vs)) vs
+constantFNode :: String -> [Val] -> Val
+constantFNode name vs = ConstantNode (FTag name (length vs)) (mkLit 1) vs
 
 freshAbs :: MonadFresh Int m => m Abs
 freshAbs = MkAbs <$> freshGid
@@ -128,13 +127,13 @@ freshLoc = MkLoc <$> freshGid
 freshGid :: MonadFresh Int m => m Gid
 freshGid = Gid <$> fresh
 
-data LAlt = LAltConstantNode Tag [Abs] Term -- List1
-          | LAltVariableNode Abs [Abs] Term -- List1
+data LAlt = LAltConstantNode Tag Abs [Abs] Term -- List1
+          | LAltVariableNode Abs Abs [Abs] Term -- List1
           | LAltEmpty Term
           | LAltVar Abs Term
             deriving (Show, Eq, Ord)
 
-data CAlt = CAltConstantNode Tag [Abs] Term
+data CAlt = CAltConstantNode Tag Abs [Abs] Term
           | CAltTag Tag Term
           | CAltLit Literal Term
             deriving (Show, Eq, Ord)
@@ -169,46 +168,49 @@ laltVar t = (`LAltVar` t) <$> freshAbs
 
 caltConstantNode :: MonadFresh Int m => Tag -> Term -> m CAlt
 caltConstantNode tag t = do
-  abss <- replicateM (tagArity tag) freshAbs
-  pure $ CAltConstantNode tag abss t
+  x <- freshAbs
+  xs <- replicateM (tagArity tag) freshAbs
+  pure $ CAltConstantNode tag x xs t
 
 laltConstantNode :: MonadFresh Int m => Tag -> Term -> m LAlt
 laltConstantNode tag t = do
-  abss <- replicateM (tagArity tag) freshAbs
-  pure $ LAltConstantNode tag abss t
+  x  <- freshAbs
+  xs <- replicateM (tagArity tag) freshAbs
+  pure $ LAltConstantNode tag x xs t
 
 laltVariableNode :: MonadFresh Int m => Int -> Term -> m LAlt
 laltVariableNode n t = do
   tag <- freshAbs
+  x   <- freshAbs
   xs  <- replicateM n freshAbs
-  pure $ LAltVariableNode tag xs t
+  pure $ LAltVariableNode tag x xs t
 
 laltBody :: LensGet LAlt Term
 laltBody = \case
-  LAltConstantNode _ _ t -> t
-  LAltVariableNode _ _ t -> t
+  LAltConstantNode _ _ _ t -> t
+  LAltVariableNode _ _ _ t -> t
   LAltVar _ t            -> t
   LAltEmpty t            -> t
 
 splitLalt :: LAlt -> (Term -> LAlt, Term)
-splitLalt (LAltVar abs t)               = (LAltVar abs, t)
-splitLalt (LAltConstantNode tag abss t) = (LAltConstantNode tag abss, t)
-splitLalt (LAltVariableNode n xs t)     = (LAltVariableNode n xs, t)
+splitLalt (LAltVar x t)                 = (LAltVar x, t)
+splitLalt (LAltConstantNode tag x xs t) = (LAltConstantNode tag x xs, t)
+splitLalt (LAltVariableNode x1 x2 xs t) = (LAltVariableNode x1 x2 xs, t)
 splitLalt (LAltEmpty t)                 = (LAltEmpty, t)
 
 splitLaltWithVars :: LAlt -> (Term -> LAlt, Term, [Abs])
-splitLaltWithVars (LAltVar abs t)               = (LAltVar abs, t, [abs])
-splitLaltWithVars (LAltConstantNode tag abss t) = (LAltConstantNode tag abss, t, abss)
-splitLaltWithVars (LAltVariableNode x xs t)     = (LAltVariableNode x xs, t, x : xs)
+splitLaltWithVars (LAltVar x t)                 = (LAltVar x, t, [x])
+splitLaltWithVars (LAltConstantNode tag x xs t) = (LAltConstantNode tag x xs, t, x : xs)
+splitLaltWithVars (LAltVariableNode x1 x2 xs t) = (LAltVariableNode x1 x2 xs, t, x1 : x2 : xs)
 splitLaltWithVars (LAltEmpty t)                 = (LAltEmpty, t, [])
 
 splitCalt :: CAlt -> (Term -> CAlt, Term)
-splitCalt (CAltConstantNode tag abss t) = (CAltConstantNode tag abss, t)
+splitCalt (CAltConstantNode tag x xs t) = (CAltConstantNode tag x xs, t)
 splitCalt (CAltTag tag t)               = (CAltTag tag, t)
 splitCalt (CAltLit lit t)               = (CAltLit lit, t)
 
 splitCaltWithVars :: CAlt -> (Term -> CAlt, Term, [Abs])
-splitCaltWithVars (CAltConstantNode tag abss t) = (CAltConstantNode tag abss, t, abss)
+splitCaltWithVars (CAltConstantNode tag x xs t) = (CAltConstantNode tag x xs, t, x : xs)
 splitCaltWithVars (CAltTag tag t)               = (CAltTag tag, t, [])
 splitCaltWithVars (CAltLit lit t)               = (CAltLit lit, t, [])
 
@@ -278,7 +280,7 @@ natTag :: Tag
 natTag = CTag{tCon = "nat" , tArity = 1}
 
 gatherTags :: Term -> Set Tag
-gatherTags (Store _ (ConstantNode tag _)) = Set.singleton tag
+gatherTags (Store _ (ConstantNode tag _ _)) = Set.singleton tag
 gatherTags (Store _ (Tag tag)) = Set.singleton tag
 gatherTags (t1 `Bind` (snd . splitLalt -> t2)) = on (<>) gatherTags t1 t2
 gatherTags (Case _ t alts) = gatherTags t <> foldMap (gatherTags . snd . splitCalt) alts
@@ -306,7 +308,7 @@ applySubstTerm rho term = case term of
     | otherwise -> __IMPOSSIBLE__
   Update tag n t
     | Var n' <- lookupS rho n -> Update tag n' (applySubst rho t)
-    | otherwise -> __IMPOSSIBLE__
+    | otherwise -> error $ "VAD HÄNDER: " ++ show (lookupS rho n)
   Error{} -> term
 
 instance Subst LAlt where
@@ -316,10 +318,10 @@ instance Subst LAlt where
 applySubstLAlt :: Substitution' (SubstArg LAlt) -> LAlt -> LAlt
 applySubstLAlt IdS alt            = alt
 applySubstLAlt rho (LAltVar abs t) = LAltVar abs $ applySubst (liftS 1 rho) t
-applySubstLAlt rho (LAltConstantNode tag abss t) =
-  LAltConstantNode tag abss $ applySubst (liftS (length abss) rho) t
-applySubstLAlt rho (LAltVariableNode abs abss t) =
-  LAltVariableNode abs abss $ applySubst (liftS (1 + length abss) rho) t
+applySubstLAlt rho (LAltConstantNode tag x xs t) =
+  LAltConstantNode tag x xs $ applySubst (liftS (length $ x : xs) rho) t
+applySubstLAlt rho (LAltVariableNode x1 x2 xs t) =
+  LAltVariableNode x1 x2 xs $ applySubst (liftS (length $ x1 : x2 : xs) rho) t
 applySubstLAlt rho (LAltEmpty t) = LAltEmpty $ applySubst rho t
 
 instance Subst CAlt where
@@ -328,8 +330,8 @@ instance Subst CAlt where
 
 applySubstCAlt :: Substitution' (SubstArg CAlt) -> CAlt -> CAlt
 applySubstCAlt IdS alt            = alt
-applySubstCAlt rho (CAltConstantNode tag abss t) =
-  CAltConstantNode tag abss $ applySubst (liftS (length abss) rho) t
+applySubstCAlt rho (CAltConstantNode tag x xs t) =
+  CAltConstantNode tag x xs $ applySubst (liftS (length $ x : xs) rho) t
 applySubstCAlt rho (CAltTag tag t) = CAltTag tag $ applySubst rho t
 applySubstCAlt rho (CAltLit lit t) = CAltLit lit $ applySubst rho t
 
@@ -344,9 +346,9 @@ instance Subst Val where
   applySubst = applySubstVal
 
 applySubstVal :: Substitution' Val -> Val -> Val
-applySubstVal rho (ConstantNode tag vs) = ConstantNode tag $ List1.map (applySubst rho) vs
-applySubstVal rho (VariableNode n vs)
-  | Var n' <- lookupS rho n  = VariableNode n' $ List1.map (applySubst rho) vs
+applySubstVal rho (ConstantNode tag rc vs) = ConstantNode tag (applySubst rho rc) $ map (applySubst rho) vs
+applySubstVal rho (VariableNode n rc vs)
+  | Var n' <- lookupS rho n  = VariableNode n' (applySubst rho rc) $ map (applySubst rho) vs
   | otherwise = __IMPOSSIBLE__
 applySubstVal _   (Tag tag)             = Tag tag
 applySubstVal _   Empty                 = Empty
@@ -383,9 +385,9 @@ instance Pretty Term where
         , pretty $ laltBody alt
         ]
     where
-      go (LAltConstantNode tag abss _) = pretty tag <+> sep (map pretty abss)
-      go (LAltVariableNode abs abss _) = pretty abs <+> sep (map pretty abss)
-      go (LAltVar abs _)               = pretty abs
+      go (LAltConstantNode tag x xs _) = pretty tag <+> sep (map pretty $ x : xs)
+      go (LAltVariableNode x1 x2 xs _) = sep (map pretty $ x1 : x2 : xs)
+      go (LAltVar x _)                 = pretty x
       go (LAltEmpty _)                 = text "()"
 
       isComplicated = case t of
@@ -426,8 +428,8 @@ instance Pretty Term where
   pretty (Dup n) = text "dup" <+> pretty n
 
 instance Pretty Val where
-  pretty (VariableNode tag vs) = sep (pretty tag <| List1.map pretty vs)
-  pretty (ConstantNode n vs)   = sep (pretty n <| List1.map pretty vs)
+  pretty (VariableNode tag rc vs) = sep (pretty tag : pretty rc : map pretty vs)
+  pretty (ConstantNode n rc vs)   = sep (pretty n : pretty rc : map pretty vs)
   pretty (Tag tag)             = pretty tag
   pretty Empty                 = text "()"
   pretty (Lit lit)             = text "#" <> pretty lit
@@ -445,12 +447,12 @@ instance Pretty Gid where
   pretty (Gid n) = pretty n
 
 instance Pretty LAlt where
-  pretty (LAltConstantNode tag gids t) =
-    sep [ pretty tag <+> sep (map pretty gids) <+> text "→"
+  pretty (LAltConstantNode tag x xs t) =
+    sep [ pretty tag <+> sep (map pretty (x : xs)) <+> text "→"
         ,  nest 2 $ pretty t
         ]
-  pretty (LAltVariableNode x gids t) =
-    sep [ pretty x <+> sep (map pretty gids) <+> text "→"
+  pretty (LAltVariableNode x1 x2 xs t) =
+    sep [ sep (map pretty $ x1 : x2 : xs) <+> text "→"
         ,  nest 2 $ pretty t
         ]
   pretty (LAltVar abs t) =
@@ -463,8 +465,8 @@ instance Pretty LAlt where
         ]
 
 instance Pretty CAlt where
-  pretty (CAltConstantNode tag gids t) =
-    sep [ pretty tag <+> sep (map pretty gids) <+> text "→"
+  pretty (CAltConstantNode tag x xs t) =
+    sep [ pretty tag <+> sep (map pretty (x : xs)) <+> text "→"
         ,  nest 2 $ pretty t
         ]
   pretty (CAltTag tag t) = sep [pretty tag <+> text "→", nest 2 $ pretty t]
