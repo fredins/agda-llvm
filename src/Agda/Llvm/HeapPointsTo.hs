@@ -127,7 +127,7 @@ countMultiplicities def = evalState (go def.gr_term) def.gr_args where
   go (Store _ v) = goVal v
   go (Unit v) = goVal v
   go (App v vs) = goVal v <> foldrM (\v m -> pure m <> goVal v) mempty vs
-  go (Fetch n _) = gets $ (!! n) <&> \abs -> Multiplicities $ Map.singleton abs 1
+  go (Fetch' _ n _) = gets $ (!! n) <&> \abs -> Multiplicities $ Map.singleton abs 1
   go (Update _ n v) = do
     m <- gets $ (!! n) <&> \abs -> Multiplicities $ Map.singleton abs 1
     pure m <> goVal v
@@ -406,13 +406,12 @@ deriveEquations term = case term of
       valToValue (Lit _) = pure Bas
       valToValue  _      = __IMPOSSIBLE__
 
-    Bind (App (Def "eval") [Var n]) (LAltVar x (Case (Var 0) t alts)) ->
-      deBruijnLookup n <&> EVAL . FETCH . Abs . fromMaybe __IMPOSSIBLE__ >>= \v ->
-        localAbs x $
-        localAbsEnv (x, v) $ do
-          hs <- mapM (deriveEquationsAlt x) alts
-          h <- deriveEquations t
-          pure $ foldl (<>) h hs
+    Bind (App (Def "eval") [Var n]) (LAltVar x (Case (Var 0) t alts)) -> do
+      v <- EVAL . FETCH . Abs . fromMaybe __IMPOSSIBLE__ <$> deBruijnLookup n
+      localAbs x $ localAbsEnv (x, v) $ do
+        hs <- mapM (deriveEquationsAlt x) alts
+        h <- deriveEquations t
+        pure $ foldl (<>) h hs
       where
         deriveEquationsAlt :: Abs -> CAlt -> H' HRet
         deriveEquationsAlt x1 (CAltConstantNode tag x2 xs t) =
@@ -422,6 +421,12 @@ deriveEquations term = case term of
           deriveEquations t
         deriveEquationsAlt _ CAltLit{}      = __IMPOSSIBLE__
         deriveEquationsAlt _ _ = __IMPOSSIBLE__
+
+    -- Returning eval
+    App (Def "eval") [Var n] -> do
+      v <- EVAL . FETCH . Abs . fromMaybe __IMPOSSIBLE__ <$> deBruijnLookup n
+      x <- asks $ fromMaybe __IMPOSSIBLE__ . gr_return . currentDef
+      localAbs x $ localAbsEnv (x, v) retHCxt
 
     Bind (App (Def "eval") [Var _]) (LAltConstantNode tag x1 [x2] (Case (Var 0) t alts)) | tag == natTag ->
         localAbss [x1, x2] $
@@ -456,6 +461,8 @@ deriveEquations term = case term of
         valToValue (Var n) = Abs . fromMaybe __IMPOSSIBLE__ <$> deBruijnLookup n
         valToValue (Lit _) = pure Bas
         valToValue  _      = __IMPOSSIBLE__
+
+
 
     App (Def defName) vs -> do
         name <- asks $ gr_name. currentDef 

@@ -7,15 +7,15 @@ module Agda.Llvm.GrinInterpreter (module Agda.Llvm.GrinInterpreter) where
 
 import           Control.Monad             ((>=>))
 import           Control.Monad.Reader      (MonadReader, ReaderT (runReaderT),
-                                            local)
-import           Control.Monad.State       (StateT, evalStateT, gets)
+                                            local, MonadIO (liftIO))
+import           Control.Monad.State       (StateT (runStateT), evalStateT, gets)
 import           Control.Monad.Trans.Maybe (MaybeT (..), hoistMaybe, runMaybeT)
 import           Data.Bifunctor            (Bifunctor (bimap))
 import           Data.Foldable             (find, toList)
 import           Data.List                 (intercalate, singleton, intersperse)
 import           Data.Map                  (Map)
 import qualified Data.Map                  as Map
-import           Data.Tuple.Extra          (dupe)
+import           Data.Tuple.Extra          (dupe, second)
 
 import           Agda.Compiler.Backend     hiding (Prim, initEnv)
 import           Agda.Llvm.Grin            
@@ -26,7 +26,7 @@ import           Agda.Utils.Impossible
 import           Agda.Utils.Lens
 import           Agda.Utils.List
 import           Agda.Utils.Maybe
-import Agda.Llvm.Utils (trace')
+import Agda.Llvm.Utils (trace', logIO)
 
 
 data Value = BasNat Integer
@@ -60,10 +60,23 @@ lensStackFrame f stack =
 
 type Eval m = StateT Env (ReaderT Stack m)
 
-interpretGrin :: forall mf. MonadFresh Int mf => [GrinDefinition] -> mf Value
-interpretGrin defs = do
-    trace' "MAIN" pure ()
-    runReaderT (evalStateT (eval main.gr_term) initEnv) [StackFrame []]
+-- FIXME remove
+
+traceHeap s = do
+  heap <- use lensHeap
+  trace' (render s ++ ":\n" ++ prettyShow (Heap heap) ++ "\n") pure ()
+
+
+printInterpretGrin :: (MonadIO m, MonadFresh Int m) => [GrinDefinition] -> m ()
+printInterpretGrin defs = do 
+  (val, heap) <- interpretGrin defs
+  liftIO $ putStrLn $ render $ vcat 
+    [ text "Result:" <+> pretty val 
+    , text "Heap:" <+> pretty heap ]
+
+interpretGrin :: forall mf. MonadFresh Int mf => [GrinDefinition] -> mf (Value, Heap)
+interpretGrin defs = 
+    second heap <$> runReaderT (runStateT (eval main.gr_term) initEnv) [StackFrame []]
   where
     main = fromMaybe __IMPOSSIBLE__ $ find gr_isMain defs
 
@@ -71,15 +84,18 @@ interpretGrin defs = do
     eval (App (Def "printf") [v]) = evalVal v
 
     -- Use an new (unused) memory location each time
-    eval (Store _ t1 `Bind` LAltVar x t2) = do
-      v <- evalVal t1
+    eval (Store _ v `Bind` LAltVar x t2) = do
+      v' <- evalVal v
       loc <- freshLoc
-      lensHeap %= Map.insert loc v
+      lensHeap %= Map.insert loc v'
+      traceHeap (text "store" <+> pretty loc <+> pretty v')
       stackFrameLocal x (Loc loc) (eval t2)
 
     eval fetch
-      | FetchNode n <- fetch = heapLookupLoc n
-      | FetchOffset n offset <- fetch = sel offset <$> heapLookupLoc n
+      | Fetch _ n <- fetch = heapLookupLoc n
+      | FetchOpaque n <- fetch = heapLookupLoc n
+      | FetchOpaqueOffset n offset <- fetch = sel offset <$> heapLookupLoc n
+      | FetchOffset _ n offset <- fetch = sel offset <$> heapLookupLoc n
       where
       sel 0 (VTag tag)    = VTag tag
       sel 0 (VNode tag _ _) = VTag tag
@@ -89,26 +105,20 @@ interpretGrin defs = do
         | 2 <= i && i <= 3 = Undefined
       sel _ _ = __IMPOSSIBLE__
 
-      heapLookupLoc n = do
-        sf <- view lensStackFrame
-        fromMaybeM (error $ "CAN'T FIND LOC " ++ prettyShow n ++ " IN SF\n" ++ prettyShow sf) $ runMaybeT (stackFrameLookupLoc n)
-        
-        
+      heapLookupLoc n = 
         fromMaybeM __IMPOSSIBLE__ . runMaybeT $ do
           loc <- stackFrameLookupLoc n
           MaybeT (Map.lookup loc <$> use lensHeap)
 
-    eval (Update t n t1 `BindEmpty` t2) = do
+    eval (Update _ n t1 `BindEmpty` t2) = do
       loc <- fromMaybe __IMPOSSIBLE__ <$> runMaybeT (stackFrameLookupLoc n)
       v <- evalVal t1
-      sf <- view lensStackFrame
-      -- assertion
-      _ <- case v of
-             VNode{} -> pure ()
-             VTag{}  -> pure ()
-             _       -> error $ "UPDATE: " ++ show v ++ "\n" ++ prettyShow (Update t n t1 `BindEmpty` t2) ++ "\nSF:\n" ++ prettyShow sf
-      lensHeap %= Map.insert loc v
+      lensHeap %= update loc v
+      traceHeap (text "update" <+> pretty loc <+> pretty v)
       eval t2
+      where
+      update loc (VNode tag _ vs) = Map.update (\(VNode _ i _) -> Just $ VNode tag i vs) loc  
+      update _ _ = __IMPOSSIBLE__
 
     eval (t1 `Bind` LAltVar x t2) = do
       v <- eval t1
@@ -126,6 +136,8 @@ interpretGrin defs = do
         VNode tag i vs -> stackFrameLocals (x1 : x2 : xs) (VTag tag : BasNat i : vs) (eval t2)
         _            -> __IMPOSSIBLE__
 
+    eval (t1 `BindEmpty` t2) = eval t1 *> eval t2
+
     eval (App (Prim prim) vs) = do
       vs' <- mapM evalVal vs
       let ns = map toBasUnsafe vs'
@@ -139,13 +151,48 @@ interpretGrin defs = do
       runPrim PSub [n1, n2] = n1 - n2
       runPrim p vs          = error $ "TODO " ++ show p ++ " " ++ show vs
 
+
+    eval (App (Def "free") [Var n]) = do
+      loc <- fromMaybe __IMPOSSIBLE__ <$> runMaybeT (stackFrameLookupLoc n)
+      lensHeap %= Map.delete loc
+      traceHeap (text "free" <+> pretty loc)
+      pure VEmpty
+
+    eval (Drop n) = do 
+      (x, v) <- fromMaybe __IMPOSSIBLE__ <$> runMaybeT (stackFrameLookup' n)
+      sf <- view lensStackFrame     
+
+      let loc = case v of 
+            Loc loc -> loc
+            _ -> error $ render $ vcat 
+              [ text "DROP" <+> pretty (Drop n)
+              , pretty x
+              , text "SF:"
+              , pretty sf]
+      trace' (render $ text "drop" <+> pretty x <+> text "→" <+> pretty loc <+> text "\n") pure ()
+      let sf = StackFrame [(head def.gr_args, v)]
+      local (sf :) (eval def.gr_term)
+      where
+      def = fromMaybe __IMPOSSIBLE__  (find (("drop" ==) . gr_name) defs)
+
+
+    eval (Dup n) = do 
+      (x, v) <- fromMaybe __IMPOSSIBLE__ <$> runMaybeT (stackFrameLookup' n)
+      let loc = case v of 
+            Loc loc -> loc
+            _ -> __IMPOSSIBLE__
+      trace' (render $ text "dup" <+> pretty x <+> text "→" <+> pretty loc <+> text "\n") pure ()
+      let sf = StackFrame [(head def.gr_args, v)]
+      local (sf :) (eval def.gr_term)
+      where
+      def = fromMaybe __IMPOSSIBLE__  (find (("dup" ==) . gr_name) defs)
+
     eval (App (Def name) vs) = do
       vs' <- mapM evalVal vs
-      let sf = StackFrame (reverse $ zip xs vs')
-      local (sf :) (eval t)
+      let sf = StackFrame (reverse $ zip def.gr_args vs')
+      local (sf :) (eval def.gr_term)
       where
-      (xs, t) = bimap gr_args gr_term (dupe def)
-      def = fromMaybe __IMPOSSIBLE__  (find ((name ==) . gr_name) defs)
+      def = fromMaybe (error $ "Can't find " ++ name ++ " in " ++ show (map gr_name defs))  (find ((name ==) . gr_name) defs)
 
     eval (Case v def alts) = do
       v' <- evalVal v
@@ -155,9 +202,6 @@ interpretGrin defs = do
             BasNat _   -> id
             VTag _     -> id
             _          -> __IMPOSSIBLE__
-      trace' ("SELALT0: " ++ show v) pure ()
-      trace' ("SELALT1: " ++ show v') pure ()
-      trace' ("SELALT2: " ++ prettyShow (xs, t)) pure ()
       f (eval t)
 
       where
@@ -188,14 +232,25 @@ interpretGrin defs = do
           _                     -> __IMPOSSIBLE__
       selAlt _ _ _ = __IMPOSSIBLE__
 
+    eval (UpdateOffset n 1 v) = do
+      v' <- evalVal v
+      loc <- fromMaybe __IMPOSSIBLE__ <$> runMaybeT (stackFrameLookupLoc n)
+      v_node <- fromMaybe __IMPOSSIBLE__ . Map.lookup loc <$> use lensHeap
+      let v_node' = case (v_node, v') of
+            (VNode tag _ vs , BasNat i) -> VNode tag i vs
+            _ -> __IMPOSSIBLE__
+      lensHeap %= Map.insert loc v_node'
+      traceHeap (text "updateOffset" <+> pretty loc <+> pretty v_node <+> text "→" <+> pretty v_node')
+      pure VEmpty
+    
+    eval UpdateOffset{} = error "TODO"
+
     eval (Unit v) = evalVal v
     eval Store{} = __IMPOSSIBLE__
-    eval Fetch{} = __IMPOSSIBLE__
+    eval Fetch'{} = __IMPOSSIBLE__
     eval Update{} = __IMPOSSIBLE__
     eval Error{} = __IMPOSSIBLE__
     eval App{} = __IMPOSSIBLE__
-    eval Decref{} = error "TODO"
-    eval Dup{} = error "TODO"
     eval t@Bind{} = error $ "MISSING: " ++ prettyShow t
 
     evalVal :: Val -> Eval mf Value
@@ -229,6 +284,9 @@ interpretGrin defs = do
     stackFrameLookup :: MonadReader Stack m => Int -> MaybeT m Value
     stackFrameLookup n = MaybeT (view lensStackFrame <&> \sf -> map snd sf !!! n)
 
+    stackFrameLookup' :: MonadReader Stack m => Int -> MaybeT m (Abs, Value)
+    stackFrameLookup' n = MaybeT $ (!!! n) <$> view lensStackFrame
+
     stackFrameLookupLoc :: MonadReader Stack m => Int -> MaybeT m Loc
     stackFrameLookupLoc = (stackFrameLookup >=>) $ hoistMaybe . \case
       Loc loc -> Just loc
@@ -246,8 +304,9 @@ interpretGrin defs = do
 -- Instances
 
 instance Pretty Heap where
-  pretty (Heap heap) =
-      vcat $ map prettyEntry $ Map.toList heap
+  pretty (Heap heap) 
+    | Map.null heap = text "∅"
+    | otherwise = vcat $ map prettyEntry $ Map.toList heap
     where
       prettyEntry :: (Loc, Value) -> Doc
       prettyEntry (x, v) =

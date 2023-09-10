@@ -28,11 +28,10 @@ import           Data.Tuple.Extra               (second, swap, uncurry3)
 import           GHC.Generics                   (Generic)
 import           Prelude                        hiding (drop, (!!))
 
-import           Agda.Compiler.Backend          hiding (Prim, getPrimitive,
-                                                 initEnv)
+import           Agda.Compiler.Backend          hiding (Prim)
 import           Agda.Interaction.Options
 import           Agda.Llvm.Grin
-import           Agda.Llvm.GrinInterpreter      (interpretGrin)
+import           Agda.Llvm.GrinInterpreter      (interpretGrin, printInterpretGrin)
 import           Agda.Llvm.GrinTransformations
 import           Agda.Llvm.HeapPointsTo
 import qualified Agda.Llvm.Llvm                 as L
@@ -54,6 +53,7 @@ import Agda.Utils.Monad (ifM)
 import Agda.Utils.Applicative (forA)
 import Agda.Utils.Function (applyWhen, applyWhenM)
 import Control.Applicative (Applicative(liftA2))
+import System.Directory.Extra (removeFile)
 
 
 
@@ -121,6 +121,52 @@ llvmPostModule :: LlvmEnv
 llvmPostModule _ _ _ _ defs =
   pure $ LlvmModule $ catMaybes defs
 
+
+
+myDefs :: MonadFresh Int mf => mf [GrinDefinition]
+myDefs = do 
+  main <- 
+    store (cnat $ mkLit 4)         `bindVarM`
+    store (cnat $ mkLit 6)         `bindVarM`
+    App (Def "_+_") [Var 1, Var 0] `bindCnat`
+    printf 0
+
+  let def_main = 
+        GrinDefinition
+          { gr_name = "main"
+          , gr_isMain = True
+          , gr_primitive = Nothing
+          , gr_arity = 0
+          , gr_type = Nothing
+          , gr_term = main
+          , gr_args = []
+          , gr_return = Nothing }
+
+  plus <- 
+    eval 1 `bindCnatR` 
+    eval 2 `bindCnatR` 
+    App (Prim PAdd) [Var 2, Var 0] `bindVar`
+    Unit (cnat $ Var 0)
+
+  arg1 <- freshAbs
+  arg2 <- freshAbs
+  ret <- freshAbs
+
+  let def_plus = 
+        GrinDefinition
+          { gr_name = "_+_"
+          , gr_isMain = False
+          , gr_primitive = Just PAdd
+          , gr_arity = 2
+          , gr_type = Nothing
+          , gr_term = plus
+          , gr_args = [arg1, arg2]
+          , gr_return = Just ret }
+
+  pure [def_plus, def_main]
+  
+  
+
 llvmPostCompile :: LlvmEnv
                 -> IsMain
                 -> Map TopLevelModuleName LlvmModule
@@ -134,6 +180,7 @@ llvmPostCompile _ _ mods = do
     putStrLn "------------------------------------------------------------------------\n"
     putStrLn $ intercalate "\n\n" $ map prettyShow defs_treeless
 
+  -- defs_grin <- myDefs
   defs_grin <- map (updateGrTerm normalise) <$> treelessToGrin defs_treeless
   liftIO $ do
     putStrLn "\n------------------------------------------------------------------------"
@@ -162,8 +209,7 @@ llvmPostCompile _ _ mods = do
     putStrLn $ intercalate "\n\n" $ map prettyShow defs_inlineEval
     putStrLn $ "\nTag Info:\n" ++ prettyShow tagInfo_inlineEval
 
-  res_inlineEval <- interpretGrin defs_inlineEval
-  liftIO $ putStrLn $ "\nResult: " ++ show res_inlineEval
+  -- printInterpretGrin defs_inlineEval
 
   let defs_normalize = map (updateGrTerm normalise) defs_inlineEval
   liftIO $ do
@@ -172,18 +218,12 @@ llvmPostCompile _ _ mods = do
     putStrLn "------------------------------------------------------------------------\n"
     putStrLn $ intercalate "\n\n" $ map prettyShow defs_normalize
 
-  res_normalise <- interpretGrin defs_normalize
-  liftIO $ putStrLn $ "\nResult: " ++ show res_normalise
-
   let defs_leftUnitLaw = map (updateGrTerm leftUnitLaw) defs_normalize
   liftIO $ do
     putStrLn "\n------------------------------------------------------------------------"
     putStrLn "-- * Left unit law"
     putStrLn "------------------------------------------------------------------------\n"
     putStrLn $ intercalate "\n\n" $ map prettyShow defs_leftUnitLaw
-
-  res_leftUnitLaw <- interpretGrin defs_leftUnitLaw
-  liftIO $ putStrLn $ "\nResult: " ++ show res_leftUnitLaw
 
   defs_specializeUpdate <- mapM (specializeUpdate absCxt) defs_leftUnitLaw
   liftIO $ do
@@ -192,18 +232,12 @@ llvmPostCompile _ _ mods = do
     putStrLn "------------------------------------------------------------------------\n"
     putStrLn $ intercalate "\n\n" $ map prettyShow defs_specializeUpdate
 
-  res_specializeUpdate <- interpretGrin defs_specializeUpdate
-  liftIO $ putStrLn $ "\nResult: " ++ show res_specializeUpdate
-
   let defs_normalize = map (updateGrTerm normalise) defs_specializeUpdate
   liftIO $ do
     putStrLn "\n------------------------------------------------------------------------"
     putStrLn "-- * Normalise"
     putStrLn "------------------------------------------------------------------------\n"
     putStrLn $ intercalate "\n\n" $ map prettyShow defs_normalize
-
-  res_normalise <- interpretGrin defs_normalize
-  liftIO $ putStrLn $ "\nResult: " ++ show res_normalise
 
   defs_vectorize <- mapM (lensGrTerm $ vectorize tagInfo_inlineEval) defs_normalize
   liftIO $ do
@@ -212,18 +246,12 @@ llvmPostCompile _ _ mods = do
     putStrLn "------------------------------------------------------------------------\n"
     putStrLn $ intercalate "\n\n" $ map prettyShow defs_vectorize
 
-  res_vectorize <- interpretGrin defs_vectorize
-  liftIO $ putStrLn $ "\nResult: " ++ show res_vectorize
-
   let defs_simplifyCase = map (updateGrTerm simplifyCase) defs_vectorize
   liftIO $ do
     putStrLn "\n------------------------------------------------------------------------"
     putStrLn "-- * Simplify case"
     putStrLn "------------------------------------------------------------------------\n"
     putStrLn $ intercalate "\n\n" $ map prettyShow defs_simplifyCase
-
-  res_simplifyCase <- interpretGrin defs_simplifyCase
-  liftIO $ putStrLn $ "\nResult: " ++ show res_simplifyCase
 
   let defs_splitFetch = map (updateGrTerm splitFetch) defs_simplifyCase
   liftIO $ do
@@ -232,18 +260,12 @@ llvmPostCompile _ _ mods = do
     putStrLn "------------------------------------------------------------------------\n"
     putStrLn $ intercalate "\n\n" $ map prettyShow defs_splitFetch
 
-  res_splitFetch <- interpretGrin defs_splitFetch
-  liftIO $ putStrLn $ "\nResult: " ++ show res_splitFetch
-
   let defs_leftUnitLaw = map (updateGrTerm leftUnitLaw) defs_splitFetch
   liftIO $ do
     putStrLn "\n------------------------------------------------------------------------"
     putStrLn "-- * Left unit law"
     putStrLn "------------------------------------------------------------------------\n"
     putStrLn $ intercalate "\n\n" $ map prettyShow defs_leftUnitLaw
-
-  res_leftUnitLaw <- interpretGrin defs_leftUnitLaw
-  liftIO $ putStrLn $ "\nResult: " ++ show res_leftUnitLaw
 
   defs_rightHoistFetch <- mapM (lensGrTerm rightHoistFetch) defs_leftUnitLaw
   liftIO $ do
@@ -252,16 +274,19 @@ llvmPostCompile _ _ mods = do
     putStrLn "------------------------------------------------------------------------\n"
     putStrLn $ intercalate "\n\n" $ map prettyShow defs_rightHoistFetch
 
-  res_rightHoistFetch <- interpretGrin defs_rightHoistFetch
-  liftIO $ putStrLn $ "\nResult: " ++ show res_rightHoistFetch
+  printInterpretGrin defs_rightHoistFetch
 
+  def_dup <- mkDup
   def_drop <- mkDrop defs_rightHoistFetch
-  let defs_perceus = (`snoc` def_drop) $ map (updateGrTerm normalise . perceus) defs_rightHoistFetch
+  defs_perceus <- (++ [def_drop, def_dup]) . map (updateGrTerm normalise) <$> mapM perceus defs_rightHoistFetch
   liftIO $ do
     putStrLn "\n------------------------------------------------------------------------"
     putStrLn "-- * Perceus"
     putStrLn "------------------------------------------------------------------------\n"
-    putStrLn $ intercalate "\n\n" $ map prettyShow defs_perceus
+    putStrLn $ intercalate "\n\n" (map prettyShow defs_perceus) ++ "\n"
+
+  liftIO $ removeFile "trace.log"
+  printInterpretGrin defs_perceus
 
   -- Not used
   --
@@ -320,20 +345,19 @@ llvmPostCompile _ _ mods = do
 -----------------------------------------------------------------------
 -- * GRIN code generation
 -----------------------------------------------------------------------
+  
+
 
 -- TODO
 -- • Fix super ugly code
 -- • Need to deal with erased arguments and parameters
--- • Refactor (use Reader instead of State)
--- • Use de Bruijn substitions
--- • Use bind combinators
--- • Reuse evaluated variables (WIP)
+-- • Reuse evaluated variables (partially done)
 -- • Fill in rest of the patterns
 
 -- Preconditions:
 -- • Separate applications
 -- • Lambda lifted
--- • No polymorphic functions?
+-- • No polymorphic functions
 -- • Saturated constructors
 
 
@@ -344,6 +368,7 @@ treelessToGrin defs =
     gr_term <- runReaderT (termToGrinR def.tl_term) (initGrinGenCxt def primitives)
     gr_args <- replicateM def.tl_arity freshAbs
     gr_return <- boolToMaybe (not def.tl_isMain) <$> freshAbs
+    
     pure $ GrinDefinition
       { gr_name = def.tl_name
       , gr_isMain = def.tl_isMain
@@ -394,7 +419,6 @@ termToGrinR (TCase n CaseInfo{caseType} t alts) =
 termToGrinR (TApp (TPrim prim) vs) = do
   isPrimWrapper <- asks $ (Just prim ==) . tl_primitive . definition
   if isPrimWrapper then do
-    trace' ("FORCE PRIM VALS: " ++ show vs) pure ()
     t <- forceValues (App (Prim prim)) vs
     t `bindVar` Unit (cnat $ Var 0)
   else do
@@ -410,7 +434,7 @@ termToGrinR (TApp (TPrim prim) vs) = do
       Just evals ->  bindEnd evals <$> laltConstantNode natTag (mkT vs')
       Nothing -> pure (mkT vs')
     where
-    -- TODO edd evaluatedOffsets
+    -- TODO add evaluatedOffsets
     step :: (MonadReader GrinGenCxt m, MonadFresh Int m) => TTerm -> (Maybe Term, [Val]) -> m (Maybe Term, [Val]) 
     step (TLit lit) (mevals, vs) = pure (mevals, Lit lit : vs)
     step (TVar n) (mevals, vs) = 
@@ -431,6 +455,19 @@ termToGrinR (TApp (TDef q) vs) = do
   shortName <- asks $ List1.last . list1splitOnDots . tl_name . definition
   applyWhen (shortName == "main") (`bindCnatL` printf 0) call
 
+
+-- TODO think of a nicer way to handle handle functions that don't return
+--      a node (either an unboxed value or `()`)
+termToGrinR (TLit lit) = do 
+  shortName <- asks $ List1.last . list1splitOnDots . tl_name . definition
+  if shortName == "main" then
+    case lit of
+      LitNat n -> pure $ printf (fromInteger n)
+      _ -> __IMPOSSIBLE__
+  else
+    pure $ Unit $ cnat (Lit lit)
+
+
 -- 𝓡 [_∷_ x xs] = unit (C_∷_ @1 @0)
 termToGrinR (TApp (TCon q) vs) =
   caseList vs
@@ -443,12 +480,8 @@ termToGrinR (TApp (TCon q) vs) =
 termToGrinR (TLet t1 t2) = termToGrinC t1 `bindVarM` localEvaluatedNoOffset (termToGrinR t2)
 -- Always return a node
 termToGrinR (TCon q) = pure (Unit (constantCNode (prettyShow q) []))
-termToGrinR (TLit lit) = pure $ Unit $ cnat (Lit lit)
 termToGrinR (TError TUnreachable) = pure unreachable
-termToGrinR (TVar n) = do
-  offsets <- asks evaluatedOffsets
-  trace' (show offsets ++ "\nn: " ++ show n) pure ()
-  maybe (eval n) (Unit . Var) <$> applyEvaluatedOffset n
+termToGrinR (TVar n) = maybe (eval n) (Unit . Var) <$> applyEvaluatedOffset n
 
 termToGrinR t = error $ "TODO: " ++ take 40 (show t)
 
@@ -467,6 +500,14 @@ termToGrinC (TApp (TDef q) (v : vs)) = do
 termToGrinC (TApp (TCon q) (v : vs)) = do
   loc <- freshLoc
   appToGrinC (Store loc . constantCNode (prettyShow q) . toList) (v :| vs)
+termToGrinC (TCon q) = do 
+  loc <- freshLoc
+  pure $ Store loc (constantCNode (prettyShow q) [])
+termToGrinC (TLit (LitNat n)) = do 
+  loc <- freshLoc
+  pure $ Store loc (ConstantNode natTag (mkLit 1) [mkLit n])
+
+
 termToGrinC t = error $ "TODO: " ++ take 40 (show t)
 
 appToGrinC :: MonadFresh Int mf => (List1 Val -> Term) -> List1 TTerm -> mf Term
@@ -480,16 +521,14 @@ appToGrinC mkT vs = foldrM step (mkT vs') stores
 
   mkStore (n, stores) (TLit lit) = ((n + 1, store : stores), Var n)
     where
-    store loc = Store loc (cnat (Lit lit))
+    store loc = Store loc (ConstantNode natTag (mkLit 1) [Lit lit])
   mkStore (n, stores) (TVar m) = ((n, stores), Var (m + n))
-  mkStore _ _ = __IMPOSSIBLE__
+  mkStore _ t = error $ "MKSTORE: " ++ show t
 
 
--- TODO Maybe convert to CAltTag when arity==0. But need to 
---      figure out what to do with reference count.
 altToGrin :: MonadFresh Int mf => TAlt -> GrinGen mf CAlt
 altToGrin (TACon q arity t) = do
-    -- GRIN adds extra abstraction for the reference count
+    -- GRIN adds an extra abstraction for the reference count
     t' <- localEvaluatedNoOffsets (arity + 1) (termToGrinR $ raiseFrom arity 1 t)
     caltConstantNode tag t'
   where
@@ -538,362 +577,6 @@ eval = App (Def "eval") . singleton . Var
 printf :: Int -> Term
 printf = App (Def "printf") . singleton . Var
 
-
-
-
--- treelessToGrin :: [TreelessDefinition] -> TCM [GrinDefinition]
--- treelessToGrin defs =
---   forM defs $ \def -> do
---   gr_term <- evalStateT (rScheme def.tl_term) (initGEnv def primitives)
---   gr_args <- replicateM def.tl_arity freshAbs
---   gr_return <- boolToMaybe (not def.tl_isMain) <$> freshAbs
---   pure $ GrinDefinition
---     { gr_name = def.tl_name
---     , gr_primitive = def.tl_primitive
---     , gr_isMain = def.tl_isMain
---     , gr_arity = def.tl_arity
---     , gr_type = Just def.tl_type
---     , gr_term = gr_term
---     , gr_args = gr_args
---     , gr_return = gr_return
---     }
---   where
---   primitives = mapMaybe (\def -> (, def.tl_name) <$> def.tl_primitive) defs
---
--- rScheme :: TTerm -> G Term
--- rScheme (TCase n CaseInfo{caseType=CTNat} def alts) = do
---   alts' <- mapM (aScheme . raise 1) alts
---   def' <- rScheme (raise 1 def)
---   Bind (eval n) <$> laltConstantNode natTag (Case (Var 0) def' alts')
---
--- rScheme (TCase n CaseInfo{caseType=CTData _} def alts) = do
---   alts' <- mapM (aScheme . raise 1) alts
---   def' <- rScheme (raise 1 def)
---   Bind (eval n) <$> laltVar (Case (Var 0) def' alts')
---
--- -- | 𝓡 [_[]_] = unit (C_[]_)
--- rScheme (TCon q) = pure $ Unit $ Tag tag where
---   tag = CTag{tCon = prettyShow q, tArity = 0}
--- rScheme (TLit lit) = pure $ Unit $ ConstantNode natTag (mkLit 1) $ Lit lit :| []
--- rScheme (TError TUnreachable) = pure $ Error TUnreachable
---
--- rScheme (TApp t as) = do
---     isMain <- gets isMain
---     primitives <- gets primitives
---     currentDef <- gets currentDef
---     alt <- laltConstantNode natTag (printf 0)
---     let res t
---           | isMain = Bind t alt
---           | otherwise = t
---     case t of
---       TPrim prim
---         | Just prim' <- currentDef.tl_primitive
---         , prim' == prim -> value <$> appPrim res prim as
---         | otherwise -> value <$> appDef res (fromMaybe __IMPOSSIBLE__ (lookup prim primitives)) as
---       TDef q     -> value <$> appDef res (prettyShow q) as
---       TCon q     -> value <$> appCon res q as
---       _          -> __IMPOSSIBLE__
---   where
---     -- | 𝓡 [x + y] = eval @1 ; λ Cnat #1 →
---     --               eval @1 ; λ Cnat #1 →
---     --               add @1 @0 ; λ #1 →
---     --               unit @0
---     appPrim res prim as = do
---         fin <- App (Prim prim) vs `bindVar` res (Unit $ ConstantNode natTag (mkLit 1) $ Var 0 :| [])
---         evals' <- foldrM (\t ts -> Bind t <$> laltConstantNode natTag ts) fin evals
---         pure $ mkWithOffset (length evals) evals'
---       where
---         (evals, vs) =  foldr f ([], []) as
---
---         f (TLit lit) (es, vs) = (es, Lit lit : vs)
---         f (TVar n)   (es, vs) = (eval (on (-) length evals es + n - 1)  : es, Var (length es) : vs)
---         f _          _        = __IMPOSSIBLE__
---
---     -- | 𝓡 [foo x y] = foo x y
---     appDef res name as = do
---       let
---         nLits = foldl (\n -> \case{TLit _ -> succ n ; _ -> n}) 0 as
---
---         f (TLit lit) (ss, vs) = do
---             s <- store $ ConstantNode natTag (mkLit 1) $ Lit lit :| []
---             pure (s : ss, Var (length ss) : vs)
---         f (TVar n)   (ss, vs) = pure (ss, Var (n + nLits) : vs)
---         f TErased    (ss, vs) = pure (ss, vs)
---         f _          _        = __IMPOSSIBLE__
---
---       (stores, vs) <- foldrM f ([], []) as
---       let fin = res $ App (Def name) vs
---       stores' <- foldrM (\t ts -> Bind t <$> laltVar ts) fin stores
---
---       pure $ mkWithOffset nLits stores'
---
---     -- | 𝓡 [_∷_ x xs] = unit (C_∷_ @1 @0)
---     appCon res q as = do
---         let
---           nLits = foldl (\n -> \case{TLit _ -> succ n ; _ -> n}) 0 as
---
---           f (TLit lit) (ss, vs) = do
---             s <- store $ ConstantNode natTag (mkLit 1) $ Lit lit :| []
---             pure (s : ss, Var (length ss) : vs)
---           f (TVar n)   (ss, vs) = pure (ss, Var (n + nLits) : vs)
---           f TErased    (ss, vs) = pure (ss, vs)
---           f _          _        = __IMPOSSIBLE__
---
---         (stores, vs) <- foldrM f ([], []) as
---         let fin = res $ Unit $ ConstantNode tag (mkLit 1) $ caseList vs __IMPOSSIBLE__ (:|)
---         stores' <- foldrM (\t ts -> Bind t <$> laltVar ts) fin stores
---
---         pure $ mkWithOffset (length stores) stores'
---       where
---         tag = CTag{tCon = prettyShow q, tArity = length as}
---
--- -- | 𝓡 [let t1 in t2] = 𝓒 [t1] ; λ #1 → 𝓡 [t2]
--- rScheme (TLet t1 t2)
---   | TApp t as <- t1 = do
---     WithOffset{value=t1', offset} <- cSchemeApp t as
---     t2' <- rScheme $ raiseFrom 1 offset t2
---     pure $ t1' t2'
---
---   | TLet t1 t2 <- t1 = do
---     t1' <- cScheme t1
---     t2' <- rScheme t2
---     Bind t1' <$> laltVar t2'
---
--- -- TODO need to keep track of evaluated variables
--- -- 𝓡 [x] = eval 0 ; λ x → unit 0
--- rScheme (TVar n) = eval n `bindVar` Unit (Var 0)
---
--- rScheme t = error $ "TODO rScheme " ++ show t
---
--- aScheme :: TAlt -> G CAlt
--- aScheme TALit{aLit, aBody} = do
---   aBody' <- rScheme aBody
---   pure $ CAltLit aLit aBody'
---
--- aScheme TACon{aCon, aArity, aBody} = do
---     aBody' <- rScheme aBody
---     caltConstantNode tag aBody'
---   where
---     tag = CTag{tCon = prettyShow aCon, tArity = aArity}
---
--- aScheme alt                = error $ "TODO aScheme " ++ show alt
---
--- cScheme :: TTerm -> G Term
--- cScheme t = error $ "TODO cScheme " ++ show t
---
--- -- | 𝓒 [foo x y] = store (Ffoo @1 @0)
--- --
--- --   𝓒 [a + 4] = store (Cnat 4) λ #1 →
--- --               store (Prim.add @1 @0)
--- cSchemeApp :: TTerm -> Args -> G (WithOffset (Term -> Term))
--- cSchemeApp t as = do
---     let
---         nLits = foldl (\n -> \case{TLit _ -> succ n ; _ -> n}) 0 as
---         f (TLit lit) (ss, vs) = do
---           s <- store $ ConstantNode natTag (mkLit 1) $ Lit lit :| []
---           pure (s : ss, Var (length ss) : vs)
---         f (TVar n)   (ss, vs) = pure (ss, Var (n + nLits) : vs)
---         f TErased    (ss, vs) = pure (ss, vs)
---         f t          _        = error $ "CSCHEMEAPP: " ++ show t
---
---     (stores, vs) <-  foldrM f ([], []) as
---
---     primitives <- gets primitives
---     let tag
---           | TDef q <- t = FTag{tDef = prettyShow q, tArity = length as}
---           | TPrim prim <- t =  FTag {tDef=fromMaybe __IMPOSSIBLE__ (lookup prim primitives), tArity=length as}
---           | otherwise = __IMPOSSIBLE__
---
---     t <- store $ ConstantNode tag (mkLit 1) $ caseList vs __IMPOSSIBLE__ (:|)
---     abs <- freshAbs
---     let fin = Bind t . LAltVar abs
---     stores' <- foldrM (\t ts -> (\abs -> Bind t . LAltVar abs . ts) <$> freshAbs) fin stores
---     pure $ mkWithOffset nLits stores'
---
--- eval :: Int -> Term
--- eval = App (Def "eval") . singleton . Var
---
--- printf :: Int -> Term
--- printf = App (Def "printf") . singleton . Var
-
--- -- FIXME
--- primStr :: TPrim -> String
--- -- primStr PAdd64 = "Prim.add"
--- primStr PAdd = "Prim.add"
--- -- primStr PSub64 = "Prim.sub"
--- primStr PSub = "Prim.sub"
--- primStr p    = error $ "TODO primStr " ++ show p
---
--- data GVarInfo = GVarInfo
---   { isEvaluated      :: Bool
---   , evaluationOffset :: Maybe Int -- negative
---   }
---
--- mkVar :: GVarInfo
--- mkVar = GVarInfo{isEvaluated=False, evaluationOffset=Nothing}
---
--- data GEnv = GEnv
---   { gVars      :: [GVarInfo]
---   , isMain     :: Bool
---   , primitives :: [(TPrim, String)]
---   , currentDef :: TreelessDefinition
---   }
---
--- initGEnv :: TreelessDefinition -> [(TPrim, String)] -> GEnv
--- initGEnv def primitives = GEnv
---   { gVars = replicate def.tl_arity mkVar
---   , isMain = def.tl_isMain
---   , primitives = primitives
---   , currentDef = def
---   }
---
--- type G = StateT GEnv TCM
---
--- data WithOffset a = WithOffset
---   { offset :: Int
---   , value  :: a
---   }
---
--- mkWithOffset :: Int -> a -> WithOffset a
--- mkWithOffset n a = WithOffset{offset = n, value = a}
--- rScheme (TApp t as) = do
---     isMain <- gets getIsMain
---     alt <- laltConstantNode natTag (printf 0)
---     primitives <- gets primitives
---     mprim <- gets getPrimitive
---     let res t
---           | isMain = Bind t alt
---           | otherwise = t
---     case t of
---       TPrim prim
---         | Just prim' <- mprim
---         , prim' == prim -> appPrim prim as
---         | otherwise ->
---           let name = fromMaybe __IMPOSSIBLE__ (lookup prim primitives) in
---           snd <$> appDef res name as
---       TDef q     -> snd <$> appDef res (prettyShow q) as
---       TCon q     -> snd <$> appCon res (prettyShow q) as
---       _          -> __IMPOSSIBLE__
---   where
-    -- appPrim prim as = do
-    --     offsets <- asks evaluatedOffsets
-    --     x <- freshAbs
-    --     let mkT vs =
-    --           App (Prim prim) vs `Bind` LAltVar x
-    --           (Unit (ConstantNode natTag (List1.singleton (Var 0))))
-    --     evaluateValues offsets as mkT
-    --
-    --   where
-    --     -- TODO need to add local abss?
-    --     evaluateValues :: MonadFresh Int mf => [Int -> Int] -> [TTerm] -> ([Val] -> Term) -> mf Term
-    --     evaluateValues offsets vs mkT = (f . raise n . mkT) vs' where
-    --       ((f, n), vs') =
-    --         forAccumR (pure, 0) vs $ \(f, m) v ->
-    --           caseEither (mkEval offsets v)
-    --             ((f, m),)
-    --             (\f' -> ((f' <=< f, succ m), Var (m - n)))
-    --
-    --     mkEval :: MonadFresh Int mf => [Int -> Int] -> TTerm -> Either Val (Term -> mf Term)
-    --     mkEval offsets (TVar n) =
-    --       let n' = applyEvaluatedOffset' n offsets in
-    --       if n' == n then Right (bindVar (eval n)) else Left (Var n')
-    --     mkEval _ (TLit lit) = Left (Lit lit)
-    --     mkEval _ _ = __IMPOSSIBLE__
-    --
-    -- appDef res name as = do
-    --   (stores, vs) <- foldrM f ([], []) as
-    --   let fin = res $ App (Def name) vs
-    --   stores' <- foldrM (\t ts -> Bind t <$> laltVar ts) fin stores
-    --   pure (nLits, stores')
-    --   where
-    --     nLits = foldl (\n -> \case{TLit _ -> succ n ; _ -> n}) 0 as
-    --
-    --     f (TLit lit) (ss, vs) = do
-    --         s <- store $ ConstantNode natTag $ Lit lit :| []
-    --         pure (s : ss, Var (length ss) : vs)
-    --     f (TVar n)   (ss, vs) = do
-    --       n' <- applyEvaluatedOffset n
-    --       pure (ss, Var (n' + nLits) : vs)
-    --     f TErased (ss, vs) = pure (ss, vs)
-    --     f _ _ = __IMPOSSIBLE__
-    --
-    -- appCon res q as = do
-    --     let
-    --       nLits = foldl (\n -> \case{TLit _ -> succ n ; _ -> n}) 0 as
-    --
-    --       f (TLit lit) (ss, vs) = do
-    --         s <- store $ ConstantNode natTag $ Lit lit :| []
-    --         pure (s : ss, Var (length ss) : vs)
-    --       f (TVar n)   (ss, vs) = do
-    --         n' <- applyEvaluatedOffset n
-    --         pure (ss, Var (n' + nLits) : vs)
-    --       f TErased    (ss, vs) = pure (ss, vs)
-    --       f _          _        = __IMPOSSIBLE__
-    --
-    --     (stores, vs) <- foldrM f ([], []) as
-    --     let fin = res $ Unit $ ConstantNode tag $ caseList vs __IMPOSSIBLE__ (:|)
-    --     stores' <- foldrM (\t ts -> Bind t <$> laltVar ts) fin stores
-    --
-    --     pure (length stores, stores')
-    --   where
-    --     tag = CTag{tCon = prettyShow q, tArity = length as}
-
--- -- | 𝓡 [let t1 in t2] = 𝓒 [t1] ; λ #1 → 𝓡 [t2]
--- rScheme (TLet t1 t2)
---   | TApp t as <- t1 = do
---     (offset, t1') <- cSchemeApp t as
---     t2' <- rScheme $ raiseFrom 1 offset t2
---     pure $ t1' t2'
---
---   | TLet t1 t2 <- t1 = do
---     t1' <- cScheme t1
---     t2' <- rScheme t2
---     Bind t1' <$> laltVar t2'
---
--- rScheme t = error $ "TODO rScheme " ++ show t
-
-
--- cScheme :: TTerm -> GrinGen Term
--- cScheme t = error $ "TODO cScheme " ++ show t
-
--- | 𝓒 [foo x y] = store (Ffoo @1 @0)
---
---   𝓒 [a + 4] = store (Cnat 4) λ #1 →
---               store (Prim.add @1 @0)
--- cSchemeApp :: TTerm -> Args -> GrinGen (Int, Term -> Term)
--- cSchemeApp (TDef q) as = cSchemeApp' (prettyShow q) as
--- cSchemeApp (TPrim prim) as = do
---   isSelf <- gets ((Just prim ==) . getPrimitive)
---   if isSelf then do
---     let vs = for as $ \case
---           TVar n -> Var n
---           _      -> __IMPOSSIBLE__
---     x <- freshAbs
---     pure (0, \t -> App (Prim prim) vs `Bind` LAltVar x t)
---   else do
---     name <- gets (fromMaybe __IMPOSSIBLE__ . lookup prim . primitives)
---     cSchemeApp' name as
--- cSchemeApp _ _ = __IMPOSSIBLE__
-
--- cSchemeApp' :: String -> Args -> GrinGen (Int, Term -> Term)
--- cSchemeApp' name as = do
---     (stores, vs) <-  foldrM f ([], []) as
---     t <- store $ ConstantNode tag $ caseList vs __IMPOSSIBLE__ (:|)
---     x <- freshAbs
---     let fin = Bind t . LAltVar x
---     stores' <- foldrM (\t ts -> (\abs -> Bind t . LAltVar abs . ts) <$> freshAbs) fin stores
---     pure (nLits, stores')
---   where
---     tag = FTag{tDef = name, tArity = length as}
---     nLits = foldl (\n -> \case{TLit _ -> succ n ; _ -> n}) 0 as
---     f (TLit lit) (ss, vs) = do
---       s <- store $ ConstantNode natTag $ Lit lit :| []
---       pure (s : ss, Var (length ss) : vs)
---     f (TVar n)   (ss, vs) = pure (ss, Var (n + nLits) : vs)
---     f TErased    (ss, vs) = pure (ss, vs)
---     f _          _        = __IMPOSSIBLE__
-
-
 -----------------------------------------------------------------------
 -- * LLVM code generation
 -----------------------------------------------------------------------
@@ -915,11 +598,12 @@ mkGlobalTys defs =
     types
       | getShortName def == "main" = ([], L.Void)
       | getShortName def == "drop" = ([L.I64], L.Void)
+      | getShortName def == "dup"  = ([L.I64], L.Void)
       | otherwise = (replicate def.gr_arity L.I64, L.nodeTySyn)
 
--- TODO make it so main's continuation is printf
 mkCont :: GrinDefinition -> Continuation
 mkCont (getShortName -> "drop") _ = pure [L.RetVoid]
+mkCont (getShortName -> "dup")  _ = pure [L.RetVoid]
 mkCont _ i = do
   (x_unnamed, i_setVar) <- first L.LocalId <$> setVar i
   pure [i_setVar, L.RetNode x_unnamed]
@@ -931,7 +615,8 @@ definitionToLlvm def = do
   let args = zip argsTy $ map L.mkLocalId def.gr_args
   L.Define L.Fastcc returnTy f args <$> termToLlvm def.gr_term
 
--- TODO should use valToLlvm for insertvalue stuff
+-- TODO make it so that unit is the only term which calls to continuation. And make 
+--      both main and drop return `unit ()`
 termToLlvm :: Term -> LlvmGen (List1 L.Instruction)
 -- FIXME ugly
 termToLlvm (Case (Var n) t alts `Bind` alt) = do
@@ -1008,11 +693,10 @@ termToLlvm (Store _ v `Bind` LAltVar (L.mkLocalId -> x) t) = do
   pure $ instructions1 `List1.prependList`
     ([instruction_malloc, instruction_store, instruction_ptrtoint] <> instructions2)
 
-termToLlvm (FetchOffset n offset `Bind` alt) = do
-  x <- fromMaybe __IMPOSSIBLE__ <$> varLookup n
-  (x_unnamed_ptr, i_inttoptr) <- setVar (L.inttoptr x)
-  (x_unnamed, i_getelemtptr) <- setVar (L.getelementptr x_unnamed_ptr offset)
-  List1.prependList [i_inttoptr, i_getelemtptr] <$> laltToContinuation alt (L.load L.I64 x_unnamed)
+termToLlvm (FetchOpaqueOffset n offset `Bind` alt) 
+  | elem @[] offset [0, 1] = fetchToLlvm n offset alt
+termToLlvm (FetchOffset _ n offset `Bind` alt) 
+  | elem @[] offset [1, 2, 3] = fetchToLlvm n offset alt
 
 termToLlvm (App (Prim prim) [v1, v2] `Bind` alt) = do
   let op = case prim of
@@ -1076,6 +760,12 @@ termToLlvm (App (Def (L.mkGlobalId -> f)) vs) = do
   instructions2 <- ($ instruction_call) =<< view continuationLens
   pure (instructions1 `List1.prependList` instructions2)
 
+
+termToLlvm (Dup n `BindEmpty` t) = do
+  instructions1 <- termToLlvmChangeRc n (`L.add64` L.mkLit 1)
+  instructions2 <- termToLlvm t
+  pure (instructions1 <> instructions2)
+
 termToLlvm (UpdateTag _ n v `BindEmpty` t) = do
   x <- fromMaybe __IMPOSSIBLE__ <$> varLookup n
   (instructions1, v') <- valToLlvm v
@@ -1084,18 +774,32 @@ termToLlvm (UpdateTag _ n v `BindEmpty` t) = do
   instructions2 <- termToLlvm t
   pure $ (instructions1 |: instructions_inttoptr |> instruction_store) <> instructions2
 
-termToLlvm (Dup n `BindEmpty` t) = do
-  instructions1 <- termToLlvmChangeRc n (`L.add64` L.mkLit 1)
-  instructions2 <- termToLlvm t
-  pure (instructions1 <> instructions2)
 
-termToLlvm (Decref n) = do
-  instructions1 <- termToLlvmChangeRc n (`L.sub64` L.mkLit 1)
+termToLlvm (UpdateOffset n offset v) = do
+  x <- fromMaybe __IMPOSSIBLE__ <$> varLookup n
+  (instructions1, v') <- valToLlvm v 
+  (x_unnamed_ptr, instruction_inttoptr) <- setVar (L.inttoptr x)
+  (x_unnamed_ptr', instruction_getelementptr) <- setVar (L.getelementptr x_unnamed_ptr offset)
+  let instruction_store = L.store L.I64 v' x_unnamed_ptr'
   instructions2 <- ($ __IMPOSSIBLE__) =<< view continuationLens
-  pure (instructions1 <> instructions2)
+  pure $ 
+    instructions1 `List1.prependList`
+    [ instruction_inttoptr
+    , instruction_getelementptr
+    , instruction_store ]
+    <> instructions2
+  
 
 termToLlvm (Error TUnreachable) = pure $ List1.singleton L.Unreachable
 termToLlvm t = error $ "BAD: " ++ show t
+
+fetchToLlvm :: Int -> Int -> LAlt -> LlvmGen (List1 L.Instruction)
+fetchToLlvm n offset alt = do
+  x <- fromMaybe __IMPOSSIBLE__ <$> varLookup n
+  (x_unnamed_ptr, i_inttoptr) <- setVar (L.inttoptr x)
+  (x_unnamed, i_getelemtptr) <- setVar (L.getelementptr x_unnamed_ptr offset)
+  List1.prependList [i_inttoptr, i_getelemtptr] <$> laltToContinuation alt (L.load L.I64 x_unnamed)
+
 
 termToLlvmChangeRc :: Int -> (L.Val -> L.Instruction) -> LlvmGen (List1 L.Instruction)
 termToLlvmChangeRc n operation = do

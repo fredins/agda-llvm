@@ -22,8 +22,7 @@ import           Agda.TypeChecking.Substitute hiding (applySubstTerm)
 import           Agda.Utils.Function
 import           Agda.Utils.Impossible
 import           Agda.Utils.Lens
-import           Agda.Utils.List              (lastWithDefault)
-import           Agda.Utils.List1             (List1, pattern (:|), (<|))
+import           Agda.Utils.List              
 import qualified Agda.Utils.List1             as List1
 import           Agda.Utils.Maybe
 
@@ -54,17 +53,17 @@ getShortName = List1.last . list1splitOnDots . gr_name
 
 
 -- TODO
--- • Maybe remove Loc from Store
+-- • Remove Loc from Store
+-- • Combine Update and UpdateOffset
 data Term = Bind Term LAlt
-          | Case Val Term [CAlt] -- List1
-          | App Val [Val] -- List1
+          | Case Val Term [CAlt] -- List1?
+          | App Val [Val] 
           | Unit Val
-          | Store Loc Val
-          | Fetch Int (Maybe Int)
-          | Update (Maybe Tag) Int Val
           | Error TError
-          | Decref Int
-          | Dup Int 
+          | Store Loc Val
+          | Fetch' (Maybe Tag) Int (Maybe Int)
+          | Update (Maybe Tag) Int Val
+          | UpdateOffset Int Int Val
             deriving (Show, Eq, Ord)
 
 data Val = ConstantNode Tag Val [Val]
@@ -77,15 +76,24 @@ data Val = ConstantNode Tag Val [Val]
          | Prim TPrim
            deriving (Show, Eq, Ord)
 
-pattern FetchNode :: Int -> Term
-pattern FetchNode n = Fetch n Nothing
-pattern FetchOffset :: Int -> Int -> Term
-pattern FetchOffset n1 n2 = Fetch n1 (Just n2)
+
+pattern Fetch :: Tag -> Int -> Term
+pattern Fetch tag n = Fetch' (Just tag) n Nothing
+
+pattern FetchOpaque :: Int -> Term
+pattern FetchOpaque n = Fetch' Nothing n Nothing
+
+pattern FetchOpaqueOffset :: Int -> Int -> Term
+pattern FetchOpaqueOffset n1 n2 = Fetch' Nothing n1 (Just n2)
+
+pattern FetchOffset :: Tag -> Int -> Int -> Term
+pattern FetchOffset tag n1 n2 = Fetch' (Just tag) n1 (Just n2)
 
 pattern UpdateTag :: Tag -> Int -> Val -> Term
 pattern UpdateTag tag n v = Update (Just tag) n v
 
 pattern Drop n = App (Def "drop") [Var n]
+pattern Dup n = App (Def "dup") [Var n]
 
 store :: MonadFresh Int m => Val -> m Term
 store t = (`Store` t) <$> freshLoc
@@ -127,8 +135,8 @@ freshLoc = MkLoc <$> freshGid
 freshGid :: MonadFresh Int m => m Gid
 freshGid = Gid <$> fresh
 
-data LAlt = LAltConstantNode Tag Abs [Abs] Term -- List1
-          | LAltVariableNode Abs Abs [Abs] Term -- List1
+data LAlt = LAltConstantNode Tag Abs [Abs] Term 
+          | LAltVariableNode Abs Abs [Abs] Term 
           | LAltEmpty Term
           | LAltVar Abs Term
             deriving (Show, Eq, Ord)
@@ -280,6 +288,7 @@ natTag :: Tag
 natTag = CTag{tCon = "nat" , tArity = 1}
 
 gatherTags :: Term -> Set Tag
+gatherTags (Unit (ConstantNode tag _ _)) = Set.singleton tag
 gatherTags (Store _ (ConstantNode tag _ _)) = Set.singleton tag
 gatherTags (Store _ (Tag tag)) = Set.singleton tag
 gatherTags (t1 `Bind` (snd . splitLalt -> t2)) = on (<>) gatherTags t1 t2
@@ -303,8 +312,8 @@ applySubstTerm rho term = case term of
   Case v t alts -> Case (applySubst rho v) (applySubst rho t) (applySubst rho alts)
   Unit v -> Unit (applySubst rho v)
   Store loc v -> Store loc (applySubst rho v)
-  Fetch n mn
-    | Var n' <- lookupS rho n -> Fetch n' mn
+  Fetch' mtag n mn
+    | Var n' <- lookupS rho n -> Fetch' mtag n' mn
     | otherwise -> __IMPOSSIBLE__
   Update tag n t
     | Var n' <- lookupS rho n -> Update tag n' (applySubst rho t)
@@ -404,16 +413,21 @@ instance Pretty Term where
     | Var _ <- v = (text "store" <> pretty l) <+> pretty v
     | otherwise  = (text "store" <> pretty l) <+> parens (pretty v)
   pretty (App v vs) = sep $ pretty v : map pretty vs
-  pretty (Case n def alts) =
+  pretty (Case n t alts) =
     vcat
       [ text "case" <+> pretty n <+> text "of"
-      , nest 2 $ vcat $
-        applyWhen (not $ isUnreachable def)
-        (++ [text "_ →" <+> nest 2 (pretty def)]) $ map pretty alts
-      ]
-  pretty (Fetch v mn)
-    | Just n <- mn = text "fetch" <+> pretty v <+> brackets (pretty n)
-    | otherwise = text "fetch" <+> pretty v
+      , nest 2 $ vcat $ applyWhen (not $ isUnreachable t) (`snoc` docDefault) $ map pretty alts ]
+    where
+    docDefault = 
+      sep [ text "_ →" 
+          , nest 2 $ pretty t
+          ]
+
+  pretty (Fetch' mtag n moffset) = (text "fetch" <> docTag) <+> pretty n <+> docOffset
+    where
+    docOffset = maybe mempty (brackets . pretty) moffset
+    docTag = maybe mempty pretty mtag
+    
   pretty (Update Nothing v1 v2)
     | ConstantNode{} <- v2 = text "update" <+> pretty v1 <+> parens (pretty v2)
     | VariableNode{} <- v2 = text "update" <+> pretty v1 <+> parens (pretty v2)
@@ -424,8 +438,7 @@ instance Pretty Term where
     | otherwise = (text "update" <> pretty tag) <+> pretty v1 <+> pretty v2
   pretty (Error TUnreachable) = text "unreachable"
   pretty (Error (TMeta _)) = __IMPOSSIBLE__
-  pretty (Decref n) = text "decref" <+> pretty n
-  pretty (Dup n) = text "dup" <+> pretty n
+  pretty (UpdateOffset n1 n2 v) = text "update" <+> pretty n1  <+> brackets (pretty n2) <+> pretty v
 
 instance Pretty Val where
   pretty (VariableNode tag rc vs) = sep (pretty tag : pretty rc : map pretty vs)
@@ -474,6 +487,8 @@ instance Pretty CAlt where
     sep [ pretty lit <+> text "→"
         , nest 2 $ pretty t
         ]
+
+
 
 instance Pretty Tag where
   pretty CTag{..} = text "C" <> pretty tCon

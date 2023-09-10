@@ -103,6 +103,16 @@ skipLambdas t        = t
 -- let c' = h c in
 -- f a b' c'
 simplifyApp :: TTerm -> TTerm
+simplifyApp (tAppView -> (f, splitArgs -> Just (before, TCon q, after))) =
+  simplifyApp (TLet (TCon q) app)
+  where
+  app = mkTApp (raise 1 f) $ raise 1 before ++ TVar 0 : raise 1 after
+
+simplifyApp (tAppView -> (f, splitArgs -> Just (before, TLit lit, after))) =
+  simplifyApp (TLet (TLit lit) app)
+  where
+  app = mkTApp (raise 1 f) $ raise 1 before ++ TVar 0 : raise 1 after
+
 simplifyApp (tAppView -> (f, splitArgs -> Just (before, t, after))) =
   simplifyApp (foldr TLet app ts)
   where
@@ -112,16 +122,18 @@ simplifyApp (tAppView -> (f, splitArgs -> Just (before, t, after))) =
   raiseN = raise (length ts)
 
 simplifyApp t = case t of
-  TCase n info def alts -> TCase n info (simplifyApp def) (simplifyAppAlts alts)
+  TLet (TCon q) t        -> TLet (TCon q) (simplifyApp t)
   TLet t1 t2            -> on TLet simplifyApp t1 t2
-  TLit _                -> t
+  TCase n info def alts -> TCase n info (simplifyApp def) (simplifyAppAlts alts)
+  TLam t                -> TLam (simplifyApp t)
   TCon _                -> t
+  TLit _                -> t
   TError _              -> t
   TVar _                -> t
   TPrim _               -> t
   TDef _                -> t
-  TLam t                -> TLam (simplifyApp t)
-  TApp t ts             -> TApp t ts
+  TApp _ _              -> t
+
   _                     -> error $ "TODO " ++ show t
 
 simplifyAppAlts :: [TAlt] -> [TAlt]
@@ -132,10 +144,12 @@ simplifyAppAlts = map go
   go _                = error "TODO"
 
 
--- Split arguments on the first application
+-- Split arguments on the first application or constructor
 splitArgs :: Args -> Maybe (Args, TTerm, Args)
 splitArgs []              = Nothing
 splitArgs (a@TApp{} : as) = Just ([], a, as)
+splitArgs (a@TCon{} : as) = Just ([], a, as)
+-- splitArgs (a@TLit{} : as) = Just ([], a, as)
 splitArgs (a : as)
   | Just (before, t, after) <- splitArgs as = Just (a:before, t, after)
   | otherwise = Nothing
