@@ -77,6 +77,7 @@ library
     , base         >= 4.12.0.0 && < 4.20
     , containers   >= 0.6.0.1  && < 0.7
     , deepseq      >= 1.4.4.0  && < 1.5            
+    , filepath
     , transformers >= 0.6.0.2  && < 0.7
     , mtl
     , extra

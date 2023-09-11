@@ -27,6 +27,8 @@ import qualified Data.Set                       as Set
 import           Data.Tuple.Extra               (second, swap, uncurry3)
 import           GHC.Generics                   (Generic)
 import           Prelude                        hiding (drop, (!!))
+import           System.Process.Extra (readCreateProcess, shell)
+import           System.FilePath               ((<.>), (</>))
 
 import           Agda.Compiler.Backend          hiding (Prim)
 import           Agda.Interaction.Options
@@ -301,8 +303,8 @@ llvmPostCompile _ _ mods = do
     putStrLn "------------------------------------------------------------------------\n"
     putStrLn $ intercalate "\n\n" (map prettyShow defs_perceus) ++ "\n"
 
-  liftIO $ removeFile "trace.log"
-  printInterpretGrin defs_perceus
+  -- liftIO $ removeFile "trace.log"
+  -- printInterpretGrin defs_perceus
 
   -- Not used
   --
@@ -361,7 +363,13 @@ llvmPostCompile _ _ mods = do
       defs = intercalate "\n\n" (map prettyShow llvm_ir)
       program = intercalate "\n\n" [header, tags_table, defs]
 
-  liftIO (writeFile "program.ll" program)
+  liftIO $ do
+    let file = "llvm" </> "program.ll"
+    putStrLn $ "Writing file " ++ file
+    writeFile file program
+    void $ readCreateProcess (shell $ "clang -O3 -o program llvm" </> "program.ll") ""
+    putStrLn "Linking program" 
+    
 
 -----------------------------------------------------------------------
 -- * GRIN code generation

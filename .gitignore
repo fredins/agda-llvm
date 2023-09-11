@@ -6,8 +6,11 @@ plan.md
 latex/*
 !latex/report.pdf
 test/*.err
+program
 *.log
 *.fls
 *.fdb_latexmk
 *.aux
+*.o
+*.hi
 
