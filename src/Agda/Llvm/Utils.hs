@@ -10,6 +10,7 @@ module Agda.Llvm.Utils
   , list1zip3
   , list1zipWith3
   , list1unzip4
+  , adjustWithDefault
   , setfilterM
   , unionNub
   , differenceBy
@@ -31,6 +32,8 @@ import           Data.Coerce                  (Coercible, coerce)
 import           Data.Functor                 (($>))
 import           Data.List                    (deleteBy, mapAccumR, union,
                                                unzip4)
+import           Data.Map                     (Map)
+import qualified Data.Map                     as Map
 import           Data.Set                     (Set)
 import qualified Data.Set                     as Set
 
@@ -94,6 +97,11 @@ list1unzip4 ((a, b, c, d) :| xs) = (a :| as, b :| bs, c :| cs, d :| ds)
 
 setfilterM :: (Ord a, Applicative f) => (a -> f Bool) -> Set a -> f (Set a)
 setfilterM p = fmap Set.fromList . filterM p . Set.toList
+
+
+adjustWithDefault :: Ord k => k -> (v -> v) -> v -> Map k v -> Map k v
+adjustWithDefault k f v xs | Map.member k xs = Map.adjust f k xs
+                           | otherwise = Map.insert k v xs
 
 unionNub :: Eq a => [a] -> [a] -> [a]
 unionNub xs = union xs . filter (`notElem` xs)

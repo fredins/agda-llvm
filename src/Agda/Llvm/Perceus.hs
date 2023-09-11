@@ -3,27 +3,29 @@
 
 module Agda.Llvm.Perceus (perceus, mkDrop, mkDup) where
 
-import           Control.Applicative          ((<|>), Applicative (liftA2))
+import           Control.Applicative          (Applicative (liftA2), (<|>))
 import           Control.Monad                (filterM, (<=<))
-import           Control.Monad.Reader         (MonadReader, Reader, asks, local,
-                                               runReader, ReaderT (runReaderT), MonadIO (liftIO))
+import           Control.Monad.Reader         (MonadIO (liftIO), MonadReader,
+                                               Reader, ReaderT (runReaderT),
+                                               asks, local, runReader)
 import           Data.Bool                    (bool)
 import           Data.Foldable                (fold, foldrM)
 import           Data.Function                (on)
 import           Data.List                    (partition, singleton, (\\))
+import           Data.Map                     (Map)
+import qualified Data.Map                     as Map
 import           Data.Set                     (Set)
 import qualified Data.Set                     as Set
-import           Data.Map                  (Map)
-import qualified Data.Map                  as Map
 
 
-import           Data.Tuple.Extra             (first, both, dupe)
+import           Data.Tuple.Extra             (both, dupe, first)
 
 
-import           Agda.Compiler.Backend        (MonadFresh, TPrim (PSub64, PSub, PAdd), TCM)
+import           Agda.Compiler.Backend        (MonadFresh, TCM,
+                                               TPrim (PAdd, PSub, PSub64))
 import           Agda.Llvm.Grin
-import           Agda.Syntax.Common.Pretty
 import           Agda.Llvm.Utils
+import           Agda.Syntax.Common.Pretty
 import           Agda.Syntax.Literal          (Literal (LitNat))
 import           Agda.TypeChecking.Substitute
 import           Agda.Utils.Impossible
@@ -42,121 +44,17 @@ data Context = Context
  { delta :: Set Abs
  , gamma :: Set Abs }
 
-
--- TODO
--- • Change so that only returning unit `unit v`, function call `foo v`, and 
---   suspended function call `store (Ffoo v)` consumes references.
--- • How should `fetch n [1] λ x → ‥` be handled? `x` should not be used 
---   after a dup. Should dup be required to have already fetched?
---   This seems most plausible. 
---
--- TODO TODO TODO • function calls and suspended function calls consume values
--- TODO TODO TODO • `fetch`,`update` instead borrows. drop is delayed until last borrow.
--- TODO TODO TODO • All dups should be inlined and every dup should use and update/subst 
-  --                  fetch n [1]; λ x₁ → 
-  --                  add 0 1 ; λ x₂ → 
-  --                  update (n + 1) [1] 0 ; λ () → 
-  --                  <m> [x₂/x₁]
-  --                Also need to keep track of the Abs of the first `fetch n [1]` os 
-  --                deBruijnOf can be used.
---
---
---   Example 1: No reference in main and foo are required
---
---   bar x₃ = ‥
---    
---   foo x₂ = bar x₂
---
---   main = 
---     store (Cnat #1 #10) ; λ x₁ → 
---     foo 0
---
---
---  Example 2:
-
--- _+_ r13 x11 x12 =
---   eval 1 ; λ Cnat x9 x10 →         -- x11 consumed by eval
---   eval 2 ; λ Cnat x7 x8 →          -- x12 consumed by eval
---   PAdd 2 0 ; λ x6 →
---   unit (Cnat #1 0)
---
--- main =
---   storel0 (Cnat #1 #4) ; λ x5 →
---   storel1 (Cnat #1 #6) ; λ x4 →
---   _+_ 1 0 ; λ Cnat x2 x3 →        -- x5 and x4 are consumed by _+_
---   printf 0
-
--- >>> Inline eval
---
--- _+_ r13 x11 x12 =
---   (fetchCnat 1 ; λ Cnat x15 x16 →
---    unit (Cnat 1 0) ; λ x14 →
---    update 4 0 ; λ () →
---    unit 0                            -- x11 consumed by ?? unit? or PAdd?
---   ) ; λ Cnat x9 x10 →
---   (fetchCnat 2 ; λ Cnat x18 x19 →
---    unit (Cnat 1 0) ; λ x17 →
---    update 5 0 ; λ () →
---    unit 0                            -- x12 consumed by ?? unit? or PAdd?
---   ) ; λ Cnat x7 x8 →
---   PAdd 2 0 ; λ x6 →
---   unit (Cnat #1 0)
---
--- >>> Right hoist fetch
---
--- _+_ r13 x11 x12 =                   -- ???
---   fetchCnat 1 [1] ; λ x15 →
---   fetchCnat 2 [2] ; λ x16 →
---   updateCnat 3 (Cnat 1 0) ; λ () →
---   fetchCnat 2 [1] ; λ x18 →
---   fetchCnat 3 [2] ; λ x19 →
---   updateCnat 4 (Cnat 1 0) ; λ () →
---   PAdd 2 0 ; λ x6 →
---   unit (Cnat #1 0)
---
--- >>> Perceus                         -- A naive perceus implementation dup way
--- _+_ r13 x11 x12 =                      too much. And it is problem if `x` in
---   dup 1 ; λ () →                       `fetch n [1] ; λ x → ‥` is used after 
---   fetchCnat 1 [1] ; λ x15 →            a dup. In fact, this function _+_ 
---   dup 2 ; λ () →                       shouldn't have to modify refernce counts
---   fetchCnat 2 [2] ; λ x16 →            at. It makes no allocations so cannot
---   updateCnat 3 (Cnat 1 0) ; λ () →     take advantage of a reuse analysis any reuse.
---   dup 2 ; λ () →                       It seems like we need to implement borrowing.
---   fetchCnat 2 [1] ; λ x18 →            A simple implementation of borrowing is just 
---   dup 3 ; λ () →                       to delay the drop operation
---   fetchCnat 3 [2] ; λ x19 →
---   updateCnat 4 (Cnat 1 0) ; λ () →
---   PAdd 2 0 ; λ x6 →
---   unit (Cnat #1 0)
---
--- >>> Perceus Borrowing
--- _+_ r13 x11 x12 =                   
---   fetchCnat 1 [1] ; λ x15 →
---   fetchCnat 2 [2] ; λ x16 →
---   updateCnat 3 (Cnat 1 0) ; λ () →
---   drop 3 ; λ () →                       -- Consume x11
---   fetchCnat 2 [1] ; λ x18 →
---   fetchCnat 3 [2] ; λ x19 →
---   updateCnat 4 (Cnat 1 0) ; λ () →
---   drop 4                                -- Consume x12
---   PAdd 2 0 ; λ x6 →
---   unit (Cnat #1 0)
---
---
-
-
-
 data PerceusCxt = PerceusCxt
-  { pc_vars               :: [Abs]
-  , pc_pointers           :: Set Abs 
-  , pc_returning          :: Bool -- ^ Variables which are pointers
-  , pc_tagDependentVars   :: Map Abs [Abs]
-  } 
+  { pc_vars             :: [Abs]
+  , pc_pointers         :: Set Abs
+  , pc_returning        :: Bool -- ^ Variables which are pointers
+  , pc_tagDependentVars :: Map Abs [Abs]
+  }
 
 initPerceusCxt :: GrinDefinition -> PerceusCxt
 initPerceusCxt def = PerceusCxt
   { pc_vars = def.gr_args
-  , pc_pointers = Set.fromList def.gr_args <> gatherPointers def.gr_term 
+  , pc_pointers = Set.fromList def.gr_args <> gatherPointers def.gr_term
   , pc_returning = True
   , pc_tagDependentVars = mempty
   }
@@ -176,17 +74,16 @@ isPointer x = asks $ Set.member x . pc_pointers
 tagDependentVarsLookup :: Abs -> Perceus [Abs]
 tagDependentVarsLookup x = asks $ fromMaybe [] . Map.lookup x . pc_tagDependentVars
 
--- TODO
--- Returning *should* consume!
+-- TODO remove TCM! only used for debugging
 perceus :: GrinDefinition -> TCM GrinDefinition
-perceus def = do 
+perceus def = do
   t <- term
-  pure def{gr_term = t} 
+  pure def{gr_term = t}
   where
   -- ∅ | Γ ⊢ t ⟿  t′   Γ = fv(t)   Γ′ = {x}∗ - Γ
   -- -------------------------------------------
   -- ø ⊢ f {x}∗ = t ⟿  f {x}∗ = drop Γ′; t′
-  
+
   term = flip runReaderT (initPerceusCxt def) $ do
     xs <- fvTerm def.gr_term
     -- Γ = fv(t)   Γ′ = {x}∗ - Γ
@@ -204,16 +101,16 @@ type Perceus a = ReaderT PerceusCxt TCM a
 perceusTerm :: Context -> Term -> Perceus Term
 
 
--- Dup arguments with appropriate contexts. 
+-- Dup arguments with appropriate contexts.
 --
--- γᵢ ⊆ Γᵢ 
+-- γᵢ ⊆ Γᵢ
 -- Δ,Γᵢ₊₁,‥,Γₙ | Γᵢ ⊢ vᵢ ⟿  dup γᵢ
 -- --------------------------------------
 -- Δ Γ ⊢ f {v}∗ ⟿  dup {γ}∗ ; f {v}∗
 perceusTerm c term@(App (Def f) vs) = do
   let vs' = List1.fromListSafe __IMPOSSIBLE__ vs
   cs <- splitContext c vs'
-  -- logIO $ render $ vcat 
+  -- logIO $ render $ vcat
   --   [ text "\nAPP" <+> pretty term
   --   , text "c.delta" <+> pretty c.delta
   --   , text "c.gamma" <+> pretty c.gamma
@@ -223,20 +120,20 @@ perceusTerm c term@(App (Def f) vs) = do
   dups <- fold <$> List1.zipWithM perceusVal cs vs'
   pure (foldr BindEmpty (App (Def f) vs) dups)
 
--- Currently, only returning unit with a constant node is possible so 
+-- Currently, only returning unit with a constant node is possible so
 -- this rule only applies to that case.
--- 
+--
 -- --------------------------------
 -- Δ | Γ ⊢ unit v ⟿  dup v ; dup v; unit v
 
--- γ ⊆ Γ 
+-- γ ⊆ Γ
 -- Δ | Γ ⊢ v ⟿  dup γ
 -- --------------------------------------
 -- Δ Γ ⊢ unit v ⟿  dup fv(v) ; dup γ ; f {v}∗
 perceusTerm c (Unit v) = do
   fv <- fvVal v
   --- vars <- asks pc_vars
-  -- logIO $ render $ vcat 
+  -- logIO $ render $ vcat
   --   [ text "UNIT" <+> pretty (Unit v)
   --   , text "c.delta" <+> pretty c.delta
   --   , text "c.gamma" <+> pretty c.gamma
@@ -248,19 +145,19 @@ perceusTerm c (Unit v) = do
 
 -- ----------------------------------
 -- Δ | Γ ⊢ store v ⟿  dup v ; store v
-perceusTerm c (Store loc v) = 
+perceusTerm c (Store loc v) =
   foldr BindEmpty (Store loc v) <$> perceusVal c v
 
 
 -- Drops references which are not needed in t₂, both
--- from the newly bound variables {x}∗ and the owned 
--- environment Γ. It make sure to not drop any 
+-- from the newly bound variables {x}∗ and the owned
+-- environment Γ. It make sure to not drop any
 -- referernces which t₁ is responsible for dropping.
 --
--- Γ₂ = Γ ∩ fv(t₂)   
+-- Γ₂ = Γ ∩ fv(t₂)
 -- Γ₂′ = Γ - Γ₂,ov(t₁)
--- Γₓ = fv(t₂) ∩ {x}∗    Δ,Γ₂,Γ₂′ | Γ - Γ₂,Γ₂′ ⊢ t₁ ⟿  t₁′  
--- Γₓ′ = fv(t₂) - {x}∗               Δ | Γ₂,Γₓ ⊢ t₂ ⟿  t₂′   
+-- Γₓ = fv(t₂) ∩ {x}∗    Δ,Γ₂,Γ₂′ | Γ - Γ₂,Γ₂′ ⊢ t₁ ⟿  t₁′
+-- Γₓ′ = fv(t₂) - {x}∗               Δ | Γ₂,Γₓ ⊢ t₂ ⟿  t₂′
 -- -------------------------------------------------------------
 -- Δ | Γ ⊢ t₁ ; λ {x}∗ → t₂ ⟿  t₁′ ; λ {x}∗ → drop Γ₂′,Γₓ′ ; t₂′
 perceusTerm c term@(t1 `Bind` alt) = do
@@ -271,21 +168,21 @@ perceusTerm c term@(t1 `Bind` alt) = do
   xs' <- Set.fromList <$> filterM isPointer xs
 
   let tagDependentVarsLocal = case alt of
-        LAltVariableNode x xs _ -> 
+        LAltVariableNode x xs _ ->
           let xs'' = filter (`Set.member` xs') xs in
           local $ \cxt -> cxt{pc_tagDependentVars =  Map.insert x xs'' cxt.pc_tagDependentVars}
         _ -> id
-  
-  -- Γ₂ = Γ ∩ fv(t₂)   
+
+  -- Γ₂ = Γ ∩ fv(t₂)
   -- Γ₂′ = Γ - Γ₂,ov(t₁)
   let gamma2  = Set.intersection c.gamma fv2
       gamma2' = c.gamma Set.\\ (gamma2 <> ov1)
 
-  -- Γₓ = fv(t₂) ∪ {x}∗    
-  -- Γₓ′ = fv(t₂) - {x}∗   
+  -- Γₓ = fv(t₂) ∪ {x}∗
+  -- Γₓ′ = fv(t₂) - {x}∗
   let (gammax, gammax') = Set.partition (`Set.member` fv2) xs'
 
-  -- logIO $ render $ vcat 
+  -- logIO $ render $ vcat
   --   [ text "\nBIND:"
   --   , nest 4 (pretty term)
   --   , text "c.delta" <+> pretty c.delta
@@ -297,11 +194,11 @@ perceusTerm c term@(t1 `Bind` alt) = do
   --   , text "gammax" <+> pretty gammax
   --   , text "gammax'" <+> pretty gammax' ]
 
-  -- Δ,Γ₂,Γ₂′ | Γ - Γ₂,Γ₂′ ⊢ t₁ ⟿  t₁′  
-  let context = Context (c.delta <> gamma2 <> gamma2') (c.gamma Set.\\ (gamma2 <> gamma2')) 
+  -- Δ,Γ₂,Γ₂′ | Γ - Γ₂,Γ₂′ ⊢ t₁ ⟿  t₁′
+  let context = Context (c.delta <> gamma2 <> gamma2') (c.gamma Set.\\ (gamma2 <> gamma2'))
 
   -- logIO $ render $ vcat
-  --   [ text "\nLEFT TERM:" 
+  --   [ text "\nLEFT TERM:"
   --   , nest 4 (pretty t1)
   --   , text "delta" <+> pretty context.delta
   --   , text "gamma" <+> pretty context.gamma
@@ -312,23 +209,23 @@ perceusTerm c term@(t1 `Bind` alt) = do
   --   ]
 
   t1' <- perceusTerm context t1
-  
-  -- Δ | Γ₂ ⊢ t₂ ⟿  t₂′   
-  t2' <- varsLocal xs $ tagDependentVarsLocal $ perceusTerm (Context c.delta $ gamma2 <> gammax) t2 
+
+  -- Δ | Γ₂ ⊢ t₂ ⟿  t₂′
+  t2' <- varsLocal xs $ tagDependentVarsLocal $ perceusTerm (Context c.delta $ gamma2 <> gammax) t2
   -- drop Γ₂′,Γₓ′ ; t₂′
   t2'_drop <- varsLocal xs $ dropSet (gamma2' <> gammax') t2'
 
   pure (t1' `Bind` mkAlt t2'_drop)
-  
+
 
 
 -- Δ | Γᵢ ⊢ tᵢ ⟿  tᵢ′   Γᵢ = Γ ∩ fv(tᵢ)    Γᵢ′ = Γ - Γᵢ
 -- ----------------------------------------------------------------------
--- Δ | Γ ⊢ case x of t {tagᵢ → tᵢ}* ⟿  case x of t {tagᵢ → drop Γᵢ′ ; tᵢ′}* 
+-- Δ | Γ ⊢ case x of t {tagᵢ → tᵢ}* ⟿  case x of t {tagᵢ → drop Γᵢ′ ; tᵢ′}*
 
 perceusTerm c (Case (Var n) t alts) = do
   x <- fromMaybe __IMPOSSIBLE__  <$> deBruijnLookup n
-  xs <- tagDependentVarsLookup x 
+  xs <- tagDependentVarsLookup x
 
   t' <- if t == unreachable then pure t else stepBody (Set.fromList xs) t
   alts' <- mapM (stepAlt xs) alts
@@ -344,17 +241,17 @@ perceusTerm c (Case (Var n) t alts) = do
 
   -- Δ | Γᵢ ⊢ tᵢ ⟿  drop Γᵢ′ ; tᵢ′
   stepBody bottoms t = do
-      -- Γᵢ = (Γ - {⊥}∗) ∩ fv(tᵢ) 
+      -- Γᵢ = (Γ - {⊥}∗) ∩ fv(tᵢ)
       fv <- fvTerm t
       let gammai = Set.intersection (c.gamma Set.\\ bottoms) fv
 
       -- Δᵢ = Γ - {⊥}∗
       let deltai = c.delta Set.\\ bottoms
 
-      -- logIO $ render $ vcat 
-      --   [ text "CALT" 
+      -- logIO $ render $ vcat
+      --   [ text "CALT"
       --   , text "bottoms" <+> pretty bottoms
-      --   , nest 4 (pretty t) 
+      --   , nest 4 (pretty t)
       --   , text "c.delta" <+> pretty c.delta
       --   , text "c.gamma" <+> pretty c.gamma
       --   ]
@@ -369,7 +266,7 @@ perceusTerm c (Case (Var n) t alts) = do
       dropSet gammai' t'
 
 
--- These only borrows values, and thereby don't create any dups. 
+-- These only borrows values, and thereby don't create any dups.
 -- x ∈ Δ is ensured by fv(t) in the other patterns.
 perceusTerm _ (Fetch' mtag n (Just offset)) = pure $ Fetch' mtag n (Just offset)
 perceusTerm _ (Update tag n v) = pure (Update tag n v)
@@ -397,7 +294,7 @@ perceusVal c (Var n) = do
         , text "c.delta" <+> pretty c.delta
         , text "c.gamma" <+> pretty c.gamma
         ]
-   
+
   pure $ fromMaybe (error s) (not_ptr <|> svar <|> svar_dup)
 
 perceusVal c val@(ConstantNode _ (v : vs)) = do
@@ -422,7 +319,7 @@ perceusVal _ _ = pure []
 -- | Input context Δ | Γ and non-empty list of values {v}+ are split into
 --   multiple contexts.
 --
--- (Δ,Γ₂,‥,Γₙ | Γ₁), (Δ,Γ₃,‥,Γₙ | Γ₂),‥, (Δ | Γₙ) 
+-- (Δ,Γ₂,‥,Γₙ | Γ₁), (Δ,Γ₃,‥,Γₙ | Γ₂),‥, (Δ | Γₙ)
 --
 -- where |{v}+| = n and Γᵢ = (Γ - Γᵢ₊₁ - ‥ - Γₙ) ∩ fv(vᵢ)   -- TODO maybe ov(vᵢ)
 --
@@ -435,7 +332,7 @@ splitContext c vs = list1scanr step (Context c.delta) <$> gammas
   -- Γₙ = Γ ∩ fv(vₙ)
   gamman = Set.intersection c.gamma <$> fvVal (List1.last vs)
 
-  -- Γᵢ,‥, Γₙ where Γᵢ = (Γ - Γᵢ₊₁ - ‥ - Γₙ) ∩ fv(vᵢ)   
+  -- Γᵢ,‥, Γₙ where Γᵢ = (Γ - Γᵢ₊₁ - ‥ - Γₙ) ∩ fv(vᵢ)
   gammas = (foldr step . List1.singleton <$> gamman) <*> mapM fvVal (List1.init vs)
     where
     -- Γᵢ = (Γ - Γᵢ₊₁,‥,Γₙ) ∩ fv(vᵢ)
@@ -444,7 +341,7 @@ splitContext c vs = list1scanr step (Context c.delta) <$> gammas
 
 
 -- | drop Γ; t = drop x₁; ..; drop xₙ ; t   where |Γ| = n
-dropSet :: Set Abs -> Term -> Perceus Term 
+dropSet :: Set Abs -> Term -> Perceus Term
 dropSet set t = do
   xs <- asks pc_vars
   let drops = Set.map (Drop . fromMaybe __IMPOSSIBLE__ . flip deBruijnOf xs) set
@@ -452,7 +349,7 @@ dropSet set t = do
 
 
 -- | dup Γ; t = dup x₁; ..; dup xₙ ; t   where |Γ| = n
-dupSet :: Set Abs -> Term -> Perceus Term 
+dupSet :: Set Abs -> Term -> Perceus Term
 dupSet set t = do
   xs <- asks pc_vars
   let drops = Set.map (Dup . fromMaybe __IMPOSSIBLE__ . flip deBruijnOf xs) set
@@ -462,7 +359,7 @@ dupSet set t = do
 -- | Returns the free variables that the term want to own.
 ov :: Term -> Perceus (Set Abs)
 ov (App _ vs) = foldMapM fvVal vs
-ov (Store _ (ConstantNode _ vs)) = foldMapM fvVal vs 
+ov (Store _ (ConstantNode _ vs)) = foldMapM fvVal vs
 ov (Unit (ConstantNode _ vs)) = foldMapM fvVal vs
 ov (Update _ _ (ConstantNode _ vs)) = foldMapM fvVal vs
 ov (Case _ t alts) = ov t <> foldMapM (ov . snd . splitCalt) alts
@@ -504,29 +401,29 @@ fvVal (VariableNode _ vs) = foldMapM fvVal vs
 fvVal _ = pure mempty
 
 
--- | This function gathers the set of pointers which are created in a given term. 
+-- | This function gathers the set of pointers which are created in a given term.
 --
--- We need to distinguish between register stored values and references. 
--- The basic rule is that `store` create references which are then kept 
--- in offset 2 and 3 of a node. Additionally, the function return value is 
+-- We need to distinguish between register stored values and references.
+-- The basic rule is that `store` create references which are then kept
+-- in offset 2 and 3 of a node. Additionally, the function return value is
 -- stored in registers, but it may contain references.
 --
--- Register values: 
+-- Register values:
 -- • Offset 0 and 1 in all nodes
 -- • Offset 2 in the Cnat node
 -- • The tag of a variable node
 -- • Both operands and the result of a primitive operation
--- • Currently, unit never binds pointers (due to left unit law transformation), 
+-- • Currently, unit never binds pointers (due to left unit law transformation),
 --   however this maybe change with CSE.
 gatherPointers :: Term -> Set Abs
 gatherPointers (Store _ _ `Bind` LAltVar x t) = Set.insert x (gatherPointers t)
 gatherPointers (FetchOffset tag _ _ `Bind` LAltVar _ t) | tag == natTag = gatherPointers t
-gatherPointers (Fetch' _ _ (Just offset) `Bind` LAltVar x t) 
+gatherPointers (Fetch' _ _ (Just offset) `Bind` LAltVar x t)
   | offset >= 2 = Set.insert x (gatherPointers t)
 gatherPointers (App Def{} _ `Bind` alt) = gatherPointersLalt alt
 
 -- Unsure about this one
-gatherPointers (Case _ t alts `Bind` alt) = 
+gatherPointers (Case _ t alts `Bind` alt) =
   gatherPointers t <> foldMap gatherPointersCalt alts <> gatherPointersLalt alt
 
 -- Recurse
@@ -535,7 +432,7 @@ gatherPointers (t1 `Bind` (snd . splitLalt -> t2)) = on (<>) gatherPointers t1 t
 
 gatherPointers _ = mempty
 
-gatherPointersLalt :: LAlt -> Set Abs 
+gatherPointersLalt :: LAlt -> Set Abs
 gatherPointersLalt (LAltVar _ t) = gatherPointers t
 gatherPointersLalt (LAltConstantNode tag xs t)
   | tag == natTag = gatherPointers t
@@ -577,9 +474,9 @@ mkDrop :: forall mf. MonadFresh Int mf => [GrinDefinition] -> mf GrinDefinition
 mkDrop defs = do
   decref' <- decref
   unique' <- unique
-  term <- FetchOpaqueOffset 0 0 `bindVar` 
+  term <- FetchOpaqueOffset 0 0 `bindVar`
           Case (Var 0) decref' [CAltLit (LitNat 1) unique']
-          
+
   arg <- freshAbs
   pure GrinDefinition
     { gr_name = "drop"
@@ -595,7 +492,7 @@ mkDrop defs = do
   tags = Set.toList $ foldMap (gatherTags . gr_term) defs
 
   decref :: mf Term
-  decref = 
+  decref =
     App (Prim PSub) [Var 0, mkLit 1] `bindVar`
     UpdateOffset 2 0 (Var 0)
 
@@ -616,9 +513,9 @@ mkDrop defs = do
       raise 1 t
 
 mkDup :: forall mf. MonadFresh Int mf => mf GrinDefinition
-mkDup = do 
-  term <- 
-    FetchOpaqueOffset 0 0            `bindVarR` 
+mkDup = do
+  term <-
+    FetchOpaqueOffset 0 0            `bindVarR`
     App (Prim PAdd) [Var 0, mkLit 1] `bindVar`
     UpdateOffset 2 0 (Var 0)
   arg <- freshAbs
@@ -631,8 +528,8 @@ mkDup = do
     , gr_term = term
     , gr_args = [arg]
     , gr_return = Nothing }
- 
-         
+
+
 
 
 

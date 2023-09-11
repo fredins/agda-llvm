@@ -8,18 +8,21 @@
 module Agda.Llvm.Compiler (module Agda.Llvm.Compiler) where
 
 import           Control.DeepSeq                (NFData)
-import           Control.Monad                  (forM, mapAndUnzipM, replicateM, when, void)
+import           Control.Monad                  (forM, mapAndUnzipM, replicateM,
+                                                 void, when)
 import           Control.Monad.IO.Class         (liftIO)
-import           Control.Monad.Reader           (MonadReader, local,
-                                                 ReaderT (runReaderT), asks)
+import           Control.Monad.Reader           (MonadReader,
+                                                 ReaderT (runReaderT), asks,
+                                                 local)
 import           Control.Monad.State            (MonadState, State, StateT,
                                                  evalStateT, gets, modify,
                                                  runState)
 import           Data.Bifunctor                 (Bifunctor (bimap, first))
 import           Data.Foldable                  (foldrM, toList)
 import           Data.Function                  (on)
-import           Data.List                      (intercalate, singleton, sortOn,
-                                                 unzip4, mapAccumR, mapAccumL)
+import           Data.List                      (intercalate, mapAccumL,
+                                                 mapAccumR, singleton, sortOn,
+                                                 unzip4)
 import           Data.List.NonEmpty.Extra       ((|:), (|>))
 import           Data.Map                       (Map)
 import qualified Data.Map                       as Map
@@ -27,23 +30,26 @@ import qualified Data.Set                       as Set
 import           Data.Tuple.Extra               (second, swap, uncurry3)
 import           GHC.Generics                   (Generic)
 import           Prelude                        hiding (drop, (!!))
-import           System.Process.Extra (readCreateProcess, shell)
-import           System.FilePath               ((<.>), (</>))
+import           System.FilePath                ((<.>), (</>))
+import           System.Process.Extra           (readCreateProcess, shell)
 
 import           Agda.Compiler.Backend          hiding (Prim)
 import           Agda.Interaction.Options
 import           Agda.Llvm.Grin
-import           Agda.Llvm.GrinInterpreter      (interpretGrin, printInterpretGrin)
+import           Agda.Llvm.GrinInterpreter      (interpretGrin,
+                                                 printInterpretGrin)
 import           Agda.Llvm.GrinTransformations
 import           Agda.Llvm.HeapPointsTo
 import qualified Agda.Llvm.Llvm                 as L
-import           Agda.Llvm.Perceus              
+import           Agda.Llvm.Perceus
 import           Agda.Llvm.TreelessTransform
 import           Agda.Llvm.Utils
 import           Agda.Syntax.Common.Pretty
 import           Agda.Syntax.Literal            (Literal (LitNat))
 import           Agda.Syntax.TopLevelModuleName
 import           Agda.TypeChecking.Substitute
+import           Agda.Utils.Applicative         (forA)
+import           Agda.Utils.Function            (applyWhen, applyWhenM)
 import           Agda.Utils.Functor
 import           Agda.Utils.Impossible
 import           Agda.Utils.Lens
@@ -51,12 +57,10 @@ import           Agda.Utils.List
 import           Agda.Utils.List1               (List1, pattern (:|), (<|))
 import qualified Agda.Utils.List1               as List1
 import           Agda.Utils.Maybe
-import Agda.Utils.Monad (ifM)
-import Agda.Utils.Applicative (forA)
-import Agda.Utils.Function (applyWhen, applyWhenM)
-import Control.Applicative (Applicative(liftA2))
-import System.Directory.Extra (removeFile)
-import GHC.IO (unsafePerformIO)
+import           Agda.Utils.Monad               (ifM)
+import           Control.Applicative            (Applicative (liftA2))
+import           GHC.IO                         (unsafePerformIO)
+import           System.Directory.Extra         (removeFile)
 
 
 
@@ -127,14 +131,14 @@ llvmPostModule _ _ _ _ defs =
 
 
 myDefs :: MonadFresh Int mf => mf [GrinDefinition]
-myDefs = do 
-  main <- 
+myDefs = do
+  main <-
     store (cnat $ mkLit 4)         `bindVarM`
     store (cnat $ mkLit 6)         `bindVarM`
     App (Def "_+_") [Var 1, Var 0] `bindCnat`
     printf 0
 
-  let def_main = 
+  let def_main =
         GrinDefinition
           { gr_name = "main"
           , gr_isMain = True
@@ -145,9 +149,9 @@ myDefs = do
           , gr_args = []
           , gr_return = Nothing }
 
-  plus <- 
-    eval 1 `bindCnatR` 
-    eval 2 `bindCnatR` 
+  plus <-
+    eval 1 `bindCnatR`
+    eval 2 `bindCnatR`
     App (Prim PAdd) [Var 2, Var 0] `bindVar`
     Unit (cnat $ Var 0)
 
@@ -155,7 +159,7 @@ myDefs = do
   arg2 <- freshAbs
   ret <- freshAbs
 
-  let def_plus = 
+  let def_plus =
         GrinDefinition
           { gr_name = "_+_"
           , gr_isMain = False
@@ -167,8 +171,8 @@ myDefs = do
           , gr_return = Just ret }
 
   pure [def_plus, def_main]
-  
-  
+
+
 
 llvmPostCompile :: LlvmEnv
                 -> IsMain
@@ -228,7 +232,7 @@ llvmPostCompile _ _ mods = do
     putStrLn "-- * Left unit law"
     putStrLn "------------------------------------------------------------------------\n"
     putStrLn $ intercalate "\n\n" $ map prettyShow defs_leftUnitLaw
- 
+
   -- printInterpretGrin defs_leftUnitLaw
 
   defs_specializeUpdate <- mapM (specializeUpdate absCxt) defs_leftUnitLaw
@@ -304,7 +308,7 @@ llvmPostCompile _ _ mods = do
     putStrLn $ intercalate "\n\n" (map prettyShow defs_perceus) ++ "\n"
 
   -- liftIO $ removeFile "trace.log"
-  -- printInterpretGrin defs_perceus
+  printInterpretGrin defs_perceus
 
   -- Not used
   --
@@ -342,8 +346,8 @@ llvmPostCompile _ _ mods = do
           -- | tag | rc | arg1 | arg2 |
           -- ---------------------------------------
           --   64    64    64     64
-          , "%Node = type [4 x i64]" 
-          -- , "%HeapNode = type {i64, %Node}" 
+          , "%Node = type [4 x i64]"
+          -- , "%HeapNode = type {i64, %Node}"
           ]
          ++ "@\"%d\" = private constant [4 x i8] c\"%d\\0A\\00\", align 1"
 
@@ -368,13 +372,13 @@ llvmPostCompile _ _ mods = do
     putStrLn $ "Writing file " ++ file
     writeFile file program
     void $ readCreateProcess (shell $ "clang -O3 -o program llvm" </> "program.ll") ""
-    putStrLn "Linking program" 
-    
+    putStrLn "Linking program"
+
 
 -----------------------------------------------------------------------
 -- * GRIN code generation
 -----------------------------------------------------------------------
-  
+
 
 
 -- TODO
@@ -396,7 +400,7 @@ treelessToGrin defs =
     gr_term <- runReaderT (termToGrinR def.tl_term) (initGrinGenCxt def primitives)
     gr_args <- replicateM def.tl_arity freshAbs
     gr_return <- boolToMaybe (not def.tl_isMain) <$> freshAbs
-    
+
     pure $ GrinDefinition
       { gr_name = def.tl_name
       , gr_isMain = def.tl_isMain
@@ -417,19 +421,19 @@ termToGrinR (TCase n CaseInfo{caseType} t alts) =
     reuseEval
   where
     mkEval' = case caseType of
-      -- Do not keep track evaluated naturals because it causes trouble 
+      -- Do not keep track evaluated naturals because it causes trouble
       -- with unboxed/boxed types.
-      -- TODO keep track when strictness/demand-analysis and general unboxing is 
+      -- TODO keep track when strictness/demand-analysis and general unboxing is
       --      implemented.
       CTNat -> do
-        (t', alts') <- 
-          localEvaluatedNoOffsets 1 $ 
+        (t', alts') <-
+          localEvaluatedNoOffsets 1 $
           liftA2 (,) (termToGrinR $ raise 1 t) (mapM altToGrin $ raise 1 alts)
         eval n `bindCnat` Case (Var 0) t' alts'
       CTData{} -> do
-        (t', alts') <- 
-          localEvaluatedOffset n $ 
-          localEvaluatedNoOffset $ 
+        (t', alts') <-
+          localEvaluatedOffset n $
+          localEvaluatedNoOffset $
           liftA2 (,) (termToGrinR $ raise 1 t) (mapM altToGrin $ raise 1 alts)
         eval n `bindVar` Case (Var 0) t' alts'
       _ -> __IMPOSSIBLE__
@@ -452,7 +456,7 @@ termToGrinR (TApp (TPrim prim) vs) = do
   else do
     f_wrapper <- asks (maybe __IMPOSSIBLE__ Def . lookup prim . primitives)
     App f_wrapper <$> mapM operandToGrin vs
-    
+
   where
     -- TODO wrap unit Cnat
   forceValues :: MonadFresh Int mf => ([Val] -> Term) -> [TTerm] -> GrinGen mf Term
@@ -460,20 +464,20 @@ termToGrinR (TApp (TPrim prim) vs) = do
     (mevals, vs') <- foldrM step (Nothing, []) vs
     case mevals of
       Just evals ->  bindEnd evals <$> laltConstantNode natTag (mkT vs')
-      Nothing -> pure (mkT vs')
+      Nothing    -> pure (mkT vs')
     where
     -- TODO add evaluatedOffsets
-    step :: (MonadReader GrinGenCxt m, MonadFresh Int m) => TTerm -> (Maybe Term, [Val]) -> m (Maybe Term, [Val]) 
+    step :: (MonadReader GrinGenCxt m, MonadFresh Int m) => TTerm -> (Maybe Term, [Val]) -> m (Maybe Term, [Val])
     step (TLit lit) (mevals, vs) = pure (mevals, Lit lit : vs)
-    step (TVar n) (mevals, vs) = 
+    step (TVar n) (mevals, vs) =
       -- TODO: need distinguish between boxed and unboxed
       {- applyEvaluatedOffset n >>= \case
         Just n' -> pure (mevals, Var n' : vs)
         Nothing -> -} do
           evals' <- case mevals of
             Just evals -> eval n `bindCnat` raise 1 evals
-            Nothing -> pure (eval n)
-          
+            Nothing    -> pure (eval n)
+
           pure (Just evals', raise 1 vs `snoc` Var 0)
     step _ _ = __IMPOSSIBLE__
 
@@ -486,12 +490,12 @@ termToGrinR (TApp (TDef q) vs) = do
 
 -- TODO think of a nicer way to handle handle functions that don't return
 --      a node (either an unboxed value or `()`)
-termToGrinR (TLit lit) = do 
+termToGrinR (TLit lit) = do
   shortName <- asks $ List1.last . list1splitOnDots . tl_name . definition
   if shortName == "main" then
     case lit of
       LitNat n -> pure $ printf (fromInteger n)
-      _ -> __IMPOSSIBLE__
+      _        -> __IMPOSSIBLE__
   else
     pure $ Unit $ cnat (Lit lit)
 
@@ -528,10 +532,10 @@ termToGrinC (TApp (TDef q) (v : vs)) = do
 termToGrinC (TApp (TCon q) (v : vs)) = do
   loc <- freshLoc
   appToGrinC (Store loc . constantCNode (prettyShow q) . toList) (v :| vs)
-termToGrinC (TCon q) = do 
+termToGrinC (TCon q) = do
   loc <- freshLoc
   pure $ Store loc (constantCNode (prettyShow q) [])
-termToGrinC (TLit (LitNat n)) = do 
+termToGrinC (TLit (LitNat n)) = do
   loc <- freshLoc
   pure $ Store loc (ConstantNode natTag [mkLit n])
 
@@ -541,7 +545,7 @@ termToGrinC t = error $ "TODO: " ++ take 40 (show t)
 appToGrinC :: MonadFresh Int mf => (List1 Val -> Term) -> List1 TTerm -> mf Term
 appToGrinC mkT vs = foldrM step (mkT vs') stores
   where
-  step s t = do 
+  step s t = do
     loc <- freshLoc
     s loc `bindVar` t
 
@@ -611,8 +615,8 @@ printf = App (Def "printf") . singleton . Var
 
 grinToLlvm :: [GrinDefinition] -> ([L.Instruction], Map Tag Int)
 grinToLlvm defs = second cg_tagNums $ runState (mapM step defs) initLlvmGenEnv
-  where 
-  step def = 
+  where
+  step def =
     (freshUnnamedLens .= 1) *>
     runReaderT (runLlvmGen $ definitionToLlvm def) (initLlvmGenCxt defs def)
 
@@ -643,7 +647,7 @@ definitionToLlvm def = do
   let args = zip argsTy $ map L.mkLocalId def.gr_args
   L.Define L.Fastcc returnTy f args <$> termToLlvm def.gr_term
 
--- TODO make it so that unit is the only term which calls to continuation. And make 
+-- TODO make it so that unit is the only term which calls to continuation. And make
 --      both main and drop return `unit ()`
 termToLlvm :: Term -> LlvmGen (List1 L.Instruction)
 -- FIXME ugly
@@ -721,9 +725,9 @@ termToLlvm (Store _ v `Bind` LAltVar (L.mkLocalId -> x) t) = do
   pure $ instructions1 `List1.prependList`
     ([instruction_insertvalue, instruction_malloc, instruction_store, instruction_ptrtoint] <> instructions2)
 
-termToLlvm (FetchOpaqueOffset n offset `Bind` alt) 
+termToLlvm (FetchOpaqueOffset n offset `Bind` alt)
   | elem @[] offset [0, 1] = fetchToLlvm n offset alt
-termToLlvm (FetchOffset _ n offset `Bind` alt) 
+termToLlvm (FetchOffset _ n offset `Bind` alt)
   | elem @[] offset [1, 2, 3] = fetchToLlvm n offset alt
 
 termToLlvm (App (Prim prim) [v1, v2] `Bind` alt) = do
@@ -775,7 +779,7 @@ termToLlvm (App (Def "free") [Var n]) = do
   let instruction_call = L.Call L.Fastcc L.Void "@free" [(L.Ptr, x_unnamed)]
   instructions2 <- ($ instruction_call) =<< view continuationLens
   pure (instruction_inttoptr <| instructions2)
-  
+
 
 termToLlvm (App (Def (L.mkGlobalId -> f)) vs) = do
   (argsTy, returnTy) <- fromMaybe __IMPOSSIBLE__ <$> globalLookup f
@@ -795,7 +799,7 @@ termToLlvm (UpdateTag _ n v `BindEmpty` t) = do
   (x_unnamed', instruction_insertvalue) <- first L.LocalId <$> setVar (L.insertvalue v' x_unnamed 0)
   let instruction_store = L.store L.nodeTySyn x_unnamed' x_unnamed_ptr
   instructions2 <- termToLlvm t
-  let instructions = 
+  let instructions =
         [ instruction_inttoptr
         , instruction_getelementptr
         , instruction_load
@@ -807,12 +811,12 @@ termToLlvm (UpdateTag _ n v `BindEmpty` t) = do
 
 termToLlvm (UpdateOffset n offset v) = do
   x <- fromMaybe __IMPOSSIBLE__ <$> varLookup n
-  (instructions1, v') <- valToLlvm v 
+  (instructions1, v') <- valToLlvm v
   (x_unnamed_ptr, instruction_inttoptr) <- setVar (L.inttoptr x)
   (x_unnamed_ptr', instruction_getelementptr) <- setVar (L.getelementptr x_unnamed_ptr offset)
   let instruction_store = L.store L.I64 v' x_unnamed_ptr'
   instructions2 <- ($ instruction_store) =<< view continuationLens
-  pure $ 
+  pure $
     instructions1 `List1.prependList`
     [ instruction_inttoptr
     , instruction_getelementptr ]

@@ -1,24 +1,27 @@
-{-# OPTIONS_GHC -Wno-name-shadowing #-}
 {-# LANGUAGE OverloadedRecordDot #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE ViewPatterns        #-}
 
 module Agda.Llvm.GrinInterpreter (module Agda.Llvm.GrinInterpreter) where
 
-import           Control.Monad             ((>=>))
-import           Control.Monad.Reader      (MonadReader, ReaderT (runReaderT),
-                                            local, MonadIO (liftIO))
-import           Control.Monad.State       (StateT (runStateT), evalStateT, gets)
+import           Control.Monad             (ap, (>=>))
+import           Control.Monad.Reader      (MonadIO (liftIO), MonadReader,
+                                            ReaderT (runReaderT), local)
+import           Control.Monad.State       (StateT (runStateT), evalStateT,
+                                            gets)
 import           Control.Monad.Trans.Maybe (MaybeT (..), hoistMaybe, runMaybeT)
 import           Data.Bifunctor            (Bifunctor (bimap))
 import           Data.Foldable             (find, toList)
-import           Data.List                 (intercalate, singleton, intersperse)
+import           Data.Function             (on)
+import           Data.List                 (intercalate, intersperse, singleton,
+                                            sortBy, sortOn)
 import           Data.Map                  (Map)
 import qualified Data.Map                  as Map
 import           Data.Tuple.Extra          (dupe, second)
 
 import           Agda.Compiler.Backend     hiding (Prim, initEnv)
-import           Agda.Llvm.Grin            
+import           Agda.Llvm.Grin
+import           Agda.Llvm.Utils
 import           Agda.Syntax.Common.Pretty
 import           Agda.Syntax.Literal       (Literal (LitNat))
 import           Agda.Utils.Functor
@@ -26,8 +29,11 @@ import           Agda.Utils.Impossible
 import           Agda.Utils.Lens
 import           Agda.Utils.List
 import           Agda.Utils.Maybe
-import Agda.Llvm.Utils (trace', logIO)
+import           Data.Bool                 (bool)
+import           Data.Ord                  (Down (Down))
 
+
+-- TODO super ugly. please fix
 
 data Value = BasNat Integer
            | VTag Tag
@@ -45,24 +51,28 @@ newtype StackFrame = StackFrame{unStackFrame :: [(Abs, Value)]}
 
 type Stack = [StackFrame]
 
-newtype Env = Env
-  { heap :: Heap
+data Env = Env
+  { heap           :: Heap
+  , allocationInfo :: Map Tag Int
   }
 
 initEnv :: Env
-initEnv = Env {heap = Heap mempty}
+initEnv = Env
+  { heap = Heap mempty
+  , allocationInfo = mempty }
 
 lensHeap :: Lens' Env (Map Loc HeapNode)
 lensHeap f env = f (unHeap env.heap) <&> \heap -> env{heap = Heap heap}
+
+lensAllocationInfo :: Lens' Env (Map Tag Int)
+lensAllocationInfo f env = f env.allocationInfo <&> \x -> env{allocationInfo = x}
 
 getVNode :: HeapNode -> Value
 getVNode (HeapNode _ tag vs) = VNode tag vs
 
 newHeapNode :: Value -> HeapNode
 newHeapNode (VNode tag vs) = HeapNode 1 tag vs
-newHeapNode _ = __IMPOSSIBLE__
-
-
+newHeapNode _              = __IMPOSSIBLE__
 
 
 lensStackFrame :: Lens' Stack [(Abs,Value)]
@@ -80,15 +90,25 @@ type Eval m = StateT Env (ReaderT Stack m)
 
 
 printInterpretGrin :: (MonadIO m, MonadFresh Int m) => [GrinDefinition] -> m ()
-printInterpretGrin defs = do 
-  (val, heap) <- interpretGrin defs
-  liftIO $ putStrLn $ render $ vcat 
-    [ text "Result:" <+> pretty val 
-    , text "Heap:" <+> pretty heap ]
+printInterpretGrin defs = do
+  (val, env) <- interpretGrin defs
 
-interpretGrin :: forall mf. MonadFresh Int mf => [GrinDefinition] -> mf (Value, Heap)
-interpretGrin defs = 
-    second heap <$> runReaderT (runStateT (eval main.gr_term) initEnv) [StackFrame []]
+  let allocationCounts =
+        map (\(tag, n) -> (pretty tag <> text ":") <+> pretty n) $
+        sortOn (Down . snd) $
+        Map.toList env.allocationInfo
+
+  let allocations = foldr (\x y -> snd x + y) 0 $ Map.toList env.allocationInfo
+
+  liftIO $ putStrLn $ render $ vcat
+    [ text "Result:" <+> pretty val
+    , text "Allocations" <+> vcat (allocationCounts ++ [text "Total:" <+> pretty allocations])
+    , text "In use at exit:" <+> pretty env.heap ]
+
+
+interpretGrin :: forall mf. MonadFresh Int mf => [GrinDefinition] -> mf (Value, Env)
+interpretGrin defs =
+    runReaderT (runStateT (eval main.gr_term) initEnv) [StackFrame []]
   where
     main = fromMaybe __IMPOSSIBLE__ $ find gr_isMain defs
 
@@ -99,9 +119,14 @@ interpretGrin defs =
     eval (Store _ v `Bind` LAltVar x t2) = do
       v' <- evalVal v
       loc <- freshLoc
-      lensHeap %= Map.insert loc (newHeapNode v')
+      allocate loc v'
       -- traceHeap (text "store" <+> pretty loc <+> pretty v')
       stackFrameLocal x (Loc loc) (eval t2)
+      where
+      allocate loc (VNode tag vs) = do
+        lensHeap %= Map.insert loc (HeapNode 1 tag vs)
+        lensAllocationInfo %= adjustWithDefault tag succ 1
+      allocate _ _ = __IMPOSSIBLE__
 
     eval fetch
       | Fetch _ n <- fetch = getVNode <$> heapLookupLoc n
@@ -116,7 +141,7 @@ interpretGrin defs =
         | 2 <= i && i <= 3 = Undefined
       sel _ _ = __IMPOSSIBLE__
 
-      heapLookupLoc n = 
+      heapLookupLoc n =
         fromMaybeM __IMPOSSIBLE__ . runMaybeT $ do
           loc <- stackFrameLookupLoc n
           MaybeT (Map.lookup loc <$> use lensHeap)
@@ -128,7 +153,7 @@ interpretGrin defs =
       -- traceHeap (text "update" <+> pretty loc <+> pretty v)
       eval t2
       where
-      update loc (VNode tag vs) = Map.update (\(HeapNode i _ _) -> Just $ HeapNode i tag vs) loc  
+      update loc (VNode tag vs) = Map.update (\(HeapNode i _ _) -> Just $ HeapNode i tag vs) loc
       update _ _ = __IMPOSSIBLE__
 
     eval (t1 `Bind` LAltVar x t2) = do
@@ -155,7 +180,7 @@ interpretGrin defs =
       pure $ BasNat $ runPrim prim ns
       where
       toBasUnsafe (BasNat i) = i
-      toBasUnsafe _ = __IMPOSSIBLE__
+      toBasUnsafe _          = __IMPOSSIBLE__
 
       runPrim :: TPrim -> [Integer] -> Integer
       runPrim PAdd [n1, n2] = n1 + n2
@@ -169,13 +194,13 @@ interpretGrin defs =
       -- traceHeap (text "free" <+> pretty loc)
       pure VEmpty
 
-    eval (Drop n) = do 
+    eval (Drop n) = do
       (x, v) <- fromMaybe __IMPOSSIBLE__ <$> runMaybeT (stackFrameLookup' n)
-      sf <- view lensStackFrame     
+      sf <- view lensStackFrame
 
-      let loc = case v of 
+      let loc = case v of
             Loc loc -> loc
-            _ -> error $ render $ vcat 
+            _ -> error $ render $ vcat
               [ text "DROP" <+> pretty (Drop n)
               , pretty x
               , text "SF:"
@@ -187,11 +212,11 @@ interpretGrin defs =
       def = fromMaybe __IMPOSSIBLE__  (find (("drop" ==) . gr_name) defs)
 
 
-    eval (Dup n) = do 
+    eval (Dup n) = do
       (x, v) <- fromMaybe __IMPOSSIBLE__ <$> runMaybeT (stackFrameLookup' n)
-      let loc = case v of 
+      let loc = case v of
             Loc loc -> loc
-            _ -> __IMPOSSIBLE__
+            _       -> __IMPOSSIBLE__
       trace' (render $ text "dup" <+> pretty x <+> text "→" <+> pretty loc <+> text "\n") pure ()
       let sf = StackFrame [(head def.gr_args, v)]
       local (sf :) (eval def.gr_term)
@@ -217,8 +242,8 @@ interpretGrin defs =
 
       where
       vTagView (VNode tag _) = Just tag
-      vTagView (VTag tag)      = Just tag
-      vTagView _               = Nothing
+      vTagView (VTag tag)    = Just tag
+      vTagView _             = Nothing
 
       selAlt :: Value -> [CAlt] -> Term -> ([Abs], Term)
       selAlt (vTagView -> Just tag1) alts t =
@@ -245,16 +270,16 @@ interpretGrin defs =
 
     eval (UpdateOffset n 0 v) = do
       v <- evalVal v
-      let i = case v of 
+      let i = case v of
                BasNat i -> i
-               _ -> __IMPOSSIBLE__
+               _        -> __IMPOSSIBLE__
       loc <- fromMaybe __IMPOSSIBLE__ <$> runMaybeT (stackFrameLookupLoc n)
       lensHeap %= updateRc loc i
       -- traceHeap (text "updateOffset" <+> pretty loc <+> pretty v_node <+> text "→" <+> pretty v_node')
       pure VEmpty
       where
       updateRc loc i = Map.update (\(HeapNode _ tag vs) -> Just $ HeapNode i tag vs) loc
-    
+
     eval t@UpdateOffset{} = error $ "TODO: " ++ show t
 
     eval (Unit v) = evalVal v
@@ -308,7 +333,7 @@ interpretGrin defs =
 -- Instances
 
 instance Pretty Heap where
-  pretty (Heap heap) 
+  pretty (Heap heap)
     | Map.null heap = text "∅"
     | otherwise = vcat $ map prettyEntry $ Map.toList heap
     where
