@@ -367,12 +367,9 @@ applySubstVal _   (Prim prim)           = Prim prim
 
 instance Pretty GrinDefinition where
   pretty GrinDefinition{..} = vcat
-    [ pretty gr_name <+> ret (sep (map pretty gr_args) <+> text "=")
+    [ pretty gr_name <+> sep (map pretty gr_args) <+> text "="
     , nest 2 $ pretty gr_term
     ]
-    where
-      ret :: Doc -> Doc
-      ret doc = ifJust gr_return (\abs -> text ("r" ++ tail (prettyShow abs)) <+> doc) doc
 
 
 instance Pretty Term where
@@ -404,9 +401,9 @@ instance Pretty Term where
         | VariableNode{} <- v = text "unit" <+> parens (pretty v)
         | otherwise   = text "unit" <+> pretty v
 
-  pretty (Store l v)
-    | Var _ <- v = (text "store" <> pretty l) <+> pretty v
-    | otherwise  = (text "store" <> pretty l) <+> parens (pretty v)
+  pretty (Store _ v)
+    | Var _ <- v = text "store" <+> pretty v
+    | otherwise  = text "store" <+> parens (pretty v)
   pretty (App v vs) = sep $ pretty v : map pretty vs
   pretty (Case n t alts) =
     vcat

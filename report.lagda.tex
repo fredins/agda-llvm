@@ -1,3 +1,4 @@
+% !TEX program = lualatex
 \documentclass{article}
 
 % Support for Agda code.
@@ -17,8 +18,16 @@
 \usepackage[backend=biber, style=apa, natbib=true]{biblatex}
 \addbibresource{../bibliography.bib}
 
+% Packages
+\usepackage{empheq} % for border around math
+\usepackage{listings} % non-agda code blocks
+
+
 % Cosmetics
 \linespread{1.25}
+
+
+\setlength{\fboxsep}{1em} % padding for border
 
 \usepackage{newunicodechar}
 \usepackage{colonequals}
@@ -37,6 +46,9 @@
 \maketitle
 
 \begin{code}[hide]
+
+
+
 open import Data.List using (List; _∷_; [])
 
 private 
@@ -86,8 +98,39 @@ However, ...
 
 
 \section{Graph Reduction Intermediate Notation}
+\begin{figure}[htpb]
+\centering
+\begin{empheq}[box=\fbox]{align*}
+&\begin{array}{l l l l}
+term, t & ::=      & term \; ; \; \lambda \rightarrow lalt                     & \; \text{binding} \\
+        & \; \mid  & \texttt{case} \; val \; \texttt{of} \; term \; \{calt\}*  & \; \text{case} \\
+        & \; \mid  & val \; \{val\}*                                           & \; \text{application} \\
+        & \; \mid  & \texttt{unit} \; val                                      & \; \text{return value} \\
+        & \; \mid  & \texttt{store} \; val                                     & \; \text{allocate new heap node} \\
+        & \; \mid  & \texttt{fetch} \; \{tag\} \; n \;  \{i\}                  & \; \text{load heap node} \\
+        & \; \mid  & \texttt{update} \; \{tag\} \; n \; \{i\} \; val           & \; \text{overwrite heap node} \\
+        & \; \mid  & \texttt{unreachable}                                      & \; \text{unreachable} \\
+\end{array} \end{empheq}
+\caption{GRIN syntax. }
+\label{fig:spec}
+\end{figure}
 
-\section{Extending GRIN with reference counting}
+All syntactically correct expressions are not valid. For example, the value at the function 
+position must be either a top-level function or a primitive. It cannot be a variable because
+there are no indirect function calls in GRIN. Likewise, top-level functions cannot be passed 
+as arguments because GRIN is a first order langauge.
+
+\section{Precise reference counting}
+
+In GRIN, we have to be explicit about allocations, retriving nodes from the heap, and overwriting heap nodes.
+As a result, the Perceus primitives \texttt{dup}, \texttt{drop}, \texttt{is-unique}, \texttt{decref}, and \texttt{free} 
+can be described with GRIN's exisiting constructs.\footnote{This only possible in our slightly modified version of 
+GRIN. \citeauthor{boquist1999}'s original specification of GRIN could not overwrite individual fields of a heap node 
+using \texttt{update}.}
+Although, GRIN does not have a primitive for freeing memory, this can be simulated by a function call 
+to libc's \texttt{free}.
+ 
+
 
 \section{Result}
 
