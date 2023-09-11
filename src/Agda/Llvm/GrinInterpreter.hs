@@ -31,13 +31,15 @@ import Agda.Llvm.Utils (trace', logIO)
 
 data Value = BasNat Integer
            | VTag Tag
-           | VNode Tag Integer [Value]
+           | VNode Tag [Value]
            | Loc Loc
            | VEmpty
            | Undefined
              deriving (Show)
 
-newtype Heap = Heap{unHeap :: Map Loc Value}
+data HeapNode = HeapNode Integer Tag [Value]
+
+newtype Heap = Heap{unHeap :: Map Loc HeapNode}
 
 newtype StackFrame = StackFrame{unStackFrame :: [(Abs, Value)]}
 
@@ -50,8 +52,18 @@ newtype Env = Env
 initEnv :: Env
 initEnv = Env {heap = Heap mempty}
 
-lensHeap :: Lens' Env (Map Loc Value)
+lensHeap :: Lens' Env (Map Loc HeapNode)
 lensHeap f env = f (unHeap env.heap) <&> \heap -> env{heap = Heap heap}
+
+getVNode :: HeapNode -> Value
+getVNode (HeapNode _ tag vs) = VNode tag vs
+
+newHeapNode :: Value -> HeapNode
+newHeapNode (VNode tag vs) = HeapNode 1 tag vs
+newHeapNode _ = __IMPOSSIBLE__
+
+
+
 
 lensStackFrame :: Lens' Stack [(Abs,Value)]
 lensStackFrame f stack =
@@ -62,9 +74,9 @@ type Eval m = StateT Env (ReaderT Stack m)
 
 -- FIXME remove
 
-traceHeap s = do
-  heap <- use lensHeap
-  trace' (render s ++ ":\n" ++ prettyShow (Heap heap) ++ "\n") pure ()
+-- traceHeap s = do
+--   heap <- use lensHeap
+--   trace' (render s ++ ":\n" ++ prettyShow (Heap heap) ++ "\n") pure ()
 
 
 printInterpretGrin :: (MonadIO m, MonadFresh Int m) => [GrinDefinition] -> m ()
@@ -87,20 +99,19 @@ interpretGrin defs =
     eval (Store _ v `Bind` LAltVar x t2) = do
       v' <- evalVal v
       loc <- freshLoc
-      lensHeap %= Map.insert loc v'
-      traceHeap (text "store" <+> pretty loc <+> pretty v')
+      lensHeap %= Map.insert loc (newHeapNode v')
+      -- traceHeap (text "store" <+> pretty loc <+> pretty v')
       stackFrameLocal x (Loc loc) (eval t2)
 
     eval fetch
-      | Fetch _ n <- fetch = heapLookupLoc n
-      | FetchOpaque n <- fetch = heapLookupLoc n
+      | Fetch _ n <- fetch = getVNode <$> heapLookupLoc n
+      | FetchOpaque n <- fetch = getVNode <$> heapLookupLoc n
       | FetchOpaqueOffset n offset <- fetch = sel offset <$> heapLookupLoc n
       | FetchOffset _ n offset <- fetch = sel offset <$> heapLookupLoc n
       where
-      sel 0 (VTag tag)    = VTag tag
-      sel 0 (VNode tag _ _) = VTag tag
-      sel 1 (VNode _ i _) = BasNat i
-      sel i (VNode _ _ vs)
+      sel 0 (HeapNode i _ _) = BasNat i
+      sel 1 (HeapNode _ tag _) = VTag tag
+      sel i (HeapNode _ _ vs)
         | Just v <- vs !!! (i - 2) = v
         | 2 <= i && i <= 3 = Undefined
       sel _ _ = __IMPOSSIBLE__
@@ -114,26 +125,26 @@ interpretGrin defs =
       loc <- fromMaybe __IMPOSSIBLE__ <$> runMaybeT (stackFrameLookupLoc n)
       v <- evalVal t1
       lensHeap %= update loc v
-      traceHeap (text "update" <+> pretty loc <+> pretty v)
+      -- traceHeap (text "update" <+> pretty loc <+> pretty v)
       eval t2
       where
-      update loc (VNode tag _ vs) = Map.update (\(VNode _ i _) -> Just $ VNode tag i vs) loc  
+      update loc (VNode tag vs) = Map.update (\(HeapNode i _ _) -> Just $ HeapNode i tag vs) loc  
       update _ _ = __IMPOSSIBLE__
 
     eval (t1 `Bind` LAltVar x t2) = do
       v <- eval t1
       stackFrameLocal x v (eval t2)
 
-    eval (t1 `Bind` LAltConstantNode tag1 x xs t2) = do
+    eval (t1 `Bind` LAltConstantNode tag1 xs t2) = do
       v <- eval t1
       case v of
-        VNode tag2 i vs | tag2 == tag1 -> stackFrameLocals (x : xs) (BasNat i : vs) (eval t2)
+        VNode tag2 vs | tag2 == tag1 -> stackFrameLocals xs vs (eval t2)
         _                            -> __IMPOSSIBLE__
 
-    eval (t1 `Bind` LAltVariableNode x1 x2 xs t2) = do
+    eval (t1 `Bind` LAltVariableNode x xs t2) = do
       v <- eval t1
       case v of
-        VNode tag i vs -> stackFrameLocals (x1 : x2 : xs) (VTag tag : BasNat i : vs) (eval t2)
+        VNode tag vs -> stackFrameLocals (x : xs) (VTag tag : vs) (eval t2)
         _            -> __IMPOSSIBLE__
 
     eval (t1 `BindEmpty` t2) = eval t1 *> eval t2
@@ -155,7 +166,7 @@ interpretGrin defs =
     eval (App (Def "free") [Var n]) = do
       loc <- fromMaybe __IMPOSSIBLE__ <$> runMaybeT (stackFrameLookupLoc n)
       lensHeap %= Map.delete loc
-      traceHeap (text "free" <+> pretty loc)
+      -- traceHeap (text "free" <+> pretty loc)
       pure VEmpty
 
     eval (Drop n) = do 
@@ -198,14 +209,14 @@ interpretGrin defs =
       v' <- evalVal v
       let (xs, t) = selAlt v' alts def
           f = case v' of
-            VNode _ i vs -> stackFrameLocals xs (BasNat i : vs)
+            VNode _ vs -> stackFrameLocals xs vs
             BasNat _   -> id
             VTag _     -> id
             _          -> __IMPOSSIBLE__
       f (eval t)
 
       where
-      vTagView (VNode tag _ _) = Just tag
+      vTagView (VNode tag _) = Just tag
       vTagView (VTag tag)      = Just tag
       vTagView _               = Nothing
 
@@ -217,7 +228,7 @@ interpretGrin defs =
           _     -> __IMPOSSIBLE__
         where
         matching = forMaybe alts $ \case
-          CAltConstantNode tag2 x xs t -> boolToMaybe (tag2 == tag1) (x : xs, t)
+          CAltConstantNode tag2 xs t -> boolToMaybe (tag2 == tag1) (xs, t)
           CAltTag tag2 t             -> boolToMaybe (tag2 == tag1) ([], t)
           _                          -> __IMPOSSIBLE__
 
@@ -232,18 +243,19 @@ interpretGrin defs =
           _                     -> __IMPOSSIBLE__
       selAlt _ _ _ = __IMPOSSIBLE__
 
-    eval (UpdateOffset n 1 v) = do
-      v' <- evalVal v
+    eval (UpdateOffset n 0 v) = do
+      v <- evalVal v
+      let i = case v of 
+               BasNat i -> i
+               _ -> __IMPOSSIBLE__
       loc <- fromMaybe __IMPOSSIBLE__ <$> runMaybeT (stackFrameLookupLoc n)
-      v_node <- fromMaybe __IMPOSSIBLE__ . Map.lookup loc <$> use lensHeap
-      let v_node' = case (v_node, v') of
-            (VNode tag _ vs , BasNat i) -> VNode tag i vs
-            _ -> __IMPOSSIBLE__
-      lensHeap %= Map.insert loc v_node'
-      traceHeap (text "updateOffset" <+> pretty loc <+> pretty v_node <+> text "→" <+> pretty v_node')
+      lensHeap %= updateRc loc i
+      -- traceHeap (text "updateOffset" <+> pretty loc <+> pretty v_node <+> text "→" <+> pretty v_node')
       pure VEmpty
+      where
+      updateRc loc i = Map.update (\(HeapNode _ tag vs) -> Just $ HeapNode i tag vs) loc
     
-    eval UpdateOffset{} = error "TODO"
+    eval t@UpdateOffset{} = error $ "TODO: " ++ show t
 
     eval (Unit v) = evalVal v
     eval Store{} = __IMPOSSIBLE__
@@ -259,20 +271,12 @@ interpretGrin defs =
     -- TODO fix __IMPOSSIBLE__ / Nothing
     evalVal' :: Val -> MaybeT (Eval mf) Value
     evalVal' (Var n) = stackFrameLookup n
-    evalVal' (ConstantNode tag v vs) = 
-      evalVal' v >>= \case
-        BasNat i -> VNode tag i . toList <$> mapM evalVal' vs
-        _ -> __IMPOSSIBLE__
-    evalVal' (VariableNode n v vs) = do
+    evalVal' (ConstantNode tag vs) = VNode tag . toList <$> mapM evalVal' vs
+    evalVal' (VariableNode n vs) = do
       v_tag <- stackFrameLookup n
-      v' <- evalVal' v
-      case (v_tag, v') of
-        (VTag tag, BasNat i) -> VNode tag i <$> mapM evalVal' vs -- TODO fromMaybe Undefined ?
-        _        -> do 
-          sf <- view lensStackFrame
-          heap <- gets heap
-          error $ "VARIABLENODE: " ++ prettyShow (VariableNode n v vs) ++ " GER  "  ++ show (v_tag, v')  ++
-                  "\nSF:\n" ++ prettyShow sf ++ "\nHEAP:\n" ++ prettyShow heap
+      case v_tag of
+        VTag tag -> VNode tag <$> mapM evalVal' vs -- TODO fromMaybe Undefined ?
+        _        -> __IMPOSSIBLE__
     evalVal' (Tag tag) = hoistMaybe (Just (VTag tag))
     evalVal' Empty   = hoistMaybe (Just VEmpty)
     evalVal' (Lit lit)
@@ -308,27 +312,28 @@ instance Pretty Heap where
     | Map.null heap = text "∅"
     | otherwise = vcat $ map prettyEntry $ Map.toList heap
     where
-      prettyEntry :: (Loc, Value) -> Doc
-      prettyEntry (x, v) =
+      prettyEntry (x, hn) =
             pretty x
         <+> text "→"
-        <+> pretty v
+        <+> pretty hn
 
 instance Pretty StackFrame where
   pretty (StackFrame stackFrame) =
       vcat $ map prettyEntry stackFrame
     where
-      prettyEntry :: (Abs, Value) -> Doc
       prettyEntry (x, v) =
             pretty x
         <+> text "→"
         <+> pretty v
 
+instance Pretty HeapNode where
+  pretty (HeapNode n tag vs) = text "{" <> text (intercalate ", " $ prettyShow n : prettyShow tag : map prettyShow vs) <> text "}"
+
 instance Pretty Value where
   pretty (BasNat n) = pretty n
   pretty (VTag tag) = pretty tag
-  pretty (VNode tag rc vs) =
-    text "{" <> text (intercalate ", " ([prettyShow tag, prettyShow rc] ++ map prettyShow vs)) <> text "}"
+  pretty (VNode tag vs) =
+    text "{" <> text (intercalate ", " (prettyShow tag : map prettyShow vs)) <> text "}"
   pretty VEmpty = text "()"
   pretty Undefined = text "⊥"
   pretty (Loc loc) = pretty loc

@@ -165,8 +165,8 @@ inlineEval defs absCxt tagInfo =
       modify (tagInfoInsert x returnTags)
 
       let infixr 2 `bindConstantNode`, `bindVar'`
-          -- arity + rc + var
-          offset = tagArity tag + 2
+          -- arity + var
+          offset = tagArity tag + 1
           bindConstantNode t1 t2 = Bind t1 <$> laltConstantNode tag t2
           bindVar' t1 t2 = t1 `Bind` LAltVar x t2
           eval =
@@ -209,7 +209,7 @@ inlineEval defs absCxt tagInfo =
       alts = mapM (caltConstantNode <*> genBody) (toList tags)
 
     genBody FTag{tDef, tArity} = App (Def tDef) $ map Var $ downFrom tArity
-    genBody tag@CTag{tArity = map Var . downFrom . succ -> v : vs} = Unit (ConstantNode tag v vs)
+    genBody tag@CTag{tArity = map Var . downFrom -> vs} = Unit (ConstantNode tag vs)
     genBody _ = __IMPOSSIBLE__
 
   fetchTagSet :: Abs -> Set Tag
@@ -267,12 +267,12 @@ leftUnitLaw (Unit (Var n) `Bind` LAltVar _ t) = strengthen impossible (subst 0 (
 -- 〈t 〉
 -- >>>
 -- 〈t 〉[v₁ / 1, v₂ / 0]
-leftUnitLaw (Unit (ConstantNode tag1 v vs) `Bind` LAltConstantNode tag2 x xs t)
+leftUnitLaw (Unit (ConstantNode tag1 vs) `Bind` LAltConstantNode tag2 xs t)
   | tag1 == tag2 = t''
   | otherwise    = __IMPOSSIBLE__
   where
-  numSubst = length (x : xs)
-  vs' = raise numSubst $ reverse (take numSubst $ v : vs)
+  numSubst = length xs
+  vs' = raise numSubst $ reverse (take numSubst vs)
   -- Substitute away pattern variable usage
   t' = foldr applySubst (leftUnitLaw t) (zipWith inplaceS [0 ..] vs')
   -- Remove pattern variables by strengthening 
@@ -327,9 +327,9 @@ specializeUpdate _absCxt def = do
     where
     alts' =
       for alts $ \case
-        CAltConstantNode tag x xs t ->
-          let update = raise (length $ x : xs) $ mkUpdate tag in
-          CAltConstantNode tag x xs $ update `BindEmpty` t
+        CAltConstantNode tag xs t ->
+          let update = raise (length xs) $ mkUpdate tag in
+          CAltConstantNode tag xs $ update `BindEmpty` t
         _ -> __IMPOSSIBLE__
 
   -- update n₁ n₂ ; λ () →
@@ -340,11 +340,11 @@ specializeUpdate _absCxt def = do
   -- unit n₂ ; λ CNat x →
   -- 〈m 〉
   go (Update Nothing n1 (Var n2) `BindEmpty`
-      Unit (Var n2') `Bind` LAltConstantNode tag x xs t) | n2 == n2' = do
+      Unit (Var n2') `Bind` LAltConstantNode tag xs t) | n2 == n2' = do
       t' <- varLocals xs (go t)
       pure $
         Update (Just tag) n1 (Var n2) `BindEmpty`
-        Unit (Var n2') `Bind` LAltConstantNode tag x xs t'
+        Unit (Var n2') `Bind` LAltConstantNode tag xs t'
 
   -- Returning eval/update [Boquist 1999, p. 95]
   go (Fetch' mtag n1 moffset `Bind` LAltVar x1
@@ -363,8 +363,7 @@ specializeUpdate _absCxt def = do
 
     where
       genBody FTag{tDef, tArity} = App (Def tDef) $ map Var $ downFrom tArity
-      genBody tag@CTag{tArity = 0} = Unit (Tag tag)
-      genBody tag@CTag{tArity = map Var . downFrom . succ -> v1 : v2 : vs} = Unit (ConstantNode tag v1 (v2 : vs))
+      genBody tag@CTag{tArity = map Var . downFrom . succ -> vs} = Unit (ConstantNode tag vs)
       genBody _ = __IMPOSSIBLE__
 
       fetchTagSet :: List1 Loc -> MaybeT (ReaderT UpdateCxt mf) (Set Tag)
@@ -437,38 +436,11 @@ caseUpdateView (Update Nothing n t1 `BindEmpty` t) = go IdS id t where
         -> LAlt
         -> Maybe (Tag -> Term, Term -> Term, Term)
   goLalt rho m (LAltVar abs t) = go (raiseS 1 `composeS` rho) (m . LAltVar abs) t
-  goLalt rho m (LAltConstantNode tag x xs t) =
-    go (raiseS tag.tArity `composeS` rho) (m . LAltConstantNode tag x xs) t
+  goLalt rho m (LAltConstantNode tag xs t) =
+    go (raiseS tag.tArity `composeS` rho) (m . LAltConstantNode tag xs) t
   goLalt rho m (LAltEmpty t) = go rho (m . LAltEmpty) t
 
-
 caseUpdateView _ = Nothing
-
-
-
-_nilTag = CTag "Nil" 0
-_update = UpdateTag _nilTag 4 (Var 1)
-_calt  = CAltConstantNode _nilTag (G.mkAbs 10) [] _update
-_node = VariableNode 3 (Var 2) [Var 1, Var 0]
-
-
-_termUnit = Unit (Var 0) `Bind` LAltVariableNode (G.mkAbs 12) (G.mkAbs 13) [G.mkAbs 14, G.mkAbs 15] 
-              (subst 4 _node (raise 4 _case))
-_foo = App (Def "foo") [] `Bind` LAltVar (G.mkAbs 16) _termUnit
-
-_case  = Case (Var 0) unreachable [_calt]
-_lalt = LAltVar (G.mkAbs 11) _case
-_laltBody = laltBody' _lalt [_node]
-
-_calt' = subst 0 (Var 10) _calt
-
-laltBody' :: LAlt -> [Val] -> Term
-laltBody' (splitLaltWithVars -> (_, t, [x])) [v] = subst 0 v t
-
-
-_termRaise = raiseFrom 1 3 _case
-_termInplace = applySubst (inplaceS 0 _node) _termRaise
-
 
 
 -- | Replace all node variables by explicit nodes.
@@ -483,9 +455,9 @@ vectorize :: forall mf. MonadFresh Int mf => TagInfo -> Term -> mf Term
 vectorize tagInfo (t1 `Bind` LAltVar x1 t2)
   | Just tag <- singletonTag x1 tagInfo = do
     let arity = tagArity tag
-        v : vs = map Var $ downFrom (succ arity)
-        node = ConstantNode tag v vs
-        offset = succ arity
+        vs = map Var $ downFrom arity
+        node = ConstantNode tag vs
+        offset = arity
         rho = singletonS offset node `composeS` raiseS offset
     t2' <- vectorize tagInfo t2
     alt <- laltConstantNode tag (applySubst rho t2')
@@ -493,9 +465,9 @@ vectorize tagInfo (t1 `Bind` LAltVar x1 t2)
 
 
   | Just arity <- lookupMaxArity x1 tagInfo = do
-    let v : vs = map Var $ downFrom (succ arity)
-        node = VariableNode (succ arity) v vs
-        offset = succ (succ arity)
+    let vs = map Var $ downFrom arity
+        node = VariableNode arity vs
+        offset = succ arity
         rho = singletonS offset node `composeS` raiseS offset
     t2' <- vectorize tagInfo t2
     alt <- laltVariableNode arity (applySubst rho t2')
@@ -526,14 +498,14 @@ vectorize _ t = pure t
 --   Cnil  → <t2>
 --   Ccons → <t3> [x₁ / x₃, x₂ / x₄]
 simplifyCase :: Term -> Term
-simplifyCase (Case (ConstantNode tag v vs) t alts) = 
+simplifyCase (Case (ConstantNode tag vs) t alts) = 
   Case (Tag tag) (simplifyCase t) (map step alts)
   where
-  step (splitCalt -> (mkAlt, t)) = substPatternBinds (v : vs) (mkAlt (simplifyCase t))
-simplifyCase (Case (VariableNode n v vs) t alts) = 
+  step (splitCalt -> (mkAlt, t)) = substPatternBinds vs (mkAlt (simplifyCase t))
+simplifyCase (Case (VariableNode n vs) t alts) = 
   Case (Var n) (simplifyCase t) (map step alts)
   where
-  step (splitCalt -> (mkAlt, t)) = substPatternBinds (v : vs) (mkAlt (simplifyCase t))
+  step (splitCalt -> (mkAlt, t)) = substPatternBinds vs (mkAlt (simplifyCase t))
 simplifyCase (Case v t alts) = Case v (simplifyCase t) $ map step alts
   where
   step (splitCalt -> (mkAlt, t)) = mkAlt $ simplifyCase t 
@@ -541,9 +513,9 @@ simplifyCase (t1 `Bind` (splitLalt -> (mkAlt, t2))) = simplifyCase t1 `Bind` mkA
 simplifyCase term = term
 
 substPatternBinds :: [Val] -> CAlt -> CAlt
-substPatternBinds vs (CAltConstantNode tag x xs t) = CAltTag tag t''
+substPatternBinds vs (CAltConstantNode tag xs t) = CAltTag tag t''
   where
-  numSubst = length (x : xs)
+  numSubst = length xs
   vs' = raise numSubst $ reverse (take numSubst vs)
   -- Substitute away pattern variable usage
   t' = foldr applySubst t (zipWith inplaceS [0 ..] vs')
@@ -558,16 +530,15 @@ substPatternBinds _ alt = alt
 -- <t2>
 -- >>>
 -- <t1>
--- fetch n [0]; λ x₁ →
 -- fetch n [1]; λ x₂ →
 -- fetch n [2]; λ x₃ → 
 -- fetch n [3]; λ x₄ →
 -- <t2>
 -- TODO returning fetch [Boquist 1999, p. 105]
 splitFetch :: Term -> Term
-splitFetch (Fetch' mtag n Nothing `Bind` LAltConstantNode _ x xs t) = fetchRest mtag n (x : xs) (splitFetch t)
-splitFetch (Fetch' mtag n Nothing `Bind` LAltVariableNode x1 x2 xs t) = 
-  Fetch' mtag n (Just 0) `Bind` LAltVar x1 (fetchRest mtag (n + 1) (x2 : xs) (splitFetch t))
+splitFetch (Fetch' mtag n Nothing `Bind` LAltConstantNode _ xs t) = fetchRest mtag n xs (splitFetch t)
+splitFetch (Fetch' mtag n Nothing `Bind` LAltVariableNode x xs t) = 
+  Fetch' mtag n (Just 1) `Bind` LAltVar x (fetchRest mtag (n + 1) xs (splitFetch t))
 splitFetch (t1 `Bind` (splitLalt -> (mkAlt, t2))) = splitFetch t1 `Bind` mkAlt (splitFetch t2)
 splitFetch (Case v t alts) = Case v (splitFetch t) $ map step alts
   where
@@ -575,9 +546,9 @@ splitFetch (Case v t alts) = Case v (splitFetch t) $ map step alts
 splitFetch term = term
 
 fetchRest :: Maybe Tag -> Int -> [Abs] -> Term -> Term
-fetchRest mtag n xs t = foldr (uncurry fetch) t (zip [1 ..] xs)
+fetchRest mtag n xs t = foldr (uncurry fetch) t (zip [2 ..] xs)
   where
-  fetch offset x t = Fetch' mtag (n + offset - 1) (Just offset) `Bind` LAltVar x t
+  fetch offset x t = Fetch' mtag (n + offset - 2) (Just offset) `Bind` LAltVar x t
  
 
 
@@ -588,13 +559,10 @@ fetchRest mtag n xs t = foldr (uncurry fetch) t (zip [1 ..] xs)
 --   be used.
 -- • Implement the the missing patterns (see TODOs below)
 rightHoistFetch :: forall mf. MonadFresh Int mf => Term -> mf Term
-rightHoistFetch (FetchOpaqueOffset n  0      `Bind` LAltVar x1
-                (FetchOpaqueOffset n' 1      `Bind` LAltVar x2 
-                (FetchOpaqueOffset _  offset `Bind` LAltVar x3 t))) = do
-  t' <- hoistFetch n x1 x2 x3 t offset
-  rightHoistFetch 
-    (FetchOpaqueOffset n  0 `Bind` LAltVar x1 
-    (FetchOpaqueOffset n' 1 `Bind` LAltVar x2 t'))
+rightHoistFetch (FetchOpaqueOffset n 1      `Bind` LAltVar x1
+                (FetchOpaqueOffset _ offset `Bind` LAltVar x2 t)) = do
+  t' <- hoistFetch n x1 x2 t offset
+  rightHoistFetch (FetchOpaqueOffset n 1 `Bind` LAltVar x1 t')
 
 rightHoistFetch (Bind t1 (splitLalt-> (mkAlt, t2))) = Bind t1 . mkAlt <$> rightHoistFetch t2
 rightHoistFetch (Case v t alts) = (Case v <$> rightHoistFetch t) <*> mapM step alts
@@ -602,9 +570,9 @@ rightHoistFetch (Case v t alts) = (Case v <$> rightHoistFetch t) <*> mapM step a
   step (splitCalt -> (mkAlt, t)) = mkAlt <$> rightHoistFetch t
 rightHoistFetch term = pure term
 
-hoistFetch :: forall mf. MonadFresh Int mf => Int -> Abs -> Abs -> Abs -> Term -> Int -> mf Term
-hoistFetch n x1 x2 x3 t offset =
-    go (x3 <| x2 <| x1 :| []) t
+hoistFetch :: forall mf. MonadFresh Int mf => Int -> Abs -> Abs -> Term -> Int -> mf Term
+hoistFetch n x1 x2 t offset =
+    go (x2 <| x1 :| []) t
   where
     go :: List1 Abs -> Term -> mf Term
     go xs (Case (Var n) t alts)
@@ -645,15 +613,9 @@ hoistFetch n x1 x2 x3 t offset =
           id
       step _ = __IMPOSSIBLE__
 
-      -- step (splitCalt -> (mkAlt,  t)) = 
-      --   mkAlt <$> caseMaybe (prependFetchOnUse xs t)
-      --     -- Strengthen alternatives which didn't prepend fetch
-      --     (pure $ strengthen (error $ "DIDN'T PREPEND FETCH:\n" ++ prettyShow t) t)
-      --     id
-
     prependFetchOnUse :: Tag -> List1 Abs -> Term -> Maybe (mf Term)
     prependFetchOnUse tag (x1 :| xs) (Bind t1 (splitLaltWithVars -> (mkAlt, t2, [x2])))
-      | usesX3 (x1 :| xs) t1 = Just $ prependFetch tag (x1 :| xs) (t1 `Bind` mkAlt t2)
+      | usesX2 (x1 :| xs) t1 = Just $ prependFetch tag (x1 :| xs) (t1 `Bind` mkAlt t2)
       | otherwise =
         caseMaybe (prependFetchOnUse tag (x1 :| xs) t1)
           ((fmap . fmap)
@@ -667,32 +629,32 @@ hoistFetch n x1 x2 x3 t offset =
 
 
     prependFetchOnUse tag xs1 (Bind t1 (splitLaltWithVars -> (mkAlt, t2, xs2))) = error "TODO need swap0n"
-    prependFetchOnUse tag xs t = boolToMaybe (usesX3 xs t) (prependFetch tag xs t)
+    prependFetchOnUse tag xs t = boolToMaybe (usesX2 xs t) (prependFetch tag xs t)
 
     prependFetch :: Tag -> List1 Abs -> Term -> mf Term
     prependFetch tag xs t =  FetchOffset tag (n + length xs - 1) offset `bindVar` t
 
-    usesX3 :: List1 Abs -> Term -> Bool
-    usesX3 xs = \case
-        App v vs        -> any (usesX3Val xs) (v : vs)
-        Store _ v       -> usesX3Val xs v
-        Unit v          -> usesX3Val xs v
-        Update _ n v    -> isX3 xs n || usesX3Val xs v
+    usesX2 :: List1 Abs -> Term -> Bool
+    usesX2 xs = \case
+        App v vs        -> any (usesX2Val xs) (v : vs)
+        Store _ v       -> usesX2Val xs v
+        Unit v          -> usesX2Val xs v
+        Update _ n v    -> isX2 xs n || usesX2Val xs v
         Error _         -> False
-        FetchOpaqueOffset n _ -> isX3 xs n
-        FetchOffset _ n _ -> isX3 xs n
+        FetchOpaqueOffset n _ -> isX2 xs n
+        FetchOffset _ n _ -> isX2 xs n
         Bind{}          -> __IMPOSSIBLE__
         Case{}          -> __IMPOSSIBLE__
         Fetch'{}         -> __IMPOSSIBLE__
       where
-        usesX3Val :: List1 Abs -> Val -> Bool
-        usesX3Val xs = \case
-          ConstantNode _ v vs -> any (usesX3Val xs) (v : vs)
-          VariableNode n v vs -> isX3 xs n || any (usesX3Val xs) (v : vs)
-          Var n             -> isX3 xs n
+        usesX2Val :: List1 Abs -> Val -> Bool
+        usesX2Val xs = \case
+          ConstantNode _ vs -> any (usesX2Val xs) vs
+          VariableNode n vs -> isX2 xs n || any (usesX2Val xs) vs
+          Var n             -> isX2 xs n
           _                 -> False
 
-        isX3 xs n = caseMaybe (toList xs !!! n) False (== x3)
+        isX2 xs n = caseMaybe (toList xs !!! n) False (== x2)
 
 -- | Introduce registers for all operands. A precondition
 --   the (unimplemented) common sub-expression elimination.

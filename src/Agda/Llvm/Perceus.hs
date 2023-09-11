@@ -213,12 +213,12 @@ perceusTerm :: Context -> Term -> Perceus Term
 perceusTerm c term@(App (Def f) vs) = do
   let vs' = List1.fromListSafe __IMPOSSIBLE__ vs
   cs <- splitContext c vs'
-  logIO $ render $ vcat 
-    [ text "\nAPP" <+> pretty term
-    , text "c.delta" <+> pretty c.delta
-    , text "c.gamma" <+> pretty c.gamma
-    , text "contexts:" <+> vcat (List1.map (\c -> pretty c.delta <+> pretty c.gamma) cs)
-    ]
+  -- logIO $ render $ vcat 
+  --   [ text "\nAPP" <+> pretty term
+  --   , text "c.delta" <+> pretty c.delta
+  --   , text "c.gamma" <+> pretty c.gamma
+  --   , text "contexts:" <+> vcat (List1.map (\c -> pretty c.delta <+> pretty c.gamma) cs)
+  --   ]
 
   dups <- fold <$> List1.zipWithM perceusVal cs vs'
   pure (foldr BindEmpty (App (Def f) vs) dups)
@@ -235,14 +235,14 @@ perceusTerm c term@(App (Def f) vs) = do
 -- Δ Γ ⊢ unit v ⟿  dup fv(v) ; dup γ ; f {v}∗
 perceusTerm c (Unit v) = do
   fv <- fvVal v
-  vars <- asks pc_vars
-  logIO $ render $ vcat 
-    [ text "UNIT" <+> pretty (Unit v)
-    , text "c.delta" <+> pretty c.delta
-    , text "c.gamma" <+> pretty c.gamma
-    , text "fv" <+> pretty fv
-    , text "vars" <+> pretty vars
-    ]
+  --- vars <- asks pc_vars
+  -- logIO $ render $ vcat 
+  --   [ text "UNIT" <+> pretty (Unit v)
+  --   , text "c.delta" <+> pretty c.delta
+  --   , text "c.gamma" <+> pretty c.gamma
+  --   , text "fv" <+> pretty fv
+  --   , text "vars" <+> pretty vars
+  --   ]
   dupSet fv . foldr BindEmpty (Unit v) =<< perceusVal c v
 
 
@@ -271,7 +271,7 @@ perceusTerm c term@(t1 `Bind` alt) = do
   xs' <- Set.fromList <$> filterM isPointer xs
 
   let tagDependentVarsLocal = case alt of
-        LAltVariableNode x _ xs _ -> 
+        LAltVariableNode x xs _ -> 
           let xs'' = filter (`Set.member` xs') xs in
           local $ \cxt -> cxt{pc_tagDependentVars =  Map.insert x xs'' cxt.pc_tagDependentVars}
         _ -> id
@@ -285,31 +285,31 @@ perceusTerm c term@(t1 `Bind` alt) = do
   -- Γₓ′ = fv(t₂) - {x}∗   
   let (gammax, gammax') = Set.partition (`Set.member` fv2) xs'
 
-  logIO $ render $ vcat 
-    [ text "\nBIND:"
-    , nest 4 (pretty term)
-    , text "c.delta" <+> pretty c.delta
-    , text "c.gamma" <+> pretty c.gamma
-    , text "ov1"  <+> pretty ov1
-    , text "fv2"  <+> pretty fv2
-    , text "gamma2" <+> pretty gamma2
-    , text "gamma2'" <+> pretty gamma2'
-    , text "gammax" <+> pretty gammax
-    , text "gammax'" <+> pretty gammax' ]
+  -- logIO $ render $ vcat 
+  --   [ text "\nBIND:"
+  --   , nest 4 (pretty term)
+  --   , text "c.delta" <+> pretty c.delta
+  --   , text "c.gamma" <+> pretty c.gamma
+  --   , text "ov1"  <+> pretty ov1
+  --   , text "fv2"  <+> pretty fv2
+  --   , text "gamma2" <+> pretty gamma2
+  --   , text "gamma2'" <+> pretty gamma2'
+  --   , text "gammax" <+> pretty gammax
+  --   , text "gammax'" <+> pretty gammax' ]
 
   -- Δ,Γ₂,Γ₂′ | Γ - Γ₂,Γ₂′ ⊢ t₁ ⟿  t₁′  
   let context = Context (c.delta <> gamma2 <> gamma2') (c.gamma Set.\\ (gamma2 <> gamma2')) 
 
-  logIO $ render $ vcat
-    [ text "\nLEFT TERM:" 
-    , nest 4 (pretty t1)
-    , text "delta" <+> pretty context.delta
-    , text "gamma" <+> pretty context.gamma
-    , text "\nRIGHT TERM:"
-    , nest 4 (pretty t2)
-    , text "delta" <+> pretty c.delta
-    , text "gamma" <+> pretty (gamma2 <> gammax)
-    ]
+  -- logIO $ render $ vcat
+  --   [ text "\nLEFT TERM:" 
+  --   , nest 4 (pretty t1)
+  --   , text "delta" <+> pretty context.delta
+  --   , text "gamma" <+> pretty context.gamma
+  --   , text "\nRIGHT TERM:"
+  --   , nest 4 (pretty t2)
+  --   , text "delta" <+> pretty c.delta
+  --   , text "gamma" <+> pretty (gamma2 <> gammax)
+  --   ]
 
   t1' <- perceusTerm context t1
   
@@ -330,7 +330,7 @@ perceusTerm c (Case (Var n) t alts) = do
   x <- fromMaybe __IMPOSSIBLE__  <$> deBruijnLookup n
   xs <- tagDependentVarsLookup x 
 
-  t' <- stepBody (Set.fromList xs) t
+  t' <- if t == unreachable then pure t else stepBody (Set.fromList xs) t
   alts' <- mapM (stepAlt xs) alts
 
   pure (Case (Var n) t' alts')
@@ -351,13 +351,13 @@ perceusTerm c (Case (Var n) t alts) = do
       -- Δᵢ = Γ - {⊥}∗
       let deltai = c.delta Set.\\ bottoms
 
-      logIO $ render $ vcat 
-        [ text "CALT" 
-        , text "bottoms" <+> pretty bottoms
-        , nest 4 (pretty t) 
-        , text "c.delta" <+> pretty c.delta
-        , text "c.gamma" <+> pretty c.gamma
-        ]
+      -- logIO $ render $ vcat 
+      --   [ text "CALT" 
+      --   , text "bottoms" <+> pretty bottoms
+      --   , nest 4 (pretty t) 
+      --   , text "c.delta" <+> pretty c.delta
+      --   , text "c.gamma" <+> pretty c.gamma
+      --   ]
 
       -- Δ | Γᵢ ⊢ tᵢ ⟿  tᵢ′
       t' <- perceusTerm (Context deltai gammai) t
@@ -400,14 +400,14 @@ perceusVal c (Var n) = do
    
   pure $ fromMaybe (error s) (not_ptr <|> svar <|> svar_dup)
 
-perceusVal c val@(ConstantNode _ _ (v : vs)) = do
+perceusVal c val@(ConstantNode _ (v : vs)) = do
   contexts <- splitContext c (v :| vs)
-  logIO $ render $ vcat
-    [ text "\nCONSTANTNODE" <+> pretty val
-    , text "c.delta" <+> pretty c.delta
-    , text "c.gamma" <+> pretty c.gamma
-    , text "contexts:" <+> vcat (List1.map (\c -> pretty c.delta <+> pretty c.gamma) contexts)
-    ]
+  -- logIO $ render $ vcat
+  --   [ text "\nCONSTANTNODE" <+> pretty val
+  --   , text "c.delta" <+> pretty c.delta
+  --   , text "c.gamma" <+> pretty c.gamma
+  --   , text "contexts:" <+> vcat (List1.map (\c -> pretty c.delta <+> pretty c.gamma) contexts)
+  --   ]
   fold <$> List1.zipWithM perceusVal contexts (v :| vs)
 
 -- I think variable nodes are never retured or stored so they cannot consume values
@@ -462,9 +462,9 @@ dupSet set t = do
 -- | Returns the free variables that the term want to own.
 ov :: Term -> Perceus (Set Abs)
 ov (App _ vs) = foldMapM fvVal vs
-ov (Store _ (ConstantNode _ _ vs)) = foldMapM fvVal vs 
-ov (Unit (ConstantNode _ _ vs)) = foldMapM fvVal vs
-ov (Update _ _ (ConstantNode _ _ vs)) = foldMapM fvVal vs
+ov (Store _ (ConstantNode _ vs)) = foldMapM fvVal vs 
+ov (Unit (ConstantNode _ vs)) = foldMapM fvVal vs
+ov (Update _ _ (ConstantNode _ vs)) = foldMapM fvVal vs
 ov (Case _ t alts) = ov t <> foldMapM (ov . snd . splitCalt) alts
 ov (t1 `Bind` (splitLaltWithVars -> (_, t2, xs))) = ov t1 <> varsLocal xs (ov t2)
 ov _  = pure mempty
@@ -499,8 +499,8 @@ fvVal :: Val -> Perceus (Set Abs)
 fvVal (Var n) = do
   x <- fromMaybe __IMPOSSIBLE__ <$> deBruijnLookup n
   bool mempty (Set.singleton x) <$> isPointer x
-fvVal (ConstantNode _ _ vs) = foldMapM fvVal vs
-fvVal (VariableNode _ _ vs) = foldMapM fvVal vs
+fvVal (ConstantNode _ vs) = foldMapM fvVal vs
+fvVal (VariableNode _ vs) = foldMapM fvVal vs
 fvVal _ = pure mempty
 
 
@@ -537,10 +537,10 @@ gatherPointers _ = mempty
 
 gatherPointersLalt :: LAlt -> Set Abs 
 gatherPointersLalt (LAltVar _ t) = gatherPointers t
-gatherPointersLalt (LAltConstantNode tag _ xs t)
+gatherPointersLalt (LAltConstantNode tag xs t)
   | tag == natTag = gatherPointers t
   | otherwise     = Set.fromList xs <> gatherPointers t
-gatherPointersLalt (LAltVariableNode _ _ xs t) = Set.fromList xs <> gatherPointers t
+gatherPointersLalt (LAltVariableNode _ xs t) = Set.fromList xs <> gatherPointers t
 gatherPointersLalt (LAltEmpty t) = gatherPointers t
 
 -- There should only exist tags without binders
@@ -577,7 +577,7 @@ mkDrop :: forall mf. MonadFresh Int mf => [GrinDefinition] -> mf GrinDefinition
 mkDrop defs = do
   decref' <- decref
   unique' <- unique
-  term <- FetchOpaqueOffset 0 1 `bindVar` 
+  term <- FetchOpaqueOffset 0 0 `bindVar` 
           Case (Var 0) decref' [CAltLit (LitNat 1) unique']
           
   arg <- freshAbs
@@ -597,11 +597,11 @@ mkDrop defs = do
   decref :: mf Term
   decref = 
     App (Prim PSub) [Var 0, mkLit 1] `bindVar`
-    UpdateOffset 2 1 (Var 0)
+    UpdateOffset 2 0 (Var 0)
 
   unique :: mf Term
   unique =
-    FetchOpaqueOffset 1 0 `bindVarR`
+    FetchOpaqueOffset 1 1 `bindVarR`
     Case (Var 0) unreachable <$> mapM mkAlt tags
 
   -- TODO big layout
@@ -618,9 +618,9 @@ mkDrop defs = do
 mkDup :: forall mf. MonadFresh Int mf => mf GrinDefinition
 mkDup = do 
   term <- 
-    FetchOpaqueOffset 0 1            `bindVarR` 
+    FetchOpaqueOffset 0 0            `bindVarR` 
     App (Prim PAdd) [Var 0, mkLit 1] `bindVar`
-    UpdateOffset 2 1 (Var 0)
+    UpdateOffset 2 0 (Var 0)
   arg <- freshAbs
   pure GrinDefinition
     { gr_name = "dup"
