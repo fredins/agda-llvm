@@ -16,7 +16,7 @@ The project depends on features from the unreleased Agda 2.6.4, which is why the
 have a local installation of Agda you may instead modify the `cabal.project` file, and skip the submodule.  
 
 ```
-git clone --recurse-submodules https://github.com/fredins/agda-llvm.git
+git clone --recurse-submodules git@github.com:fredins/agda-llvm.git
 ```
 
 Running `make` will build and install the exectuable `agda-llvm` usually to `$HOME/.cabal/bin/`. This will build all dependencies and the agda submodule, which is over 400 modules. 

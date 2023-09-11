@@ -20,6 +20,110 @@ css: Agda.css
 
   ```
 
+### W.35 & W.36
+
+
+Read the following:  
+
+  - @lorenzen2021
+  - @pinto2023  
+
+Did the following:  
+
+- I have fixed both the interpreter and the code generator so they work with reference counting.  
+  The interpreter now reports the status of the heap after execution. We can also check the memory  
+  usage of the compiled binary with the program `valgrind`, which output is shown below. The  
+  result shows that the reference counting operations successfully deallocated all allocated memory.  
+  Another intresting information is that there were 403 allocation for the program. The same Haskell  
+  program only require 49 allocations. This is definitely due to the demand analyzer of Haskell which  
+  makes some operations strict which avoid allocations for thunks . Our implementation doesn't yet  
+  have  such an analysis. Another way to minimize the amount of allocations is to implement drop  
+  specialization and reuse analysis in Perceus.  
+  
+
+  ```markdown
+  ==10406== memcheck, a memory error detector
+  ==10406== copyright (c) 2002-2022, and gnu gpl'd, by julian seward et al.
+  ==10406== Using Valgrind-3.20.0 and LibVEX; rerun with -h for copyright info
+  ==10406== Command: ./program
+  ==10406==
+  4950
+  ==10406==
+  ==10406== HEAP SUMMARY:
+  ==10406==     in use at exit: 0 bytes in 0 blocks
+  ==10406==   total heap usage: 403 allocs, 403 frees, 13,888 bytes allocated
+  ==10406==
+  ==10406== All heap blocks were freed -- no leaks are possible
+  ==10406==
+  ==10406== For lists of detected and suppressed errors, rerun with: -s
+  ==10406== ERROR SUMMARY: 0 errors from 0 contexts (suppressed: 0 from 0)
+  ```
+
+- Implemented precise reference counting mostly based on the Perceus algorithm, but I had to change  
+  mulitple parts because of the difference between GRIN and the calculus used by @reinking2020.  
+  One big difference is that my implementation needs to deal with borrowing for the primitives  
+  `store`, `fetch`, and `update`. This should not consume references similiar to how `dup` and `drop`  doesn't.  
+  However, borrowing in `dup` and `drop` doesn't interfere with the algorithm which GRIN's primitives  
+  do. The only operation which consumes values are function calls and returning `unit`. Another difference,   
+  is that in GRIN the return value of a function is not allocated by the callee. Instead it is passed in  
+  registers to the caller. Following is the `downFrom` function with reference counting operations.  
+
+  ```markdown
+  DownFrom.downFrom x7 =
+  fetch 0 [1] ; λ x56 →
+  (case 0 of
+     Cnat →
+       fetchCnat 1 [2] ; λ x72 →
+       unit (Cnat 0)
+     FAgda.Builtin.Nat._-_ →
+       fetchFAgda.Builtin.Nat._-_ 1 [2] ; λ x73 →
+       fetchFAgda.Builtin.Nat._-_ 2 [3] ; λ x74 →
+       Agda.Builtin.Nat._-_ 1 0
+  ) ; λ Cnat x55 →
+  updateCnat 2 (Cnat 0) ; λ () →
+  case 0 of
+    0 →
+      drop 2 ; λ () →
+      unit (CDownFrom.List.[])
+    _ →
+      store (Cnat #1) ; λ x2 →
+      store (FAgda.Builtin.Nat._-_ 3 0) ; λ x5 →
+      dup 0 ; λ () →
+      store (FDownFrom.downFrom 0) ; λ x4 →
+      dup 0 ; λ () →
+      dup 1 ; λ () →
+      unit (CDownFrom.List._∷_ 1 0)
+  ```
+
+
+- Created a new transformation called fetch specialization, which is similiar to  
+  Boquist's update specialization. The motivation for this transformation is the  
+  conflict between Perceus algorithm [@reinking2020] and the Cnat tag.  
+  Perceus assumes that all  offsets 2≥ are pointers, and should therefore be reference  
+  counted. This is true for all tags except Cnat which stores a integer at offset 2.  
+
+  ```markdown
+  Cnat →
+    dup 2 ; λ () →
+    fetch 2 [2] ; λ x3716 →
+    drop 0 ; λ () →  -- BAD: drop takes a pointer but offset 2 of Cnat is an integer
+    unit (Cnat 0)
+
+  >>> 
+
+  Cnat →
+    dup 2 ; λ () →
+    fetchCnat 2 [2] ; λ x3716 →
+    unit (Cnat 0)
+  ```
+
+  The transformation is easily integrated in the eval inlining and fetch right-hoisting transformations.  
+  Another satisfactory property of this change is the symmetry between `fetch` and `update`.  
+  Moreover, I think fetch specialization may enable very powerful optimizations. For example,  
+  it could enable per-node custom data layouts for the arguments, which would alleviate GRIN's  
+  weakness of requiring a uniform node layout. However, a uniform data layout may be more advantageous  
+  for memory resue between different nodes.  
+
 ### W.34
 
 Read the following:  

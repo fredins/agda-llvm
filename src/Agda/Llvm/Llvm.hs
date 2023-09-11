@@ -9,7 +9,6 @@ import           Data.String               (IsString)
 import           Agda.Compiler.Backend     hiding (Name, Prim)
 import           Agda.Syntax.Common.Pretty
 import           Agda.Syntax.Literal
-import           Agda.Syntax.Parser.Parser (splitOnDots)
 import           Agda.Utils.Impossible     (__IMPOSSIBLE__)
 import           Agda.Utils.List
 import           Agda.Utils.List1          (List1, pattern (:|), (<|))
@@ -19,6 +18,7 @@ import           Control.Arrow             (Arrow (first))
 import           Control.Monad             (forM)
 import           Data.Foldable             (toList)
 import           Data.Semigroup            (sconcat)
+import Agda.Llvm.Utils (list1splitOnDots)
 
 data Instruction =
     Define CallingConvention Type GlobalId [(Type, LocalId)] (List1 Instruction)
@@ -73,14 +73,14 @@ mkUnnamed = MkLocalId . ("%" ++) . prettyShow
 
 mkGlobalId :: Pretty a => a -> GlobalId
 mkGlobalId (prettyShow -> s) =
-    MkGlobalId $ case shortName of
-      "main"   -> "@main"
-      "printf" -> "@printf"
-      "malloc" -> "@malloc"
-      _        -> '@' : '"' : s `snoc` '"'
-
+  MkGlobalId $ case shortName of
+    "main"   -> "@main"
+    "free"   -> "@free"
+    "printf" -> "@printf"
+    "malloc" -> "@malloc"
+    _        -> '@' : '"' : s `snoc` '"'
   where
-    shortName = lastWithDefault __IMPOSSIBLE__ $ splitOnDots s
+  shortName = List1.last (list1splitOnDots s)
 
 
 mkLit :: Int -> Val
@@ -114,18 +114,19 @@ typeOf Undef          = __IMPOSSIBLE__
 typeOf Null           = __IMPOSSIBLE__
 
 size :: Type -> Int
-size I8               = 8
-size I64              = 64
-size I32              = 32
-size Ptr              = 64
+size I8               = 1
+size I64              = 8
+size I32              = 4
+size Ptr              = 8
 size (Alias "%Node")  = size nodeTy
+-- size (Alias "%HeapNode")  = size heapNodeTy
 size (StructureTy ts) = List1.foldr ((+) . size) size ts
 size Varargs          = __IMPOSSIBLE__
 size Alias{}          = __IMPOSSIBLE__
 size Void             = __IMPOSSIBLE__
 
 nodeSize :: Int
-nodeSize = size nodeTySyn
+nodeSize = size nodeTy
 
 extractvalue :: Val -> Int -> Instruction
 extractvalue = Extractvalue nodeTySyn
@@ -134,7 +135,7 @@ insertvalue :: Val -> Val -> Int -> Instruction
 insertvalue v  = Insertvalue nodeTySyn v I64
 
 getelementptr :: LocalId -> Int -> Instruction
-getelementptr ptr offset =
+getelementptr ptr offset = 
   Getelementptr nodeTySyn $ (Ptr, LocalId ptr) :| [(I32, mkLit 0), (I64, mkLit offset)]
 
 switch :: LocalId -> LocalId -> [Alt] -> Instruction
@@ -153,7 +154,10 @@ nodeTySyn :: Type
 nodeTySyn  = Alias "%Node"
 
 nodeTy :: Type
-nodeTy = StructureTy $ I64 <| I64 <| I64 :| []
+nodeTy = StructureTy $ I64 <| I64 <| I64 <| I64 :| []
+
+heapNodeTy :: Type
+heapNodeTy = StructureTy $ I64 <| nodeTySyn :| []
 
 store :: Type -> Val -> LocalId -> Instruction
 store t v = Store t v Ptr

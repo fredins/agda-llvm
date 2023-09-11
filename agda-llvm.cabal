@@ -64,6 +64,7 @@ library
     Agda.Llvm.GrinTransformations
     Agda.Llvm.HeapPointsTo
     Agda.Llvm.Llvm
+    Agda.Llvm.Perceus
     Agda.Llvm.TreelessTransform
     Agda.Llvm.Utils
        
@@ -73,9 +74,10 @@ library
 
   build-depends:    
     , Agda         >= 2.6.4
-    , base         >= 4.12.0.0 && < 4.19
+    , base         >= 4.12.0.0 && < 4.20
     , containers   >= 0.6.0.1  && < 0.7
     , deepseq      >= 1.4.4.0  && < 1.5            
+    , filepath
     , transformers >= 0.6.0.2  && < 0.7
     , mtl
     , extra
@@ -91,7 +93,7 @@ executable agda-llvm
   build-depends:
     , Agda       >= 2.6.4
     , agda-llvm
-    , base       >= 4.12.0.0 && < 4.19
+    , base       >= 4.12.0.0 && < 4.20
 
   default-extensions:
     LambdaCase
@@ -112,7 +114,7 @@ test-suite test
 
   build-depends:    
     , Agda         >= 2.6.4
-    , base         >= 4.12.0.0 && < 4.19
+    , base         >= 4.12.0.0 && < 4.20
     , bytestring
     , containers   >= 0.6.0.1  && < 0.7
     , deepseq      >= 1.4.4.0  && < 1.5            
