@@ -131,39 +131,41 @@
 </ul>
 <p>Did the following:</p>
 <ul>
-<li><p>I have fixed both the interpreter and the code generator so they
-work with reference counting.<br />
-The interpreter now reports the status of the heap after execution. We
-can also check the memory<br />
-usage of the compiled binary with the program <code>valgrind</code>,
-which output is shown below. The<br />
-result shows that the reference counting operations successfully
-deallocated all allocated memory.<br />
-Another intresting information is that there were 403 allocation for the
-program. The same Haskell<br />
-program only require 49 allocations. This is definitely due to the
-demand analyzer of Haskell which<br />
-makes some operations strict which avoid allocations for thunks . Our
-implementation doesn’t yet<br />
-have such an analysis. Another way to minimize the amount of allocations
-is to implement drop<br />
-specialization and reuse analysis in Perceus.</p>
+<li><p>Created a new transformation called fetch specialization, which
+is similiar to<br />
+Boquist’s update specialization. The motivation for this transformation
+is the<br />
+conflict between Perceus algorithm <span class="citation"
+data-cites="reinking2020">[Reinking* et al. 2020]</span> and the Cnat
+tag.<br />
+Perceus assumes that all offsets 2≥ are pointers, and should therefore
+be reference<br />
+counted. This is true for all tags except Cnat which stores a integer at
+offset 2.</p>
 <div class="sourceCode" id="cb1"><pre
-class="sourceCode markdown"><code class="sourceCode markdown"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a>==10406== memcheck, a memory error detector</span>
-<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a>==10406== copyright (c) 2002-2022, and gnu gpl&#39;d, by julian seward et al.</span>
-<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a>==10406== Using Valgrind-3.20.0 and LibVEX; rerun with -h for copyright info</span>
-<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a>==10406== Command: ./program</span>
-<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a>==10406==</span>
-<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a>4950</span>
-<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a>==10406==</span>
-<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a>==10406== HEAP SUMMARY:</span>
-<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a>==10406==     in use at exit: 0 bytes in 0 blocks</span>
-<span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a>==10406==   total heap usage: 403 allocs, 403 frees, 13,888 bytes allocated</span>
-<span id="cb1-11"><a href="#cb1-11" aria-hidden="true" tabindex="-1"></a>==10406==</span>
-<span id="cb1-12"><a href="#cb1-12" aria-hidden="true" tabindex="-1"></a>==10406== All heap blocks were freed -- no leaks are possible</span>
-<span id="cb1-13"><a href="#cb1-13" aria-hidden="true" tabindex="-1"></a>==10406==</span>
-<span id="cb1-14"><a href="#cb1-14" aria-hidden="true" tabindex="-1"></a>==10406== For lists of detected and suppressed errors, rerun with: -s</span>
-<span id="cb1-15"><a href="#cb1-15" aria-hidden="true" tabindex="-1"></a>==10406== ERROR SUMMARY: 0 errors from 0 contexts (suppressed: 0 from 0)</span></code></pre></div></li>
+class="sourceCode markdown"><code class="sourceCode markdown"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a>Cnat →</span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a>  dup 2 ; λ () →</span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a>  fetch 2 <span class="co">[</span><span class="ot">2</span><span class="co">]</span> ; λ x3716 →</span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a>  drop 0 ; λ () →  -- BAD: drop takes a pointer but offset 2 of Cnat is an integer</span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a>  unit (Cnat 0)</span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a><span class="at">&gt;&gt;&gt; </span></span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a>Cnat →</span>
+<span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a>  dup 2 ; λ () →</span>
+<span id="cb1-11"><a href="#cb1-11" aria-hidden="true" tabindex="-1"></a>  fetchCnat 2 <span class="co">[</span><span class="ot">2</span><span class="co">]</span> ; λ x3716 →</span>
+<span id="cb1-12"><a href="#cb1-12" aria-hidden="true" tabindex="-1"></a>  unit (Cnat 0)</span></code></pre></div>
+<p>The transformation is easily integrated in the eval inlining and
+fetch right-hoisting transformations.<br />
+Another satisfactory property of this change is the symmetry between
+<code>fetch</code> and <code>update</code>.<br />
+Moreover, I think fetch specialization may enable very powerful
+optimizations. For example,<br />
+it could enable per-node custom data layouts for the arguments, which
+would alleviate GRIN’s<br />
+weakness of requiring a uniform node layout. However, a uniform data
+layout may be more advantageous<br />
+for memory resue between different nodes.</p></li>
 <li><p>Implemented precise reference counting mostly based on the
 Perceus algorithm, but I had to change<br />
 mulitple parts because of the difference between GRIN and the calculus
@@ -207,41 +209,39 @@ class="sourceCode markdown"><code class="sourceCode markdown"><span id="cb2-1"><
 <span id="cb2-22"><a href="#cb2-22" aria-hidden="true" tabindex="-1"></a>    dup 0 ; λ () →</span>
 <span id="cb2-23"><a href="#cb2-23" aria-hidden="true" tabindex="-1"></a>    dup 1 ; λ () →</span>
 <span id="cb2-24"><a href="#cb2-24" aria-hidden="true" tabindex="-1"></a>    unit (CDownFrom.List._∷_ 1 0)</span></code></pre></div></li>
-<li><p>Created a new transformation called fetch specialization, which
-is similiar to<br />
-Boquist’s update specialization. The motivation for this transformation
-is the<br />
-conflict between Perceus algorithm <span class="citation"
-data-cites="reinking2020">[Reinking* et al. 2020]</span> and the Cnat
-tag.<br />
-Perceus assumes that all offsets 2≥ are pointers, and should therefore
-be reference<br />
-counted. This is true for all tags except Cnat which stores a integer at
-offset 2.</p>
+<li><p>I have fixed both the interpreter and the code generator so they
+work with reference counting.<br />
+The interpreter now reports the status of the heap after execution. We
+can also check the memory<br />
+usage of the compiled binary with the program <code>valgrind</code>,
+which output is shown below. The<br />
+result shows that the reference counting operations successfully
+deallocated all allocated memory.<br />
+Another intresting information is that there were 403 allocation for the
+program. The same Haskell<br />
+program only require 49 allocations. This is definitely due to the
+demand analyzer of Haskell which<br />
+makes some operations strict which avoid allocations for thunks . Our
+implementation doesn’t yet<br />
+have such an analysis. Another way to minimize the amount of allocations
+is to implement drop<br />
+specialization and reuse analysis in Perceus.</p>
 <div class="sourceCode" id="cb3"><pre
-class="sourceCode markdown"><code class="sourceCode markdown"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a>Cnat →</span>
-<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a>  dup 2 ; λ () →</span>
-<span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a>  fetch 2 <span class="co">[</span><span class="ot">2</span><span class="co">]</span> ; λ x3716 →</span>
-<span id="cb3-4"><a href="#cb3-4" aria-hidden="true" tabindex="-1"></a>  drop 0 ; λ () →  -- BAD: drop takes a pointer but offset 2 of Cnat is an integer</span>
-<span id="cb3-5"><a href="#cb3-5" aria-hidden="true" tabindex="-1"></a>  unit (Cnat 0)</span>
-<span id="cb3-6"><a href="#cb3-6" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb3-7"><a href="#cb3-7" aria-hidden="true" tabindex="-1"></a><span class="at">&gt;&gt;&gt; </span></span>
-<span id="cb3-8"><a href="#cb3-8" aria-hidden="true" tabindex="-1"></a></span>
-<span id="cb3-9"><a href="#cb3-9" aria-hidden="true" tabindex="-1"></a>Cnat →</span>
-<span id="cb3-10"><a href="#cb3-10" aria-hidden="true" tabindex="-1"></a>  dup 2 ; λ () →</span>
-<span id="cb3-11"><a href="#cb3-11" aria-hidden="true" tabindex="-1"></a>  fetchCnat 2 <span class="co">[</span><span class="ot">2</span><span class="co">]</span> ; λ x3716 →</span>
-<span id="cb3-12"><a href="#cb3-12" aria-hidden="true" tabindex="-1"></a>  unit (Cnat 0)</span></code></pre></div>
-<p>The transformation is easily integrated in the eval inlining and
-fetch right-hoisting transformations.<br />
-Another satisfactory property of this change is the symmetry between
-<code>fetch</code> and <code>update</code>.<br />
-Moreover, I think fetch specialization may enable very powerful
-optimizations. For example,<br />
-it could enable per-node custom data layouts for the arguments, which
-would alleviate GRIN’s<br />
-weakness of requiring a uniform node layout. However, a uniform data
-layout may be more advantageous<br />
-for memory resue between different nodes.</p></li>
+class="sourceCode markdown"><code class="sourceCode markdown"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a>==10406== memcheck, a memory error detector</span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a>==10406== copyright (c) 2002-2022, and gnu gpl&#39;d, by julian seward et al.</span>
+<span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a>==10406== Using Valgrind-3.20.0 and LibVEX; rerun with -h for copyright info</span>
+<span id="cb3-4"><a href="#cb3-4" aria-hidden="true" tabindex="-1"></a>==10406== Command: ./program</span>
+<span id="cb3-5"><a href="#cb3-5" aria-hidden="true" tabindex="-1"></a>==10406==</span>
+<span id="cb3-6"><a href="#cb3-6" aria-hidden="true" tabindex="-1"></a>4950</span>
+<span id="cb3-7"><a href="#cb3-7" aria-hidden="true" tabindex="-1"></a>==10406==</span>
+<span id="cb3-8"><a href="#cb3-8" aria-hidden="true" tabindex="-1"></a>==10406== HEAP SUMMARY:</span>
+<span id="cb3-9"><a href="#cb3-9" aria-hidden="true" tabindex="-1"></a>==10406==     in use at exit: 0 bytes in 0 blocks</span>
+<span id="cb3-10"><a href="#cb3-10" aria-hidden="true" tabindex="-1"></a>==10406==   total heap usage: 403 allocs, 403 frees, 13,888 bytes allocated</span>
+<span id="cb3-11"><a href="#cb3-11" aria-hidden="true" tabindex="-1"></a>==10406==</span>
+<span id="cb3-12"><a href="#cb3-12" aria-hidden="true" tabindex="-1"></a>==10406== All heap blocks were freed -- no leaks are possible</span>
+<span id="cb3-13"><a href="#cb3-13" aria-hidden="true" tabindex="-1"></a>==10406==</span>
+<span id="cb3-14"><a href="#cb3-14" aria-hidden="true" tabindex="-1"></a>==10406== For lists of detected and suppressed errors, rerun with: -s</span>
+<span id="cb3-15"><a href="#cb3-15" aria-hidden="true" tabindex="-1"></a>==10406== ERROR SUMMARY: 0 errors from 0 contexts (suppressed: 0 from 0)</span></code></pre></div></li>
 </ul>
 <h3 id="w.34">W.34</h3>
 <p>Read the following:</p>
