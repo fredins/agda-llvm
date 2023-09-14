@@ -20,4 +20,4 @@ sum : List ℕ → ℕ
 sum [] = 0
 sum (x ∷ xs) = x + sum xs
 
-main = sum (downFrom 100) -- 100 → 4950
+main = sum (downFrom 58_000) -- 100 → 4950

@@ -1,6 +1,0 @@
-#!/bin/sh
-opt -dot-callgraph $1
-dot -Tpng -o "$1.callgraph.png" "$1.callgraph.dot"
-
-
-

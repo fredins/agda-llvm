@@ -3,6 +3,7 @@
 {-# LANGUAGE OverloadedRecordDot      #-}
 {-# LANGUAGE OverloadedStrings        #-}
 {-# OPTIONS_GHC -Wno-name-shadowing #-}
+{-# LANGUAGE ViewPatterns #-}
 
 -----------------------------------------------------------------------
 -- | * GRIN heap points-to analysis
@@ -66,6 +67,8 @@ import           Agda.Utils.List
 import           Agda.Utils.List1             (List1, pattern (:|), (<|))
 import qualified Agda.Utils.List1          as List1
 import           Agda.Utils.Maybe
+import Agda.TypeChecking.SizedTypes.Utils (trace)
+import GHC.IO (unsafePerformIO)
 
 -- TODO
 -- • Refactor H', HCxt, HRet
@@ -272,7 +275,7 @@ initHCxt defs currentDef =
       { absHeap = AbsHeap []
       , absEnv = AbsEnv []
       , defs = defs
-      , abss = currentDef.gr_args
+      , abss = reverse currentDef.gr_args
       , locs = []
       , shared = shared
       , currentDef = currentDef
@@ -334,7 +337,6 @@ localAbs abs = local $ \cxt -> cxt{abss = abs : cxt.abss}
 
 localAbss :: MonadReader HCxt m => [Abs] -> m a -> m a
 localAbss = foldl (.: localAbs) id
-
 
 localLoc :: MonadReader HCxt m => Loc -> m a -> m a
 localLoc loc = local $ \cxt -> cxt{locs = loc : cxt.locs}
@@ -421,6 +423,14 @@ deriveEquations term = case term of
         deriveEquationsAlt _ CAltLit{}      = __IMPOSSIBLE__
         deriveEquationsAlt _ _ = __IMPOSSIBLE__
 
+
+    -- should never happen?
+    Bind (App (Def "eval") [Var n]) (LAltVar x t) -> do
+      v <- EVAL . FETCH . Abs . fromMaybe __IMPOSSIBLE__ <$> deBruijnLookup n
+      localAbs x $
+        localAbsEnv (x, v) $
+        deriveEquations t
+
     -- Returning eval
     App (Def "eval") [Var n] -> do
       v <- EVAL . FETCH . Abs . fromMaybe __IMPOSSIBLE__ <$> deBruijnLookup n
@@ -428,20 +438,14 @@ deriveEquations term = case term of
       localAbs x $ localAbsEnv (x, v) retHCxt
 
     Bind (App (Def "eval") [Var _]) (LAltConstantNode tag [x] (Case (Var 0) t alts)) | tag == natTag ->
-        localAbs x $
-        localAbsEnv (x, Bas) $ do
-          hs <- mapM deriveEquationsAlt alts
-          h <- deriveEquations t
-          pure $ foldl (<>) h hs
+      localAbs x $
+      localAbsEnv (x, Bas) $ do
+        hs <- mapM deriveEquationsAlt alts
+        h <- deriveEquations t
+        pure $ foldl (<>) h hs
       where
         deriveEquationsAlt (CAltLit _ t)      = deriveEquations t
         deriveEquationsAlt _ = __IMPOSSIBLE__
-
-    Bind (App (Def "eval") [Var n]) (LAltVar x t) -> do
-      v <- EVAL . FETCH . Abs . fromMaybe __IMPOSSIBLE__ <$> deBruijnLookup n
-      localAbs x $
-        localAbsEnv (x, v) $
-        deriveEquations t
 
     Bind (App (Def "eval") [Var _]) (LAltConstantNode tag [x] t) | tag == natTag ->
       localAbs x $
@@ -460,8 +464,6 @@ deriveEquations term = case term of
         valToValue (Var n) = Abs . fromMaybe __IMPOSSIBLE__ <$> deBruijnLookup n
         valToValue (Lit _) = pure Bas
         valToValue  _      = __IMPOSSIBLE__
-
-
 
     App (Def defName) vs -> do
         name <- asks $ gr_name. currentDef 
@@ -539,7 +541,7 @@ instance Pretty AbstractContext where
     vcat
       [ text "Abstract Heap:"
       , pretty fHeap
-      , text "Abstract Enviroment:"
+      , text "\nAbstract Enviroment:"
       , pretty fEnv
       ]
 
@@ -635,8 +637,8 @@ gatherEntriesBy1 f xs ys =
       List1.groupAllWith1 fst $ xs <> ys
 
 simplify :: [GrinDefinition] -> AbstractContext -> Value -> Value
-simplify defs AbstractContext{fHeap, fEnv} = go where
-
+simplify defs cxt@AbstractContext{fHeap, fEnv} = go 
+  where
   envLookup :: Abs -> Maybe Value
   envLookup abs = lookup abs $ unAbsEnv fEnv
 
@@ -677,10 +679,11 @@ simplify defs AbstractContext{fHeap, fEnv} = go where
     | otherwise = on mkUnion go v1 v2
 
     where
-      isSelfReference v1
-        | Abs abs <- v1
-        , Just v2 <- envLookup abs = v2 == Union v1 v2
-        | otherwise = False
+      isSelfReference (Pick v _ _) = isSelfReference v
+      isSelfReference (EVAL v) = isSelfReference v
+      isSelfReference (FETCH v) = isSelfReference v
+      isSelfReference (Abs (envLookup -> Just v)) = v == Union v1 v2
+      isSelfReference _ = False
 
   go (Pick v1 tag1 i)
     | VNode tag2 vs <- v1

@@ -4,7 +4,7 @@
 
 module Agda.Llvm.GrinInterpreter (module Agda.Llvm.GrinInterpreter) where
 
-import           Control.Monad             (ap, (>=>))
+import           Control.Monad             (ap, (>=>), when)
 import           Control.Monad.Reader      (MonadIO (liftIO), MonadReader,
                                             ReaderT (runReaderT), local)
 import           Control.Monad.State       (StateT (runStateT), evalStateT,
@@ -103,7 +103,7 @@ printInterpretGrin defs = do
   liftIO $ putStrLn $ render $ vcat
     [ text "Result:" <+> pretty val
     , text "Allocations" <+> vcat (allocationCounts ++ [text "Total:" <+> pretty allocations])
-    , text "In use at exit:" <+> pretty env.heap ]
+    {- , text "In use at exit:" <+> pretty env.heap -} ]
 
 
 interpretGrin :: forall mf. MonadFresh Int mf => [GrinDefinition] -> mf (Value, Env)
@@ -194,35 +194,6 @@ interpretGrin defs =
       -- traceHeap (text "free" <+> pretty loc)
       pure VEmpty
 
-    eval (Drop n) = do
-      (x, v) <- fromMaybe __IMPOSSIBLE__ <$> runMaybeT (stackFrameLookup' n)
-      sf <- view lensStackFrame
-
-      let loc = case v of
-            Loc loc -> loc
-            _ -> error $ render $ vcat
-              [ text "DROP" <+> pretty (Drop n)
-              , pretty x
-              , text "SF:"
-              , pretty sf]
-      trace' (render $ text "drop" <+> pretty x <+> text "→" <+> pretty loc <+> text "\n") pure ()
-      let sf = StackFrame [(head def.gr_args, v)]
-      local (sf :) (eval def.gr_term)
-      where
-      def = fromMaybe __IMPOSSIBLE__  (find (("drop" ==) . gr_name) defs)
-
-
-    eval (Dup n) = do
-      (x, v) <- fromMaybe __IMPOSSIBLE__ <$> runMaybeT (stackFrameLookup' n)
-      let loc = case v of
-            Loc loc -> loc
-            _       -> __IMPOSSIBLE__
-      trace' (render $ text "dup" <+> pretty x <+> text "→" <+> pretty loc <+> text "\n") pure ()
-      let sf = StackFrame [(head def.gr_args, v)]
-      local (sf :) (eval def.gr_term)
-      where
-      def = fromMaybe __IMPOSSIBLE__  (find (("dup" ==) . gr_name) defs)
-
     eval (App (Def name) vs) = do
       vs' <- mapM evalVal vs
       let sf = StackFrame (reverse $ zip def.gr_args vs')
@@ -238,6 +209,9 @@ interpretGrin defs =
             BasNat _   -> id
             VTag _     -> id
             _          -> __IMPOSSIBLE__
+
+      when (t == unreachable) $ error $ "unreachable selected for value " ++ prettyShow v ++ " in\n" ++ prettyShow (Case v def alts)
+
       f (eval t)
 
       where
@@ -248,6 +222,7 @@ interpretGrin defs =
       selAlt :: Value -> [CAlt] -> Term -> ([Abs], Term)
       selAlt (vTagView -> Just tag1) alts t =
         case matching of
+          [] | t == unreachable -> error $ "Couln't match tag " ++ prettyShow tag1
           []    -> ([], t)
           [alt] -> alt
           _     -> __IMPOSSIBLE__
@@ -259,7 +234,8 @@ interpretGrin defs =
 
       selAlt (BasNat n1) alts t =
         case matching of
-          []  -> ([], t)
+          [] | t == unreachable -> error $ "Couln't match lit " ++ prettyShow n1
+          [] -> ([], t)
           [t] -> ([], t)
           _   -> __IMPOSSIBLE__
         where

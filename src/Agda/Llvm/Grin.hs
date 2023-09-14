@@ -322,7 +322,7 @@ instance Subst LAlt where
 
 applySubstLAlt :: Substitution' (SubstArg LAlt) -> LAlt -> LAlt
 applySubstLAlt IdS alt            = alt
-applySubstLAlt rho (LAltVar abs t) = LAltVar abs $ applySubst (liftS 1 rho) t
+applySubstLAlt rho (LAltVar x t) = LAltVar x $ applySubst (liftS 1 rho) t
 applySubstLAlt rho (LAltConstantNode tag xs t) =
   LAltConstantNode tag xs $ applySubst (liftS (length xs) rho) t
 applySubstLAlt rho (LAltVariableNode x xs t) =
@@ -367,9 +367,11 @@ applySubstVal _   (Prim prim)           = Prim prim
 
 instance Pretty GrinDefinition where
   pretty GrinDefinition{..} = vcat
-    [ pretty gr_name <+> sep (map pretty gr_args) <+> text "="
+    [ pretty gr_name <+> s <+> sep (map pretty gr_args) <+> text "="
     , nest 2 $ pretty gr_term
     ]
+    where 
+    s = maybe (text "") ((text "ret_" <>) . pretty) gr_return
 
 
 instance Pretty Term where
@@ -401,9 +403,9 @@ instance Pretty Term where
         | VariableNode{} <- v = text "unit" <+> parens (pretty v)
         | otherwise   = text "unit" <+> pretty v
 
-  pretty (Store _ v)
-    | Var _ <- v = text "store" <+> pretty v
-    | otherwise  = text "store" <+> parens (pretty v)
+  pretty (Store l v)
+    | Var _ <- v = text "store" <+> pretty l <+> pretty v
+    | otherwise  = text "store" <+> pretty l <+> parens (pretty v)
   pretty (App v vs) = sep $ pretty v : map pretty vs
   pretty (Case n t alts) =
     vcat

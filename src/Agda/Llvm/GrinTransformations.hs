@@ -197,7 +197,7 @@ inlineEval defs absCxt tagInfo =
         bindVarR' t1 t2 = Bind t1 . LAltVar x1 <$> t2
         bindVarL' t1 t2 = t1 <&> (`Bind` LAltVar x2 t2)
         eval =
-          FetchOpaque n                       `bindVarR'`
+          FetchOpaque n                     `bindVarR'`
           Case (Var 0) unreachable <$> alts `bindVarL'`
           Update Nothing (n + 2) (Var 0)    `BindEmpty`
           Unit (Var 0)
@@ -262,7 +262,7 @@ leftUnitLaw :: Term -> Term
 -- 〈t 〉
 -- >>>
 -- 〈t 〉[n / m]
-leftUnitLaw (Unit (Var n) `Bind` LAltVar _ t) = strengthen impossible (subst 0 (Var $ succ n) t)
+leftUnitLaw (Unit (Var n) `Bind` LAltVar _ t) = strengthen impossible (applySubst (inplaceS 0 $ Var $ succ n) t)
 -- unit (tag v₁ v₂) ; λ tag x₁ x₂ →
 -- 〈t 〉
 -- >>>
@@ -327,9 +327,9 @@ specializeUpdate _absCxt def = do
     where
     alts' =
       for alts $ \case
-        CAltConstantNode tag xs t ->
-          let update = raise (length xs) $ mkUpdate tag in
-          CAltConstantNode tag xs $ update `BindEmpty` t
+        CAltConstantNode tag xs t -> CAltConstantNode tag xs $ update `BindEmpty` t
+          where update = raise (length xs) $ mkUpdate tag 
+        CAltTag tag t -> CAltTag tag $ mkUpdate tag `BindEmpty` t
         _ -> __IMPOSSIBLE__
 
   -- update n₁ n₂ ; λ () →
@@ -346,24 +346,26 @@ specializeUpdate _absCxt def = do
         Update (Just tag) n1 (Var n2) `BindEmpty`
         Unit (Var n2') `Bind` LAltConstantNode tag xs t'
 
+  go (Update Nothing n1 (ConstantNode tag vs)) = pure $ Update (Just tag) n1 (ConstantNode tag vs)
+
+
   -- Returning eval/update [Boquist 1999, p. 95]
-  go (Fetch' mtag n1 moffset `Bind` LAltVar x1
-     (Case v1 t _                  `Bind` LAltVar x2
-     (Update Nothing n2 v2         `BindEmpty`
-      Unit v2')))
+  go (Fetch' mtag n1 moffset `Bind` LAltVariableNode x1 xs1
+     (Case v1 t _            `Bind` LAltVariableNode x2 xs2
+     (Update Nothing n2 v2   `BindEmpty`
+     (Unit v2' ))))
     | v2' == v2 = do
     x <- asks $ fromMaybe __IMPOSSIBLE__ . (!!! n1) . vars
     tags <- maybe __IMPOSSIBLE__ toList <$> runMaybeT (fetchTagSet =<< fetchLocations x)
-    alts <- mapM (caltConstantNode <*> genBody) tags
+    let alts = map (CAltTag <*> genBody) tags
     -- Rerun the transformation so it matches the case pattern
-    go (Fetch' mtag n1 moffset `Bind` LAltVar x1
-       (Case v1 t alts         `Bind` LAltVar x2
+    go (Fetch' mtag n1 moffset `Bind` LAltVariableNode x1 xs1
+       (Case v1 t alts         `Bind` LAltVariableNode x2 xs2
        (Update Nothing n2 v2   `BindEmpty`
         Case v2 unreachable alts)))
-
     where
       genBody FTag{tDef, tArity} = App (Def tDef) $ map Var $ downFrom tArity
-      genBody tag@CTag{tArity = map Var . downFrom . succ -> vs} = Unit (ConstantNode tag vs)
+      genBody tag@CTag{tArity = map Var . downFrom -> vs} = Unit (ConstantNode tag vs)
       genBody _ = __IMPOSSIBLE__
 
       fetchTagSet :: List1 Loc -> MaybeT (ReaderT UpdateCxt mf) (Set Tag)
@@ -393,8 +395,9 @@ specializeUpdate _absCxt def = do
     alts' <- mapM (\(splitCaltWithVars -> (mkAlt, t, xs)) -> mkAlt <$> varLocals xs (go t)) alts
     t' <- go t
     pure (Case n t' alts')
+  -- TODO hmm
   go (Update mtag n1 n2)
-    | Nothing <- mtag = __IMPOSSIBLE__
+    | Nothing <- mtag = error $ "UPDATE SPECIALIZATION FAILED: " ++ prettyShow (Update mtag n1 n2)
     | otherwise = pure (Update mtag n1 n2)
   go t = pure t
 
@@ -427,8 +430,13 @@ caseUpdateView (Update Nothing n t1 `BindEmpty` t) = go IdS id t where
                  _     -> __IMPOSSIBLE__ in
       Just (\tag -> Update (Just tag) n' t1', m , Case t2 t3 alts)
     | otherwise = Nothing
-  go rho m (Bind t alt) = goLalt rho (m . Bind t) alt
+  go rho m (Bind t1 (splitLaltWithVars -> (mkAlt, t2, xs))) = go rho' (m . Bind t1 . mkAlt) t2
+    where
+    rho' = raiseS (length xs) `composeS` rho
   go _ _ _ = Nothing
+
+
+
 
   -- TODO use splitLaltWithVars
   goLalt :: Substitution' Val
@@ -583,7 +591,7 @@ hoistFetch n x1 x2 t offset =
     go xs (Case (Var n) t alts `Bind` alt)
       | x1 `elem` (toList xs !!! n) = do
         let v = strengthen impossible $ Var n
-        (Case v t <$> updateAlts xs alts) <&> (`Bind` strengthen impossible alt)
+        (Case v t <$> updateAlts xs alts) <&> (`Bind` strengthen (error $ "Cannot strengthen alt:\n" ++ prettyShow alt) alt)
 
     go (x1 :| xs) (t1 `Bind` LAltVar x2 t2) = do
       -- Swap indices 0 and 1
