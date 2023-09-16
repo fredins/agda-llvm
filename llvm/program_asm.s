@@ -377,7 +377,7 @@ main:                                   # @main
 	mov	rbx, rax
 	movaps	xmm0, xmmword ptr [rip + .LCPI4_1] # xmm0 = [1,0]
 	movups	xmmword ptr [rax], xmm0
-	mov	qword ptr [rax + 16], 74000
+	mov	qword ptr [rax + 16], 10
 	mov	edi, 32
 	call	malloc@PLT
 	movaps	xmm0, xmmword ptr [rip + .LCPI4_2] # xmm0 = [1,5]

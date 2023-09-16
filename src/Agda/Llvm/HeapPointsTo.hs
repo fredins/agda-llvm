@@ -444,7 +444,7 @@ deriveEquations term = case term of
         h <- deriveEquations t
         pure $ foldl (<>) h hs
       where
-        deriveEquationsAlt (CAltLit _ t)      = deriveEquations t
+        deriveEquationsAlt (CAltLit _ t)  = deriveEquations t
         deriveEquationsAlt _ = __IMPOSSIBLE__
 
     Bind (App (Def "eval") [Var _]) (LAltConstantNode tag [x] t) | tag == natTag ->
@@ -471,7 +471,8 @@ deriveEquations term = case term of
         callee <- asks $ fromMaybe (error $ "can't find " ++ defName) . find ((defName==) . gr_name) . defs
         let callee_return = fromMaybe __IMPOSSIBLE__ callee.gr_return
         vs' <- mapM valToValue vs
-        localAbssEnv ((callee_return, Abs caller_return) : zip callee.gr_args vs') retHCxt
+        -- TODO this is correct now but it causes non-termination when solving the equations
+        localAbssEnv ((caller_return, Abs callee_return) : zip callee.gr_args vs') retHCxt
       where
         valToValue :: MonadReader HCxt m => Val -> m Value
         valToValue (Var n) = Abs . fromMaybe __IMPOSSIBLE__ <$> deBruijnLookup n
@@ -554,19 +555,22 @@ instance Semigroup AbstractContext where
 instance Monoid AbstractContext where
   mempty = AbstractContext{fHeap = AbsHeap [], fEnv = AbsEnv []}
 
+
 solveEquations :: [GrinDefinition] -> AbstractContext -> AbstractContext
 solveEquations defs AbstractContext{fHeap = AbsHeap heapEqs, fEnv = AbsEnv envEqs} =
     fix initAbstractContext
   where
     initAbstractContext :: AbstractContext
-    initAbstractContext =
-      let env =
-            AbsEnv $ for (mapMaybe gr_return defs) $ \abs ->
-              (abs, fromMaybe __IMPOSSIBLE__ $ envEqsLookup abs) in
-      mempty{fEnv = env }
+    initAbstractContext = mempty{fEnv = AbsEnv $ map step $ mapMaybe gr_return defs}
+      where
+      step abs = (abs, fromMaybe __IMPOSSIBLE__ $ envEqsLookup abs)
 
     envEqsLookup :: Abs -> Maybe Value
     envEqsLookup abs = lookup abs envEqs
+
+    -- trace'' s x = unsafePerformIO $ do
+    --   putStrLn s
+    --   pure x
 
     fix :: AbstractContext -> AbstractContext
     fix cxt
@@ -580,7 +584,7 @@ solveEquations defs AbstractContext{fHeap = AbsHeap heapEqs, fEnv = AbsEnv envEq
         fixCurrent :: AbstractContext -> AbstractContext
         fixCurrent cxt
           | cxt == cxt' = cxt'
-          | otherwise = fixCurrent cxt'
+          | otherwise = fixCurrent {- $ trace'' ("\n" ++ prettyShow cxt') -} cxt'
           where
             -- Simplify and update each entry in abstract heap and enviroment
             cxt' =
@@ -631,11 +635,6 @@ solveEquations defs AbstractContext{fHeap = AbsHeap heapEqs, fEnv = AbsEnv envEq
     collectEqs cxt (Pick v _ _) = collectEqs cxt v
     collectEqs _ Bas = Nothing
 
-gatherEntriesBy1 :: Ord a => (b -> b -> b) -> List1 (a, b) -> List1 (a, b) -> List1 (a, b)
-gatherEntriesBy1 f xs ys =
-    List1.map (foldr1 (\(a, b1) (_, b2) -> (a, f b1 b2))) $
-      List1.groupAllWith1 fst $ xs <> ys
-
 simplify :: [GrinDefinition] -> AbstractContext -> Value -> Value
 simplify defs cxt@AbstractContext{fHeap, fEnv} = go 
   where
@@ -656,32 +655,31 @@ simplify defs cxt@AbstractContext{fHeap, fEnv} = go
 
   -- Replace with pointee
   go (Abs abs) = fromMaybe __IMPOSSIBLE__ $ envLookup abs
-
   go (Union v1 v2)
     -- Filter duplicates
-    | v1 == v2 = v1
+    | v <- listToValue $ List1.nub $ valueToList (Union v1 v2)
+    , v /= Union v1 v2 = v
 
     -- Filter self references
-    | (_:_:_, _) <- partition isSelfReference [v1, v2] = __IMPOSSIBLE__
-    | (_:_, v3:v3s) <- partition isSelfReference [v1, v2] = listToValue (v3 :| v3s)
+    | (_:_, v3 : vs3) <- List1.partition isSelfReference $ valueToList (Union v1 v2) = listToValue (v3 :| vs3)
 
     -- Gather node values of same tag
     -- {... tag [v₁,...,vᵢ,...],...} ∪ {... tag [w₁,...,wᵢ,...],...} =
     -- {... tag [v₁ ∪ w₁,...,vᵢ ∪ wᵢ,...],...}
-    | (n1:n1s, v1s) <- mapMaybeAndRest vnodeView $ List1.toList $ valueToList v1
-    , (n2:n2s, v2s) <- mapMaybeAndRest vnodeView $ List1.toList $ valueToList v2
-    , _:_ <- intersectBy (on (==) fst) (n1 : n1s) (n2 : n2s) =
-      let nodes = gatherEntriesBy1 (zipWith mkUnion) (n1 :| n1s) (n2 :| n2s)
-          nodes' = List1.map (uncurry VNode) nodes in
-      listToValue $ v1s `List1.prependList` nodes' `List1.appendList` v2s
+    | (node : nodes, vs1) <- mapMaybeAndRest vnodeView $ List1.toList $ valueToList (Union v1 v2)
+    , nodes' <- List1.groupAllWith1 fst (node :| nodes)
+    , any ((> 1) . length) nodes' =
+      let vs2 = List1.map (uncurry VNode . foldr1 step) nodes'
+          step (tag, vs1) (_, vs2) = (tag, zipWith mkUnion vs1 vs2) in
+      listToValue $ vs1 `List1.prependList` vs2
 
     -- Recurse
     | otherwise = on mkUnion go v1 v2
 
     where
-      isSelfReference (Pick v _ _) = isSelfReference v
-      isSelfReference (EVAL v) = isSelfReference v
-      isSelfReference (FETCH v) = isSelfReference v
+      -- isSelfReference (Pick v _ _) = isSelfReference v
+      -- isSelfReference (EVAL v) = isSelfReference v
+      -- isSelfReference (FETCH v) = isSelfReference v
       isSelfReference (Abs (envLookup -> Just v)) = v == Union v1 v2
       isSelfReference _ = False
 
@@ -689,12 +687,6 @@ simplify defs cxt@AbstractContext{fHeap, fEnv} = go
     | VNode tag2 vs <- v1
     , tag1 == tag2 = fromMaybe __IMPOSSIBLE__ $ vs !!! i
     | VNode{} <- v1 = __IMPOSSIBLE__
-
-    -- Recurse
-    | EVAL{} <- v1 = Pick (go v1) tag1 i
-    | FETCH{} <- v1 = Pick (go v1) tag1 i
-    | Pick{} <- v1 = Pick (go v1) tag1 i
-    | Abs{} <- v1 = Pick (go v1) tag1 i
 
     -- Filter everything which is confirmed wrong
     | Union{} <- v1
@@ -712,6 +704,12 @@ simplify defs cxt@AbstractContext{fHeap, fEnv} = go
     -- Recurse (do not distribute!)
     -- {..., tag[v₁,...,vᵢ,...],...} ↓ tag ↓ i =  vᵢ
     | Union v2 v3 <- v1 = Pick (on mkUnion go v2 v3) tag1 i
+
+    -- Recurse
+    | EVAL{} <- v1 = Pick (go v1) tag1 i
+    | FETCH{} <- v1 = Pick (go v1) tag1 i
+    | Pick{} <- v1 = Pick (go v1) tag1 i
+    | Abs{} <- v1 = Pick (go v1) tag1 i
 
     | Bas <- v1 = __IMPOSSIBLE__
     | Loc{} <- v1 = __IMPOSSIBLE__
@@ -741,14 +739,14 @@ simplify defs cxt@AbstractContext{fHeap, fEnv} = go
         (listToValue v3s)
         (\v2 v2s -> listToValue v3s `mkUnion` FETCH (listToValue $ v2 :| v2s))
 
-    -- Distribute FETCH
-    | Union v2 v3 <- v1 = on mkUnion FETCH v2 v3
-
     -- Recurse
     | EVAL{} <- v1 = FETCH $ go v1
     | FETCH{} <- v1 = FETCH $ go v1
     | Pick{} <- v1 = FETCH $ go v1
     | Abs{} <- v1 = FETCH $ go v1
+
+    -- Distribute FETCH
+    | Union v2 v3 <- v1 = on mkUnion FETCH v2 v3
 
     | Bas <- v1 = __IMPOSSIBLE__
     | VNode{} <- v1 = __IMPOSSIBLE__
@@ -761,11 +759,11 @@ simplify defs cxt@AbstractContext{fHeap, fEnv} = go
   go (EVAL v1)
     | VNode CTag{} _ <- v1 = v1
 
-    -- Solve with return variable for known functions, and Cnat for primitives
+    -- Solve function tags by substituting their return varaible.
     | VNode FTag{tDef} _ <- v1 =
-      maybe cnat Abs $ defReturnLookup tDef
+      maybe __IMPOSSIBLE__ Abs $ defReturnLookup tDef
     | VNode PTag{tDef} _ <- v1 =
-      maybe cnat Abs $ defReturnLookup tDef
+      maybe __IMPOSSIBLE__ Abs $ defReturnLookup tDef
 
     -- Solve C nodes
     | Union{} <- v1
@@ -777,13 +775,10 @@ simplify defs cxt@AbstractContext{fHeap, fEnv} = go
     -- Solve F and P nodes
     | Union{} <- v1
     , (v2 : v2s, v3s) <- mapMaybeAndRest hasDefName $ List1.toList $ valueToList v1 =
-      let v2s' = List1.map (maybe cnat Abs . defReturnLookup) (v2 :| v2s) in
+      let v2s' = List1.map (maybe __IMPOSSIBLE__ Abs . defReturnLookup) (v2 :| v2s) in
       caseList v3s
         (listToValue v2s')
         (\v3 v3s -> listToValue v2s' `mkUnion` EVAL (listToValue $ v3 :| v3s))
-
-    -- Distribute
-    | Union v2 v3 <- v1 = on mkUnion EVAL v2 v3
 
     -- Recurse
     | EVAL{} <- v1 = EVAL $ go v1
@@ -791,6 +786,8 @@ simplify defs cxt@AbstractContext{fHeap, fEnv} = go
     | Pick{} <- v1 = EVAL $ go v1
     | Abs{} <- v1 = EVAL $ go v1
 
+    -- Distribute
+    | Union v2 v3 <- v1 = on mkUnion EVAL v2 v3
 
     | Bas <- v1 = __IMPOSSIBLE__
     | Loc{} <- v1 = __IMPOSSIBLE__
@@ -825,7 +822,4 @@ valueToList (Union a b) = on (<>) valueToList a b
 valueToList a           = a :| []
 
 listToValue :: List1 Value -> Value
-listToValue = foldr1 mkUnion
-
-cnat :: Value
-cnat = VNode natTag [Bas]
+listToValue = foldr1 mkUnion 

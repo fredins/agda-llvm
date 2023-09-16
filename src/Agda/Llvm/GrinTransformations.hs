@@ -435,19 +435,6 @@ caseUpdateView (Update Nothing n t1 `BindEmpty` t) = go IdS id t where
     rho' = raiseS (length xs) `composeS` rho
   go _ _ _ = Nothing
 
-
-
-
-  -- TODO use splitLaltWithVars
-  goLalt :: Substitution' Val
-        -> (LAlt -> Term)
-        -> LAlt
-        -> Maybe (Tag -> Term, Term -> Term, Term)
-  goLalt rho m (LAltVar abs t) = go (raiseS 1 `composeS` rho) (m . LAltVar abs) t
-  goLalt rho m (LAltConstantNode tag xs t) =
-    go (raiseS tag.tArity `composeS` rho) (m . LAltConstantNode tag xs) t
-  goLalt rho m (LAltEmpty t) = go rho (m . LAltEmpty) t
-
 caseUpdateView _ = Nothing
 
 
@@ -663,6 +650,17 @@ hoistFetch n x1 x2 t offset =
           _                 -> False
 
         isX2 xs n = caseMaybe (toList xs !!! n) False (== x2)
+
+evaluateCase :: Term -> Term
+evaluateCase (Case (Tag tag1) _ alts) = evaluateCase $ headWithDefault __IMPOSSIBLE__ (mapMaybe step alts)
+  where
+  step (CAltTag tag2 t) = boolToMaybe (tag2 == tag1) t
+  step _ = Nothing
+evaluateCase (Case v t alts) = Case v (evaluateCase t) (map step alts)
+  where
+  step (splitCalt -> (mkAlt, t)) = mkAlt (evaluateCase t)
+evaluateCase (t1 `Bind` (splitLalt -> (mkAlt, t2))) = evaluateCase t1 `Bind` mkAlt (evaluateCase t2)
+evaluateCase t = t
 
 -- | Introduce registers for all operands. A precondition
 --   the (unimplemented) common sub-expression elimination.

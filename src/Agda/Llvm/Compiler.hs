@@ -288,7 +288,7 @@ llvmPostCompile _ _ mods = do
     putStrLn "------------------------------------------------------------------------\n"
     putStrLn $ intercalate "\n\n" $ map prettyShow defs_splitFetch
 
-  -- printInterpretGrin defs_splitFetch
+  --printInterpretGrin defs_splitFetch
 
   let defs_leftUnitLaw = map (updateGrTerm leftUnitLaw) defs_splitFetch
   liftIO $ do
@@ -307,18 +307,27 @@ llvmPostCompile _ _ mods = do
     putStrLn $ intercalate "\n\n" $ map prettyShow defs_rightHoistFetch
 
   -- printInterpretGrin defs_rightHoistFetch
+  
+  let defs_evaluateCase = map (updateGrTerm evaluateCase) defs_rightHoistFetch
+  liftIO $ do
+    putStrLn "\n------------------------------------------------------------------------"
+    putStrLn "-- * Evaluate case"
+    putStrLn "------------------------------------------------------------------------\n"
+    putStrLn $ intercalate "\n\n" $ map prettyShow defs_evaluateCase
 
+  -- printInterpretGrin defs_evaluateCase
+
+  -- liftIO $ removeFile "trace.log"
   def_dup <- mkDup
   def_drop <- mkDrop defs_rightHoistFetch
-  defs_perceus <- (++ [def_drop, def_dup]) . map (updateGrTerm normalise) <$> mapM perceus defs_rightHoistFetch
+  defs_perceus <- (++ [def_drop, def_dup]) . map (updateGrTerm normalise) <$> mapM perceus defs_evaluateCase
   liftIO $ do
     putStrLn "\n------------------------------------------------------------------------"
     putStrLn "-- * Perceus"
     putStrLn "------------------------------------------------------------------------\n"
     putStrLn $ intercalate "\n\n" (map prettyShow defs_perceus) ++ "\n"
 
-  -- liftIO $ removeFile "trace.log"
-  -- printInterpretGrin defs_perceus
+  --printInterpretGrin defs_perceus
 
   -- Not used
   --
@@ -377,6 +386,7 @@ llvmPostCompile _ _ mods = do
       defs = intercalate "\n\n" (map prettyShow llvm_ir)
       program = intercalate "\n\n" [header, tags_table, defs]
 
+  
   liftIO $ do
     let file = "llvm" </> "program.ll"
     putStrLn $ "Writing file " ++ file
@@ -822,7 +832,10 @@ termToLlvm (App (Def "free") [Var n]) = do
 termToLlvm (App (Def (L.mkGlobalId -> f)) vs) = do
   (argsTy, returnTy) <- fromMaybe __IMPOSSIBLE__ <$> globalLookup f
   (instructions1, vs') <- first concat . unzip <$> mapM valToLlvm vs
-  tail <- asks $ flip boolToMaybe L.Musttail . cg_returning -- FIXME llc is unable to garantee tail call with musttail
+  -- If the tail call contains are passed references to new alllocations made in 
+  -- the current function then Clang is unable to tail call optimize. So, currently 
+  -- we only uses the tailcall hint `tail` instead of the garantee `musttail`.
+  tail <- asks $ flip boolToMaybe L.Tail . cg_returning 
   let instruction_call = L.Call tail L.Fastcc returnTy f (zip argsTy vs')
   instructions2 <- ($ instruction_call) =<< view continuationLens
   pure (instructions1 `List1.prependList` instructions2)

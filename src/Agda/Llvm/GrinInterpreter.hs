@@ -103,7 +103,7 @@ printInterpretGrin defs = do
   liftIO $ putStrLn $ render $ vcat
     [ text "Result:" <+> pretty val
     , text "Allocations" <+> vcat (allocationCounts ++ [text "Total:" <+> pretty allocations])
-    {- , text "In use at exit:" <+> pretty env.heap -} ]
+    , text "In use at exit:" <+> pretty env.heap ]
 
 
 interpretGrin :: forall mf. MonadFresh Int mf => [GrinDefinition] -> mf (Value, Env)
@@ -141,7 +141,15 @@ interpretGrin defs =
         | 2 <= i && i <= 3 = Undefined
       sel _ _ = __IMPOSSIBLE__
 
-      heapLookupLoc n =
+      
+      heapLookupLoc n = do
+        sf <- StackFrame <$> view lensStackFrame
+        heap <- Heap <$> use lensHeap
+        loc <- fromMaybe (error $ "CAN'T FIND LOC AT " ++ show n ++ " IN STACKFRAME: " ++ prettyShow sf) <$> runMaybeT (stackFrameLookupLoc n)
+        fromMaybe (error $ "NO HEAPNODE AT " ++ prettyShow loc ++ " IN:" ++ prettyShow heap) . Map.lookup loc <$> use lensHeap
+
+
+      heapLookupLoc' n =
         fromMaybeM __IMPOSSIBLE__ . runMaybeT $ do
           loc <- stackFrameLookupLoc n
           MaybeT (Map.lookup loc <$> use lensHeap)
@@ -210,8 +218,6 @@ interpretGrin defs =
             VTag _     -> id
             _          -> __IMPOSSIBLE__
 
-      when (t == unreachable) $ error $ "unreachable selected for value " ++ prettyShow v ++ " in\n" ++ prettyShow (Case v def alts)
-
       f (eval t)
 
       where
@@ -222,7 +228,7 @@ interpretGrin defs =
       selAlt :: Value -> [CAlt] -> Term -> ([Abs], Term)
       selAlt (vTagView -> Just tag1) alts t =
         case matching of
-          [] | t == unreachable -> error $ "Couln't match tag " ++ prettyShow tag1
+          [] | t == unreachable -> error $ "Couln't match tag " ++ prettyShow tag1 ++ " in\n" ++ render (nest 4 (pretty (Case v def alts)))
           []    -> ([], t)
           [alt] -> alt
           _     -> __IMPOSSIBLE__
@@ -245,13 +251,14 @@ interpretGrin defs =
       selAlt _ _ _ = __IMPOSSIBLE__
 
     eval (UpdateOffset n 0 v) = do
-      v <- evalVal v
-      let i = case v of
+      v' <- evalVal v
+      let i = case v' of
                BasNat i -> i
                _        -> __IMPOSSIBLE__
-      loc <- fromMaybe __IMPOSSIBLE__ <$> runMaybeT (stackFrameLookupLoc n)
+      sf <- StackFrame <$> view lensStackFrame
+      loc <- fromMaybe (error $ "CANNOT FIND LOC AT " ++ show n ++ " IN STACKFRAME:" ++ prettyShow sf) <$> runMaybeT (stackFrameLookupLoc n)
       lensHeap %= updateRc loc i
-      -- traceHeap (text "updateOffset" <+> pretty loc <+> pretty v_node <+> text "→" <+> pretty v_node')
+      -- traceHeap (text "updateOffset" <+> pretty loc <+> pretty v')
       pure VEmpty
       where
       updateRc loc i = Map.update (\(HeapNode _ tag vs) -> Just $ HeapNode i tag vs) loc

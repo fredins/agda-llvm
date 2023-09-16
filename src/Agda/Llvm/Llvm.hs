@@ -173,7 +173,10 @@ alloca = Alloca nodeTySyn
 phi :: Type -> List1 (LocalId, LocalId) -> Instruction
 phi t = Phi t . List1.map (first LocalId)
 
-data CallingConvention = Tailcc | Fastcc deriving Show
+data CallingConvention = Tailcc 
+                       | Fastcc 
+                       | Cc10 
+                         deriving Show
 
 -----------------------------------------------------------------------
 -- * Pretty printing instances
@@ -252,6 +255,7 @@ instance Pretty CallingConvention where
   pretty = \case
     Tailcc -> text "tailcc"
     Fastcc -> text "fastcc" 
+    Cc10   -> text "cc 10" 
 
 instance Pretty Type where
   pretty = \case

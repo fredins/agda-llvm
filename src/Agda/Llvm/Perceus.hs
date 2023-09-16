@@ -46,9 +46,10 @@ data Context = Context
 
 data PerceusCxt = PerceusCxt
   { pc_vars             :: [Abs]
-  , pc_pointers         :: Set Abs
-  , pc_returning        :: Bool -- ^ Variables which are pointers
+  , pc_pointers         :: Set Abs -- ^ Variables which are pointers
+  , pc_returning        :: Bool 
   , pc_tagDependentVars :: Map Abs [Abs]
+  , pc_bottoms          :: Set Abs
   }
 
 initPerceusCxt :: GrinDefinition -> PerceusCxt
@@ -57,6 +58,7 @@ initPerceusCxt def = PerceusCxt
   , pc_pointers = Set.fromList def.gr_args <> gatherPointers def.gr_term
   , pc_returning = True
   , pc_tagDependentVars = mempty
+  , pc_bottoms = mempty
   }
 
 varsLocal :: MonadReader PerceusCxt m => [Abs] -> m a -> m a
@@ -70,6 +72,9 @@ deBruijnOf x = genericElemIndex x . reverse
 
 isPointer :: Abs -> Perceus Bool
 isPointer x = asks $ Set.member x . pc_pointers
+
+bottomsLocal :: MonadReader PerceusCxt m => Set Abs -> m a -> m a
+bottomsLocal xs = local $ \cxt -> cxt{pc_bottoms = xs <> cxt.pc_bottoms}
 
 tagDependentVarsLookup :: Abs -> Perceus [Abs]
 tagDependentVarsLookup x = asks $ fromMaybe [] . Map.lookup x . pc_tagDependentVars
@@ -169,8 +174,8 @@ perceusTerm c term@(t1 `Bind` alt) = do
 
   let tagDependentVarsLocal = case alt of
         LAltVariableNode x xs _ ->
-          let xs'' = filter (`Set.member` xs') xs in
           local $ \cxt -> cxt{pc_tagDependentVars =  Map.insert x xs'' cxt.pc_tagDependentVars}
+          where xs'' = filter (`Set.member` xs') xs 
         _ -> id
 
   -- Γ₂ = Γ ∩ fv(t₂)
@@ -227,26 +232,35 @@ perceusTerm c (Case (Var n) t alts) = do
   x <- fromMaybe __IMPOSSIBLE__  <$> deBruijnLookup n
   xs <- tagDependentVarsLookup x
 
-  t' <- if t == unreachable then pure t else stepBody (Set.fromList xs) t
+  t' <- if t == unreachable then pure t else bottomsLocal (Set.fromList xs) (stepBody t)
   alts' <- mapM (stepAlt xs) alts
 
   pure (Case (Var n) t' alts')
+
   where
-  stepAlt xs (CAltTag tag t) = CAltTag tag <$> stepBody bottoms t
+  stepAlt xs (CAltTag tag t) = do 
+    logIO $ render $ vcat 
+      [ text "tag" <+> pretty tag
+      , text "bottoms:" <+> pretty bottoms
+      , text "xs:" <+> pretty xs
+      , text "CASE:"
+      , nest 4 (pretty (Case (Var n) t alts)) ]
+
+    CAltTag tag <$> bottomsLocal bottoms (stepBody t)
     where
     bottoms = Set.fromList (xs \\ take (tagArity tag) xs)
-  stepAlt xs (CAltLit lit t) = CAltLit lit <$> stepBody (Set.fromList xs) t
+  stepAlt xs (CAltLit lit t) = CAltLit lit <$> bottomsLocal (Set.fromList xs) (stepBody t)
   stepAlt _ _ = __IMPOSSIBLE__
 
 
   -- Δ | Γᵢ ⊢ tᵢ ⟿  drop Γᵢ′ ; tᵢ′
-  stepBody bottoms t = do
+  stepBody t = do
       -- Γᵢ = (Γ - {⊥}∗) ∩ fv(tᵢ)
       fv <- fvTerm t
-      let gammai = Set.intersection (c.gamma Set.\\ bottoms) fv
+      let gammai = Set.intersection c.gamma fv
 
       -- Δᵢ = Γ - {⊥}∗
-      let deltai = c.delta Set.\\ bottoms
+      let deltai = c.delta 
 
       -- logIO $ render $ vcat
       --   [ text "CALT"
@@ -260,7 +274,7 @@ perceusTerm c (Case (Var n) t alts) = do
       t' <- perceusTerm (Context deltai gammai) t
 
       -- Γᵢ′ = Γ - {⊥} - Γᵢ ∗
-      let gammai' = c.gamma Set.\\ bottoms Set.\\ gammai
+      let gammai' = c.gamma Set.\\ gammai
 
       -- drop Γᵢ′ ; tᵢ′
       dropSet gammai' t'
@@ -284,7 +298,9 @@ perceusVal :: Context -> Val -> Perceus Dups
 perceusVal c (Var n) = do
   x <- fromMaybe __IMPOSSIBLE__ <$> deBruijnLookup n
   p <- isPointer x
-  let not_ptr = boolToMaybe (not p) []
+  bottoms <- asks pc_bottoms
+  let is_bottom = boolToMaybe (Set.member x bottoms) []
+      not_ptr = boolToMaybe (not p) []
       svar = boolToMaybe (p && c.gamma == Set.singleton x) []
       svar_dup = boolToMaybe (p && Set.member x c.delta) [Dup n]
 
@@ -295,7 +311,7 @@ perceusVal c (Var n) = do
         , text "c.gamma" <+> pretty c.gamma
         ]
 
-  pure $ fromMaybe (error s) (not_ptr <|> svar <|> svar_dup)
+  pure $ fromMaybe (error s) (is_bottom <|> not_ptr <|> svar <|> svar_dup)
 
 perceusVal c val@(ConstantNode _ (v : vs)) = do
   contexts <- splitContext c (v :| vs)
@@ -343,16 +359,18 @@ splitContext c vs = list1scanr step (Context c.delta) <$> gammas
 -- | drop Γ; t = drop x₁; ..; drop xₙ ; t   where |Γ| = n
 dropSet :: Set Abs -> Term -> Perceus Term
 dropSet set t = do
+  set' <- asks $ (set Set.\\) . pc_bottoms
   xs <- asks pc_vars
-  let drops = Set.map (Drop . fromMaybe __IMPOSSIBLE__ . flip deBruijnOf xs) set
+  let drops = Set.map (Drop . fromMaybe __IMPOSSIBLE__ . flip deBruijnOf xs) set'
   pure $ foldr BindEmpty t drops
 
 
 -- | dup Γ; t = dup x₁; ..; dup xₙ ; t   where |Γ| = n
 dupSet :: Set Abs -> Term -> Perceus Term
 dupSet set t = do
+  set' <- asks $ (set Set.\\) . pc_bottoms
   xs <- asks pc_vars
-  let drops = Set.map (Dup . fromMaybe __IMPOSSIBLE__ . flip deBruijnOf xs) set
+  let drops = Set.map (Dup . fromMaybe __IMPOSSIBLE__ . flip deBruijnOf xs) set'
   pure $ foldr BindEmpty t drops
 
 
