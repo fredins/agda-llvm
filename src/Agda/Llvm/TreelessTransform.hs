@@ -50,7 +50,7 @@ instance Pretty TreelessDefinition where
 definitionToTreeless :: IsMain -> Definition -> TCM (Maybe TreelessDefinition)
 definitionToTreeless isMainModule Defn{defName, defType, theDef=Function{}} =
     (fmap . fmap)
-      (mkTreelessDef . simplifyApp . skipLambdas)
+      (mkTreelessDef . normalizeLets . simplifyApp . skipLambdas)
       (mapMM normalizeNames (toTreeless LazyEvaluation defName))
   where
     mkTreelessDef term = TreelessDefinition
@@ -102,16 +102,32 @@ skipLambdas t        = t
 -- let b' = g b in
 -- let c' = h c in
 -- f a b' c'
-simplifyApp :: TTerm -> TTerm
-simplifyApp (tAppView -> (f, splitArgs -> Just (before, TCon q, after))) =
-  simplifyApp (TLet (TCon q) app)
-  where
-  app = mkTApp (raise 1 f) $ raise 1 before ++ TVar 0 : raise 1 after
+-- simplifyApp :: TTerm -> TTerm
+-- simplifyApp (tAppView -> (f, splitArgs -> Just (before, TCon q, after))) =
+--   simplifyApp (TLet (TCon q) app)
+--   where
+--   app = mkTApp (raise 1 f) $ raise 1 before ++ TVar 0 : raise 1 after
+--
+-- simplifyApp (tAppView -> (f, splitArgs -> Just (before, TLit lit, after))) =
+--   simplifyApp (TLet (TLit lit) app)
+--   where
+--   app = mkTApp (raise 1 f) $ raise 1 before ++ TVar 0 : raise 1 after
 
-simplifyApp (tAppView -> (f, splitArgs -> Just (before, TLit lit, after))) =
-  simplifyApp (TLet (TLit lit) app)
+normalizeLets :: TTerm -> TTerm
+normalizeLets (TLet (TLet t1 t2) t3) = 
+  normalizeLets $ TLet t1 $ TLet t2 $ raiseFrom 1 1 t3
+
+normalizeLets (TLet t1 t2) = on TLet normalizeLets t1 t2
+normalizeLets (TLam t) = TLam (normalizeLets t)
+normalizeLets (TCase n info t alts) = TCase n info (normalizeLets t) (map step alts)
   where
-  app = mkTApp (raise 1 f) $ raise 1 before ++ TVar 0 : raise 1 after
+  step (TACon q a t) = TACon q a (normalizeLets t)
+  step (TALit l t) = TALit l (normalizeLets t)
+  step _ = __IMPOSSIBLE__
+
+normalizeLets t = t
+
+
 
 simplifyApp (tAppView -> (f, splitArgs -> Just (before, t, after))) =
   simplifyApp (foldr TLet app ts)
@@ -122,7 +138,6 @@ simplifyApp (tAppView -> (f, splitArgs -> Just (before, t, after))) =
   raiseN = raise (length ts)
 
 simplifyApp t = case t of
-  TLet (TCon q) t        -> TLet (TCon q) (simplifyApp t)
   TLet t1 t2            -> on TLet simplifyApp t1 t2
   TCase n info def alts -> TCase n info (simplifyApp def) (simplifyAppAlts alts)
   TLam t                -> TLam (simplifyApp t)
@@ -135,6 +150,7 @@ simplifyApp t = case t of
   TApp _ _              -> t
 
   _                     -> error $ "TODO " ++ show t
+
 
 simplifyAppAlts :: [TAlt] -> [TAlt]
 simplifyAppAlts = map go
@@ -149,7 +165,7 @@ splitArgs :: Args -> Maybe (Args, TTerm, Args)
 splitArgs []              = Nothing
 splitArgs (a@TApp{} : as) = Just ([], a, as)
 splitArgs (a@TCon{} : as) = Just ([], a, as)
--- splitArgs (a@TLit{} : as) = Just ([], a, as)
+splitArgs (a@TLit{} : as) = Just ([], a, as)
 splitArgs (a : as)
   | Just (before, t, after) <- splitArgs as = Just (a:before, t, after)
   | otherwise = Nothing

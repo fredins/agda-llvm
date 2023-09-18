@@ -1,0 +1,31 @@
+digraph "Call graph: program_opt.ll" {
+	label="Call graph: program_opt.ll";
+
+	Node0x1592a30 [shape=record,label="{printf}"];
+	Node0x1593010 [shape=record,label="{malloc}"];
+	Node0x1593f10 [shape=record,label="{free}"];
+	Node0x157bdf0 [shape=record,label="{Agda.Builtin.Nat._+_}"];
+	Node0x157bdf0 -> Node0x157bdf0;
+	Node0x157bdf0 -> Node0x1591b10;
+	Node0x157bdf0 -> Node0x1591dd0;
+	Node0x1591dd0 [shape=record,label="{Agda.Builtin.Nat._-_}"];
+	Node0x1591dd0 -> Node0x1591dd0;
+	Node0x1591dd0 -> Node0x1591b10;
+	Node0x1596200 [shape=record,label="{DownFromTail.downFrom}"];
+	Node0x1596200 -> Node0x1591dd0;
+	Node0x1596200 -> Node0x1591b10;
+	Node0x1596200 -> Node0x1593010;
+	Node0x1599fc0 [shape=record,label="{DownFromTail.sum}"];
+	Node0x1599fc0 -> Node0x1596200;
+	Node0x1599fc0 -> Node0x1591b10;
+	Node0x1599fc0 -> Node0x157bdf0;
+	Node0x1599fc0 -> Node0x1593010;
+	Node0x159a190 [shape=record,label="{main}"];
+	Node0x159a190 -> Node0x1593010;
+	Node0x159a190 -> Node0x1599fc0;
+	Node0x1591b10 [shape=record,label="{drop}"];
+	Node0x1591b10 -> Node0x1593f10;
+	Node0x1591b10 -> Node0x1591b10;
+	Node0x159a880 [shape=record,label="{dup}"];
+	Node0x159a900 [shape=record,label="{llvm.memset.p0.i64}"];
+}

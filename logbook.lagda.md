@@ -20,6 +20,73 @@ css: Agda.css
 
   ```
 
+
+### W.37
+
+Read the following:
+
+ - @johnsson1991
+ - @davis1991
+ - @jonsson2008
+ - @bolingbroke2010
+ - @petersen2013
+ - @liu2013
+ - @bergstrom2010
+ - @kaser1997
+ - @johnsson1984
+
+Did the following:
+
+- Added allocation tag counts to the interpreter.
+
+  ```txt
+  Result: 4950
+  Allocations Cnat: 101
+              FDownFrom.downFrom: 101
+              FAgda.Builtin.Nat._-_: 100
+              FDownFrom.sum: 100
+              Total: 402
+  In use at exit: ∅
+  ```
+
+- Added tailcalls with the `tail` attribute in LLVM. LLVM has a `musttail` for  
+  garanteed tailcalls but this only works for some calls even if they are in  
+  tail call positions. I did this to avoid stack overflows. It worked partially  
+  now the program stack overflows at input of 74 000 elements instead of 58 000.  
+  Another intresting result is that the allocations basically didn't change, however,  
+  different tags where allocated.  
+  
+
+  ```agda
+  module DownFromTail where
+
+    downFrom : List ℕ → ℕ → List ℕ
+    downFrom acc zero    = acc
+    downFrom acc (suc n) = downFrom (n ∷ acc) n
+
+    sum : ℕ → List ℕ → ℕ
+    sum acc [] = acc
+    sum acc (x ∷ xs) = sum (x + acc) xs
+
+    -- Current max: 74 000
+    main = sum 0 (downFrom [] 100)
+  ```
+
+  ```txt 
+  Result: 4950
+  Allocations Cnat: 102
+              CDownFromTail.List._∷_: 100
+              FAgda.Builtin.Nat._+_: 100
+              FAgda.Builtin.Nat._-_: 100
+              CDownFromTail.List.[]: 1
+              FDownFromTail.downFrom: 1
+              Total: 404
+  In use at exit: ∅
+  ```
+
+- I finished the abstract and the introduction in the report, and continued writing  
+  on the rest of the sections.  
+
 ### W.35 & W.36
 
 

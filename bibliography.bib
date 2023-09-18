@@ -339,3 +339,177 @@ address = {USA}
 }
 
 
+@InProceedings{johnsson1991,
+author="Johnsson, Thomas",
+editor="Jones, Simon L. Peyton
+and Hutton, Graham
+and Holst, Carsten Kehler",
+title="Analysing Heap Contents in a Graph Reduction Intermediate Language",
+booktitle="Functional Programming, Glasgow 1990",
+year="1991",
+publisher="Springer London",
+address="London",
+pages="146--171",
+abstract="We present an algorithm to analyse graph reduction intermediate code, which gives a safe approximation to what kind of nodes (i.e. which constructors and/or unevaluated function applications) pointers might point to at different points in the program. The analysed language, called GRIN (Graph Reduction Intermediate Notation) is a procedural language with operations essentially the same as in the G-machine but in the form of three address instructions. The analysis uses a framework developed by Jones and Muchnick for dealing with the interprocedural flow of information.",
+isbn="978-1-4471-3810-5"
+}
+
+@InProceedings{davis1991,
+author="Davis, Kei
+and Wadler, Philip",
+editor="Jones, Simon L. Peyton
+and Hutton, Graham
+and Holst, Carsten Kehler",
+title="Strictness Analysis in 4D",
+booktitle="Functional Programming, Glasgow 1990",
+year="1991",
+publisher="Springer London",
+address="London",
+pages="23--43",
+abstract="Strictness analysis techniques can be classified along four different dimensions: first-order vs. higher-order, flat vs. non-flat, low fidelity vs. high fidelity, and forward vs. backward. Plotting a table of the positions of known techniques within this space reveals that certain regions are densely occupied while others are empty. In particular, techniques for high-fidelity forward and low-fidelity backward analysis are well known, while those for low-fidelity forward and high-fidelity backward analysis are lacking. This paper fills in the gaps: the low-fidelity forward methods provide faster analyses than the high-fidelity forward methods, at the cost of accuracy, while the high-fidelity backward methods provide more information than the low-fidelity backward methods, at the cost of time.",
+isbn="978-1-4471-3810-5"
+}
+
+@inproceedings{jonsson2008,
+   author = {Jonsson, Peter A. and Nordlander, Johan},
+   institution = {Luleå University of Technology, Embedded Internet Systems Lab},
+   institution = {Luleå University of Technology, Computer Science},
+   note = {Godk{\"a}nd; 2008; 20081022 (pj)},
+   title = {On building a supercompiler for GHC},
+   abstract = {Supercompilation is a program transformation that removes intermediate structures and performs program  specialization. We discuss problems and necessary steps for building a supercompiler for GHC. },
+   year = {2008}
+}
+
+@article{bolingbroke2010,
+author = {Bolingbroke, Maximilian and Peyton Jones, Simon},
+title = {Supercompilation by Evaluation},
+year = {2010},
+issue_date = {November 2010},
+publisher = {Association for Computing Machinery},
+address = {New York, NY, USA},
+volume = {45},
+number = {11},
+issn = {0362-1340},
+url = {https://doi.org/10.1145/2088456.1863540},
+doi = {10.1145/2088456.1863540},
+abstract = {This paper shows how call-by-need supercompilation can be recast to be based explicitly on an evaluator, contrasting with standard presentations which are specified as algorithms that mix evaluation rules with reductions that are unique to supercompilation. Building on standard operational-semantics technology for call-by-need languages, we show how to extend the supercompilation algorithm to deal with recursive let expressions.},
+journal = {SIGPLAN Not.},
+month = {sep},
+pages = {135–146},
+numpages = {12},
+keywords = {haskell, specialisation, deforestation, optimisation, supercompilation}
+}
+
+@article{podlovics2021, 
+title={A Modern Look at GRIN, an Optimizing Functional Language Back End}, 
+volume={25}, 
+url={https://cyber.bibl.u-szeged.hu/index.php/actcybern/article/view/4101}, 
+DOI={10.14232/actacyb.282969}, 
+abstractNote={&lt;p&gt;GRIN is short for Graph Reduction Intermediate Notation, a modern back end for lazy functional languages. Most of the currently available compilers for such languages share a common flaw: they can only optimize programs on a per-module basis. The GRIN framework allows for interprocedural whole program analysis, enabling optimizing code transformations across functions and modules as well.&lt;/p&gt; &lt;p&gt;Some implementations of GRIN already exist, but most of them were developed only for experimentation purposes. Thus, they either compromise on low-level efficiency or contain ad hoc modifications compared to the original specification.&lt;/p&gt; &lt;p&gt;Our goal is to provide a full-fledged implementation of GRIN by combining the currently available best technologies like LLVM, and evaluate the framework’s effectiveness by measuring how the optimizer improves the performance of certain programs. We also present some improvements to the already existing components of the framework. Some of these improvements include a typed representation for the intermediate language and an interprocedural program optimization, the dead data elimination.&lt;/p&#38;gt;}, 
+number={4}, 
+journal={Acta Cybernetica}, 
+author={Podlovics, Peter and Hruska, Csaba and Pénzes, Andor}, 
+year={2021}, 
+month={Feb.}, 
+pages={847-876} 
+}
+
+@inproceedings{petersen2013,
+author = {Petersen, Leaf and Anderson, Todd A. and Liu, Hai and Glew, Neal},
+title = {Measuring the Haskell Gap},
+year = {2013},
+isbn = {9781450329880},
+publisher = {Association for Computing Machinery},
+address = {New York, NY, USA},
+url = {https://doi.org/10.1145/2620678.2620685},
+doi = {10.1145/2620678.2620685},
+abstract = {Papers on functional language implementations frequently set the goal of achieving performance "comparable to C", and sometimes report results comparing benchmark results to concrete C implementations of the same problem. A key pair of questions for such comparisons is: what C program to compare to, and what C compiler to compare with? In a 2012 paper, Satish et al [9] compare naive serial C implementations of a range of throughput-oriented benchmarks to best-optimized implementations parallelized on a six-core machine and demonstrate an average 23X (up to 53X) speedup. Even accounting for thread parallel speedup, these results demonstrate a substantial performance gap between naive and tuned C code. In this current paper, we choose a subset of the benchmarks studied by Satish et al to port to Haskell. We measure performance of these Haskell benchmarks compiled with the standard Glasgow Haskell Compiler and with our experimental Intel Labs Haskell Research Compiler and report results as compared to our best reconstructions of the algorithms used by Satish et al. Results are reported as measured both on an Intel Xeon E5-4650 32-core machine, and on an Intel Xeon Phi co-processor. We hope that this study provides valuable data on the concrete performance of Haskell relative to C.},
+booktitle = {Proceedings of the 25th Symposium on Implementation and Application of Functional Languages},
+pages = {61–72},
+numpages = {12},
+location = {Nijmegen, Netherlands},
+series = {IFL '13}
+}
+
+@inproceedings{liu2013,
+author = {Liu, Hai and Glew, Neal and Petersen, Leaf and Anderson, Todd A.},
+title = {The Intel Labs Haskell Research Compiler},
+year = {2013},
+isbn = {9781450323833},
+publisher = {Association for Computing Machinery},
+address = {New York, NY, USA},
+url = {https://doi.org/10.1145/2503778.2503779},
+doi = {10.1145/2503778.2503779},
+abstract = {The Glasgow Haskell Compiler (GHC) is a well supported optimizing compiler for the Haskell programming language, along with its own extensions to the language and libraries. Haskell's lazy semantics imposes a runtime model which is in general difficult to implement efficiently. GHC achieves good performance across a wide variety of programs via aggressive optimization taking advantage of the lack of side effects, and by targeting a carefully tuned virtual machine. The Intel Labs Haskell Research Compiler uses GHC as a frontend, but provides a new whole-program optimizing backend by compiling the GHC intermediate representation to a relatively generic functional language compilation platform. We found that GHC's external Core language was relatively easy to use, but reusing GHC's libraries and achieving full compatibility were harder. For certain classes of programs, our platform provides substantial performance benefits over GHC alone, performing 2x faster than GHC with the LLVM backend on selected modern performance-oriented benchmarks; for other classes of programs, the benefits of GHC's tuned virtual machine continue to outweigh the benefits of more aggressive whole program optimization. Overall we achieve parity with GHC with the LLVM backend. In this paper, we describe our Haskell compiler stack, its implementation and optimization approach, and present benchmark results comparing it to GHC.},
+booktitle = {Proceedings of the 2013 ACM SIGPLAN Symposium on Haskell},
+pages = {105–116},
+numpages = {12},
+keywords = {compiler optimization, haskell, functional language compiler},
+location = {Boston, Massachusetts, USA},
+series = {Haskell '13}
+}
+
+@InProceedings{bergstrom2010,
+author="Bergstrom, Lars
+and Reppy, John",
+editor="Moraz{\'a}n, Marco T.
+and Scholz, Sven-Bodo",
+title="Arity Raising in Manticore",
+booktitle="Implementation and Application of Functional Languages",
+year="2010",
+publisher="Springer Berlin Heidelberg",
+address="Berlin, Heidelberg",
+pages="90--106",
+abstract="Compilers for polymorphic languages are required to treat values in programs in an abstract and generic way at the source level. The challenges of optimizing the boxing of raw values, flattening of argument tuples, and raising the arity of functions that handle complex structures to reduce memory usage are old ones, but take on newfound import with processors that have twice as many registers. We present a novel strategy that uses both control-flow and type information to provide an arity raising implementation addressing these problems. This strategy is conservative --- no matter the execution path, the transformed program will not perform extra operations.",
+isbn="978-3-642-16478-1"
+}
+
+@article{kaser1997, 
+title={EQUALS – a fast parallel implementation of a lazy language}, 
+volume={7}, 
+DOI={10.1017/S0956796897002669}, 
+number={2}, 
+journal={Journal of Functional Programming}, 
+publisher={Cambridge University Press}, 
+author={KASER, OWEN and RAMAKRISHNAN, C. R. and RAMAKRISHNAN, I. V. and SEKAR, R. C.}, 
+year={1997}, 
+pages={183–217}
+}
+
+@inproceedings{10.1145/502874.502880,
+author = {Johnsson, Thomas},
+title = {Efficient Compilation of Lazy Evaluation},
+year = {1984},
+isbn = {0897911393},
+publisher = {Association for Computing Machinery},
+address = {New York, NY, USA},
+url = {https://doi.org/10.1145/502874.502880},
+doi = {10.1145/502874.502880},
+abstract = {This paper describes the principles underlying an efficient implementation of a lazy functional language, compiling to code for ordinary computers. It is based on combinator-like graph reduction: the user defined functions are used as rewrite rules in the graph. Each function is compiled into an instruction sequence for an abstract graph reduction machine, called the G-machine, the code reduces a function application graph to its value. The G-machine instructions are then translated into target code. Speed improvements by almost two orders of magnitude over previous lazy evaluators have been measured; we provide some performance figures.},
+booktitle = {Proceedings of the 1984 SIGPLAN Symposium on Compiler Construction},
+pages = {58–69},
+numpages = {12},
+location = {Montreal, Canada},
+series = {SIGPLAN '84}
+}
+
+@article{johnsson1984,
+author = {Johnsson, Thomas},
+title = {Efficient Compilation of Lazy Evaluation},
+year = {1984},
+issue_date = {June 1984},
+publisher = {Association for Computing Machinery},
+address = {New York, NY, USA},
+volume = {19},
+number = {6},
+issn = {0362-1340},
+url = {https://doi.org/10.1145/502949.502880},
+doi = {10.1145/502949.502880},
+abstract = {This paper describes the principles underlying an efficient implementation of a lazy functional language, compiling to code for ordinary computers. It is based on combinator-like graph reduction: the user defined functions are used as rewrite rules in the graph. Each function is compiled into an instruction sequence for an abstract graph reduction machine, called the G-machine, the code reduces a function application graph to its value. The G-machine instructions are then translated into target code. Speed improvements by almost two orders of magnitude over previous lazy evaluators have been measured; we provide some performance figures.},
+journal = {SIGPLAN Not.},
+month = {jun},
+pages = {58–69},
+numpages = {12}
+}
+
+

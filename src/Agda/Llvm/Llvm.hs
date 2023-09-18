@@ -26,7 +26,7 @@ data Instruction =
   | Getelementptr Type (List1 (Type, Val))
   | Extractvalue Type Val Int
   | Insertvalue Type Val Type Val Int
-  | Call CallingConvention Type GlobalId [(Type, Val)]
+  | Call (Maybe Tail) CallingConvention Type GlobalId [(Type, Val)]
   | Ret Type (Maybe Val)
   | Store Type Val Type LocalId
   | Load Type Type Val
@@ -43,6 +43,8 @@ data Instruction =
   | Add Type Val Val
   | Sub Type Val Val
     deriving Show
+
+data Tail = Musttail | Tail deriving Show
 
 pattern RetVoid = Ret Void Nothing
 pattern RetNode v = Ret (Alias "%Node") (Just v)
@@ -163,7 +165,7 @@ store :: Type -> Val -> LocalId -> Instruction
 store t v = Store t v Ptr
 
 malloc :: Int -> Instruction
-malloc n = Call Fastcc Ptr "@malloc" [(I64, mkLit n)]
+malloc n = Call Nothing Fastcc Ptr "@malloc" [(I64, mkLit n)]
 
 alloca :: Instruction
 alloca = Alloca nodeTySyn
@@ -171,7 +173,10 @@ alloca = Alloca nodeTySyn
 phi :: Type -> List1 (LocalId, LocalId) -> Instruction
 phi t = Phi t . List1.map (first LocalId)
 
-data CallingConvention = Tailcc | Fastcc deriving Show
+data CallingConvention = Tailcc 
+                       | Fastcc 
+                       | Cc10 
+                         deriving Show
 
 -----------------------------------------------------------------------
 -- * Pretty printing instances
@@ -200,12 +205,13 @@ instance Pretty Instruction where
     RetVoid -> text "ret void"
     Ret t (Just v) -> text "ret" <+> pretty t <+> pretty v
     Ret{} -> __IMPOSSIBLE__
-    Call cc t v as -> sep
-      [ text "call"
+    Call tc cc t v as -> sep
+      [ tc' <> text "call"
       , pretty cc
       , pretty t
       , pretty v <> text ("(" ++ render (prettyArgs as) ++ ")")
       ]
+      where tc' = text $ maybe "" ((++ " ") . prettyShow) tc
     Load t1 t2 v -> text "load" <+> text (prettyShow t1 ++ ",") <+> pretty t2 <+> pretty v
     Alloca t -> text "alloca" <+> pretty t -- not used
     Declare{} -> undefined
@@ -222,6 +228,10 @@ instance Pretty Instruction where
       xs' = List1.map (\(v, x) -> text "[" <> pretty v <> text ", " <> pretty x <> text "]") xs
     Add t v1 v2 -> (text "add" <+> pretty t <+> pretty v1) <> (text "," <+> pretty v2)
     Sub t v1 v2 -> (text "sub" <+> pretty t <+> pretty v1) <> (text "," <+> pretty v2)
+
+instance Pretty Tail where
+  pretty Musttail = "musttail"
+  pretty Tail = "tail"
 
 instance Pretty Alt where
   pretty (Alt t v x) =
@@ -244,7 +254,8 @@ instance Pretty Val where
 instance Pretty CallingConvention where
   pretty = \case
     Tailcc -> text "tailcc"
-    Fastcc -> text "fastcc"
+    Fastcc -> text "fastcc" 
+    Cc10   -> text "cc 10" 
 
 instance Pretty Type where
   pretty = \case

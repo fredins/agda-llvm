@@ -16,5 +16,8 @@ stdenv.mkDerivation {
 
       # Required for the logbook HTML document
       pandoc
+
+      # call graphs
+      graphviz
       ];
 }

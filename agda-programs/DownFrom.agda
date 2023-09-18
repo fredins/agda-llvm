@@ -20,4 +20,5 @@ sum : List ℕ → ℕ
 sum [] = 0
 sum (x ∷ xs) = x + sum xs
 
-main = sum (downFrom 100) -- 100 → 4950
+-- Current max: 58 000
+main = sum (downFrom 100) 
