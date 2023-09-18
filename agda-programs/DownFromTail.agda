@@ -21,4 +21,4 @@ sum acc [] = acc
 sum acc (x ∷ xs) = sum (x + acc) xs
 
 -- Current max: 74 000
-main = sum 0 (downFrom [] 10)
+main = sum 0 (downFrom [] 100)
