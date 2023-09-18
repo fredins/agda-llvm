@@ -327,7 +327,7 @@ llvmPostCompile _ _ mods = do
     putStrLn "------------------------------------------------------------------------\n"
     putStrLn $ intercalate "\n\n" (map prettyShow defs_perceus) ++ "\n"
 
-  --printInterpretGrin defs_perceus
+  printInterpretGrin defs_perceus
 
   -- Not used
   --

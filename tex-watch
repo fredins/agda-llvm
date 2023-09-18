@@ -1,0 +1,7 @@
+#!/bin/sh
+
+while :; do
+    inotifywait -e modify ./report.lagda.tex
+    make pdf
+done
+

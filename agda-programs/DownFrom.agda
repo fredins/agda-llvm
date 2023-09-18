@@ -21,4 +21,4 @@ sum [] = 0
 sum (x ∷ xs) = x + sum xs
 
 -- Current max: 58 000
-main = sum (downFrom 10) 
+main = sum (downFrom 100) 
