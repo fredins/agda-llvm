@@ -1,5 +1,11 @@
 % !TEX program = lualatex
-\documentclass{article}
+\documentclass[10pt, twocolumn]{article}
+% \usepackage{a4wide}
+
+%\usepackage[a4paper, total={8.5in, 11in}]{geometry}
+% \usepackage[a4paper]{geometry}
+\usepackage[a4paper, margin=2.5cm]{geometry}
+%\setlength{\textheight}{1.1\textheight}
 
 % Support for Agda code.
 \usepackage{agda}
@@ -19,13 +25,15 @@
 \addbibresource{../bibliography.bib}
 
 % Packages
+\usepackage{multicol}
 \usepackage{empheq} % for border around math
 \usepackage{listings} % non-agda code blocks
 \usepackage{amssymb} % math symbols
+\usepackage[]{lmodern} % Latin modern font
+\usepackage[labelfont=bf, textfont=it, justification=centering, singlelinecheck=false]{caption} 
 
 % Cosmetics
 \linespread{1.25}
-
 \setlength{\fboxsep}{1em} % padding for border
 
 \usepackage{newunicodechar}
@@ -43,12 +51,6 @@
 \newunicodechar{₅}{\ensuremath{{}_5}}
 \newunicodechar{₆}{\ensuremath{{}_6}}
 
-% Caption settings (aligned center with bold name)
-\usepackage[labelfont=bf, textfont=it,
-			justification=centering,
-			singlelinecheck=false]{caption} 		
-
-\usepackage[]{lmodern} % Latin modern font
 
 \usepackage{listings}
 \lstdefinelanguage{treeless}{
@@ -60,10 +62,10 @@ keywords={case, of, store, update, unit}
 
 \lstset{
 frame=none,
-% xleftmargin=24pt,
+xleftmargin=24pt,
 % xrightmargin=10pt,
-xleftmargin=.2\textwidth, 
-xrightmargin=.2\textwidth,
+% xleftmargin=.2\textwidth, 
+% xrightmargin=.2\textwidth,
 aboveskip=8pt,
 belowskip=8pt,
 framexleftmargin=4pt,
@@ -84,6 +86,7 @@ keepspaces=true,
 mathescape=true,
 }
 
+
 \title{
 Precise reference counting for lazy functional languages with interprocedural analysis 
 % Precise reference counting for lazy functional languages using whole program analysis
@@ -97,11 +100,15 @@ Precise reference counting for lazy functional languages with interprocedural an
 
 \maketitle
 
+
 \begin{code}[hide]
+open import Agda.Builtin.Nat using (suc; zero; _+_) renaming (Nat to ℕ) 
+open import Data.List using (List; _∷_; [])
 \end{code}
 
-\begin{abstract}
+%\begin{multicols}{2}
 
+\begin{abstract}
 Precise reference counting is a technique by \citeauthor{reinking2021} that uses ownership to deallocate objects as soon as possible. 
 The algorithm is called Perceus, and as of this writing, it has only been implemented for eager functional languages.
 This paper describes the implementation of a new lazy compiler back-end for the Agda programming language with 
@@ -117,10 +124,10 @@ Reference counting \citep{collins1960} is a memory management technique which ca
 Common reference counting algorithms are easy to implement; each allocation contains an extra field which tracks the number of references to a object, and reclaims the heap space once the reference count drops to zero.
 The number of references to a object is updated by interleaved reference counting operations (\texttt{dup} and \texttt{drop}), which increments and decrements the reference count at runtime. 
 As a result of the interleaved collection strategy, memory usage remain low and the throughput is continuous throughout the computation\footnote{Reference counted programs may introduce pauses similar to tracing garbage collectors. For example, when decrementing a long linked list all at once.} \citep{jones1996}.
-However, tracing garbage collectors are usually favored over reference counting implementations due to cheaper allocations, higher throughput, and the ability to collect cyclic data structures.
+Still, tracing garbage collectors are usually favored over reference counting implementations due to cheaper allocations, higher throughput, and the ability to collect cyclic data structures.
 
-\citet{reinking2021} makes reference counting more competitive by utilizing static guarantees to make the algorithm precise, which means that objects are deallocated as soon as possible.
-They present a formalized algorithm called Perceus which ensures that the reference counting is precise. 
+\citet{reinking2021} reexamine reference counting with a new approach which utilize static guarantees to make the algorithm precise, which means that objects are deallocated as soon as possible.
+They present a formalized algorithm called Perceus which ensure preciseness. 
 Perceus is implemented in the functional language Koka, along with two optimizations for reducing reference counting operations and reusing memory.
 This builds upon previous work by \citet{ullrich2021} in the Lean programming language and theorem prover. 
 
@@ -130,17 +137,17 @@ In this paper, we adapt the Perceus algorithm to a new lazy compiler back-end fo
 To do this, we first transform Agda into an intermediate language called GRIN \citep{johnsson1991}.
 
 \section{Graph Reduction Intermediate Notation}
-\citet{johnsson1991} presented the Graph Reduction Intermediate Notation (GRIN) as an imperative version of the G-machine \citep{johnsson1984}, where lexically scoped variables are stored in registers instead of the stack. 
+In \citeyear{johnsson1991}, \citeauthor{johnsson1991} presented the Graph Reduction Intermediate Notation (GRIN) as an imperative version of the G-machine \citep{johnsson1984}, where lexically scoped variables are stored in registers instead of the stack. 
 Later, GRIN was reformulated with a more "functional flavor" \citep{boquist1995}.
 In this project, we introduce an additional variant of GRIN adapted for the internal representation of Agda and precise reference counting. 
 
 The syntax of our variant are shown in Figure \ref{fig:grin-syntax}.
-All syntactically correct expressions are not valid. For example, the value at the function 
-position must be either a top-level function ($def$) or a primitive ($prim$). It cannot be a variable because
+There are 4 kinds of constructs; terms, values, lambda patterns, and case patterns.
+All syntactically correct expressions are not valid. For example, the value at the function position of an application must be either a top-level function (\emph{def}) or a primitive (\emph{prim}). It cannot be a variable because
 there are no indirect function calls in GRIN. Likewise, top-level functions cannot be passed 
 as arguments because GRIN is a first order language.
 
-\begin{figure}[htpb]
+\begin{figure*}[htbp]
 \centering
 \begin{empheq}[box=\fbox]{align*}
 &\begin{array}{l l l l}
@@ -181,17 +188,13 @@ cpat & ::=     & tag \; \{x\}* & \; \text{constant node pattern} \\
 \end{empheq}
 \caption{GRIN syntax. }
 \label{fig:grin-syntax}
-\end{figure}
+\end{figure*}
 
 
 \subsection{Code generation}
-The current implementation of GRIN only compiles a subset of Agda, which is lambda lifted, first order, and monomorphic. 
-
-\begin{figure}[htpb]
+The current implementation of GRIN only compiles a subset of Agda, which is lambda lifted, first order, and monomorphic.
+%\begin{figure}[hb!]
 \begin{code}
-open import Agda.Builtin.Nat using (suc; zero; _+_) renaming (Nat to ℕ) 
-open import Data.List using (List; _∷_; [])
-
 downFrom : ℕ → List ℕ
 downFrom zero = []
 downFrom (suc n) = n ∷ downFrom n 
@@ -202,17 +205,14 @@ sum (x ∷ xs) = x + sum xs
 
 main = sum (downFrom 100) 
 \end{code}
-\caption{Agda example program}
-\label{fig:agda-program}
-\end{figure}
+%\caption{Agda example program}
+%\label{fig:agda-program}
+%\end{figure}
 
 Our back-end starts by converting the program into the treeless syntax.
 The treeless syntax has explicit case expressions which uses A-normal-form, meaning 
 that the scrutinee is always a variable and the alternatives cannot be nested or overlap.
-Below is the treeless representation of \AgdaFunction{downFrom}.
-Notice, that variable references use De Bruijn indicies which are represented by regular numbers, whereas the 
-actual numbers are prefixed with "\#".
-We also transform the program so applications only takes variables as operands.
+Following is the treeless representation of \AgdaFunction{downFrom}.
 
 \begin{lstlisting}[language=treeless]
 downFrom x$₁$ = case 0 of
@@ -223,6 +223,10 @@ downFrom x$₁$ = case 0 of
       _$∷$_ 1 0
           
 \end{lstlisting}
+Notice, that variable references use De Bruijn indicies which are represented by regular numbers, whereas the 
+actual numbers are prefixed with "\#".
+We also transform the program so applications only takes variables as operands.
+
 %sum x$₁$ = case 0 of
 %  [] → 0 
 %  _$∷$_ x$₂$ x$₃$ → let x$₄$ = sum 0 in _+_ 0 2
@@ -269,13 +273,26 @@ to libc's \texttt{free}.
  
 
 \section{LLVM code generator}
+\begin{itemize}
+\item GRIN in unopinonated about the node representation. There only on reguiremnt: there should be 
+      an easy way to extract the tag.
+\item Explain node structure \texttt{[4 x i64]}
+\item Short text about tailcalls
+\item Currenlty we do not need a type system because all functions 
+      return full nodes but after the general unboxing transformation 
+      this will change. \citet{podlovics2021} have also developed a 
+      LLVM back-end for GRIN and they needed a type system for the mentioned 
+      reason.
+\item Currenlty we use libc's \texttt{malloc} and \texttt{free}, however, \citeauthor{pinto2023} suggest that these should be implemented in assembly.
+\item Non-atomic reference count operations.
+\end{itemize}
 
 \section{Result}
 
 To test that our compiler back-end actually works and that all memory is reclaimed, we implemented a GRIN interpreter and a LLVM code generator.
 We discovered that our back-end allocate many objects. 
 
-There are 402 allocations in our example program (Figure \ref{fig:agda-program}): 
+There are 402 allocations in our example program (page 2): 
 101 \texttt{Cnat} nodes, 101 \texttt{FdownFrom} nodes, 100 \texttt{F\_-\_} nodes, 100 \texttt{Fsum} nodes.
 
 \begin{itemize}
@@ -309,7 +326,9 @@ There are 402 allocations in our example program (Figure \ref{fig:agda-program})
 % Different allocator? mimalloc?
 % Using type information (multiplicites: 0, (1), ω)
 
+
 \printbibliography
 
+%\end{multicols}{2}
 \end{document}
 
