@@ -25,7 +25,6 @@
 \addbibresource{../bibliography.bib}
 
 % Packages
-\usepackage{multicol}
 \usepackage{empheq} % for border around math
 \usepackage{listings} % non-agda code blocks
 \usepackage{amssymb} % math symbols
@@ -50,6 +49,9 @@
 \newunicodechar{₄}{\ensuremath{{}_4}}
 \newunicodechar{₅}{\ensuremath{{}_5}}
 \newunicodechar{₆}{\ensuremath{{}_6}}
+\newunicodechar{₇}{\ensuremath{{}_7}}
+\newunicodechar{₈}{\ensuremath{{}_8}}
+\newunicodechar{₉}{\ensuremath{{}_9}}
 
 
 \usepackage{listings}
@@ -57,7 +59,7 @@
 keywords={case, of, let, in}
 }
 \lstdefinelanguage{grin}{
-keywords={case, of, store, update, unit}
+keywords={case, of, store, update, unit, fetch}
 }
 
 \lstset{
@@ -86,13 +88,7 @@ keepspaces=true,
 mathescape=true,
 }
 
-
-\title{
-Precise reference counting for lazy functional languages with interprocedural analysis 
-% Precise reference counting for lazy functional languages using whole program analysis
-% Optimizing lazy functional languages: whole program compilation and precise reference counting
-
-}
+\title{ Precise reference counting for lazy functional languages with interprocedural analysis}
 \author{Martin Fredin}
 \date{June 2023}
 
@@ -103,10 +99,12 @@ Precise reference counting for lazy functional languages with interprocedural an
 
 \begin{code}[hide]
 open import Agda.Builtin.Nat using (suc; zero; _+_) renaming (Nat to ℕ) 
-open import Data.List using (List; _∷_; [])
-\end{code}
 
-%\begin{multicols}{2}
+infixr 5 _∷_
+data List A : Set where
+  []  : List A
+  _∷_ : (x : A) (xs : List A) → List A
+\end{code}
 
 \begin{abstract}
 Precise reference counting is a technique by \citeauthor{reinking2021} that uses ownership to deallocate objects as soon as possible. 
@@ -126,7 +124,7 @@ The number of references to a object is updated by interleaved reference countin
 As a result of the interleaved collection strategy, memory usage remain low and the throughput is continuous throughout the computation\footnote{Reference counted programs may introduce pauses similar to tracing garbage collectors. For example, when decrementing a long linked list all at once.} \citep{jones1996}.
 Still, tracing garbage collectors are usually favored over reference counting implementations due to cheaper allocations, higher throughput, and the ability to collect cyclic data structures.
 
-\citet{reinking2021} reexamine reference counting with a new approach which utilize static guarantees to make the algorithm precise, which means that objects are deallocated as soon as possible.
+\citet{reinking2021} reexamine reference counting with a new approach; utilizing static guarantees to make the algorithm precise, so objects can be deallocated as soon as possible.
 They present a formalized algorithm called Perceus which ensure preciseness. 
 Perceus is implemented in the functional language Koka, along with two optimizations for reducing reference counting operations and reusing memory.
 This builds upon previous work by \citet{ullrich2021} in the Lean programming language and theorem prover. 
@@ -145,7 +143,7 @@ The syntax of our variant are shown in Figure \ref{fig:grin-syntax}.
 There are 4 kinds of constructs; terms, values, lambda patterns, and case patterns.
 All syntactically correct expressions are not valid. For example, the value at the function position of an application must be either a top-level function (\emph{def}) or a primitive (\emph{prim}). It cannot be a variable because
 there are no indirect function calls in GRIN. Likewise, top-level functions cannot be passed 
-as arguments because GRIN is a first order language.
+as arguments because GRIN is a first-order language.
 
 \begin{figure*}[htbp]
 \centering
@@ -166,7 +164,7 @@ val & ::=     & tag \; \{val\}* & \; \text{constant node} \\
     & \; \mid & tag             & \; \text{single tag} \\
     & \; \mid & ()              & \; \text{empty} \\
     & \; \mid & lit             & \; \text{literal} \\
-    & \; \mid & n               & \; \text{variable (De Bruijn index)} \\
+    & \; \mid & n               & \; \text{variable (de Bruijn index)} \\
     & \; \mid & def             & \; \text{function definition} \\
     & \; \mid & prim            & \; \text{primitive definition} \\
 \end{array} \\ \\
@@ -192,7 +190,7 @@ cpat & ::=     & tag \; \{x\}* & \; \text{constant node pattern} \\
 
 
 \subsection{Code generation}
-The current implementation of GRIN only compiles a subset of Agda, which is lambda lifted, first order, and monomorphic.
+The current implementation of GRIN only compiles a subset of Agda which is lambda lifted, first order, and monomorphic.
 %\begin{figure}[hb!]
 \begin{code}
 downFrom : ℕ → List ℕ
@@ -215,55 +213,106 @@ that the scrutinee is always a variable and the alternatives cannot be nested or
 Following is the treeless representation of \AgdaFunction{downFrom}.
 
 \begin{lstlisting}[language=treeless]
-downFrom x$₁$ = case 0 of
+downFrom x$₁$ = case x$₁$ of
   0 → []
-  _ → let x$₂$ = #1
-          x$₃$ = 1 - 0
-          x$₄$ = downFrom 0 in 
-      _$∷$_ 1 0
+  _ → let x$₂$ = 1
+          x$₃$ = _-_ x$₁$ x$₂$
+          x$₄$ = downFrom x$₃$ in 
+      _$∷$_ x$₃$ x$₄$
           
 \end{lstlisting}
-Notice, that variable references use De Bruijn indicies which are represented by regular numbers, whereas the 
-actual numbers are prefixed with "\#".
-We also transform the program so applications only takes variables as operands.
+The implementation uses de Bruijn indices to represent variables, but this paper uses variable names to make it more readable. 
+During this phase, we also transform the program so applications only take variables as operands.
 
-%sum x$₁$ = case 0 of
-%  [] → 0 
-%  _$∷$_ x$₂$ x$₃$ → let x$₄$ = sum 0 in _+_ 0 2
-% 
-%main = let x$₁$ = #100 
-%           x$₂$ = downFrom 0 in
-%       sum 0
+GRIN is very similar to the treelss syntax, but instead of the let-expressions we use the builtin state monad to bind variables and sequence operations.
+The monadic operations are \lstinline{unit}, \lstinline{store}, \lstinline{fetch}, and \lstinline{update}. 
+The bind operator ";" is infix and right-associative.
 
-GRIN is very similar to the treelss syntax, so the translation is straigthforward.
+We can translate "\lstinline[language=treeless]{let x = $\emph{val}$ in foo x}" lazily
+by allocating the value and passing the pointer as an argument to the function "\lstinline[]{store $\emph{val}$ ; λ x → foo x}".
+Here, \emph{val} must be a constant node value. 
+A constant node is a tag followed by a sequence of arguments. 
+We can pattern match on a tag with the case expression to determine the kind.
+Tags are prefixed with either a "C" if it is a constructor value, or an "F" for suspended function applications.
+The node arguments are usually pointers to other heap allocated nodes, but they can also be unboxed values.
+For example, the boxed integer tag "\lstinline{Cnat}" accepts one unboxed integer.
 
-\begin{lstlisting}[mathescape=true]
+\begin{lstlisting}
 downFrom x$₁$ =
-  eval 0 ; λ Cnat x$₂$ →
-  case 0 of
+  eval x$₁$ ; λ Cnat x$₂$ →
+  case x$₂$ of
     0 → unit ([])
     _ →
-      store (Cnat #1) ; λ x$₃$ →
-      store (F_-_ 2 0) ; λ x$₄$ →
-      store (FdownFrom 0) ; λ x$₅$ →
-      unit (C_$∷$_ 1 0)
+      store (Cnat 1) ; λ x$₃$ →
+      store (F_-_ x$₁$ x$₃$) ; λ x$₄$ →
+      store (FdownFrom x$₄$) ; λ x$₅$ →
+      unit (C_$∷$_ x$₄$ x$₅$)
 \end{lstlisting}
 
-
-
 \subsection{Analysis and transformations}
+The most important GRIN transformation is \emph{eval inlining}. 
+\lstinline{eval} is a normal GRIN function which forces suspended computations to it's weak head normal form.
+An example of this is "\lstinline{eval x$₁$ ; λ Cnat x$₂$ → ...}" in the function above.
+In this example, the value at the pointer (\lstinline{x$₁$}) is evaluated to a boxed integer \lstinline{Cnat x$₂$}.
+Eval inlining generates a specialized \lstinline{eval} function for each call site.
+To evaluate a suspended computation, we load the node from the heap using \lstinline{fetch}. 
+Then, we pattern match over the possible nodes. 
+Constructor nodes are already in weak head normal form so they are left unchanged.
+Function nodes need to be evaluated by applying the arguments to the corresponding function.
+Finally, the heap is updated with the evaluated value.
+
+\begin{lstlisting}
+downFrom x$₁$ =
+  (fetch x$₁$ ; λ x$₆$ →
+   (case x$₆$ of
+      Cnat x$₇$ → unit (Cnat x$₇$)
+      F_-_ x$₈$ x$₉$ → _-_ x$₈$ x$₉$
+   ) ; λ x$_{10}$ →
+   update x$₁$ x$_{10}$ ; λ () →
+   unit 0
+  ) ; λ Cnat x$₂$ →
+  case x$₂$ of
+    0 → unit ([])
+    _ →
+      store (Cnat 1) ; λ x$₃$ →
+      store (F_-_ x$₁$ x$₃$) ; λ x$₄$ →
+      store (FdownFrom x$₄$) ; λ x$₅$ →
+      unit (C_$∷$_ x$₄$ x$₅$)
+\end{lstlisting}
+
+Eval inlining require a set of possible nodes for each abstract heap location.
+The set needs to be relatively small, or otherwise an excessive amount of code will be generated.
+We will use the \emph{heap points-to} analysis \citep{johnsson1991}.
+The analysis is interprocedural, meaning that multiple functions need to be analyzed together.
+We will not go into detail about the algorithm, as it is thoroughly described in \citep{boquist1996}. 
+Instead, this paper will only provide a general intuition of the algorithm.
+Consider the inlined evaluation in \lstinline{downFrom}.
+There are two tags in the case expression. 
+\lstinline{F_-_} comes from the (lazy) recursive call inside \lstinline{downFrom}, and 
+\lstinline{Cnat} is from the \lstinline{update} operation and the call to \lstinline{downFrom} in the main function.
+
+
+\begin{lstlisting}
+main =
+  store (Cnat 100) ; λ x$_{11}$ →
+  store (downFrom x$_{11}$) ; λ x$_{12}$ →
+  sum x$_{12}$ ; λ Cnat x$_{13}$ →
+  printf x$_{13}$
+\end{lstlisting}
+
 \citeauthor{boquist1999}'s thesis contains 24 transformations divided into two groups: simplifying transformations and optimizing 
 transformations. 
 The simplifying transformations are necessary for the code generator and are all implemented, except \emph{inlining calls to apply}
 which is used for partially applied functions. 
-Also, the \emph{introduce registers} transformations is implemented but unused as it conflicts with LLVM.
 For the optimizing transformations, only \emph{copy propagation} is implemented.
+The reason for this is...
 
-%For the optimizing transformations only x, y, and z is implemented.
+% TODO describe many powerful optimization like inlining, arity raising, and general unboxing.
 
 \section{Precise reference counting}
+% TODO explain the Perceus algorithm
 
-In GRIN, we have to be explicit about allocations, retriving nodes from the heap, and overwriting heap nodes.
+In GRIN, we have to be explicit about allocations, retrieving nodes from the heap, and overwriting heap nodes.
 As a result, the Perceus primitives \texttt{dup}, \texttt{drop}, \texttt{is-unique}, \texttt{decref}, and \texttt{free} 
 can be described with GRIN's exisiting constructs.\footnote{This only possible in our slightly modified version of 
 GRIN. \citeauthor{boquist1999}'s specification of GRIN could not overwrite individual fields of a heap node 
@@ -329,6 +378,5 @@ There are 402 allocations in our example program (page 2):
 
 \printbibliography
 
-%\end{multicols}{2}
 \end{document}
 
