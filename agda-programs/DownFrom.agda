@@ -3,10 +3,6 @@ module DownFrom where
 
 open import Agda.Builtin.Nat using (suc; zero; _+_) renaming (Nat to ℕ) 
 
-private 
-  variable
-    A B : Set
-
 infixr 5 _∷_
 data List A : Set where
   []  : List A
