@@ -26,7 +26,7 @@ import           Agda.Llvm.Utils
 import           Agda.Syntax.Common.Pretty
 import           Agda.TypeChecking.Substitute
 import           Agda.Utils.Functor
-import           Agda.Utils.Impossible
+import           Agda.Utils.Impossible (impossible, __IMPOSSIBLE__)
 import           Agda.Utils.Lens
 import           Agda.Utils.List
 import           Agda.Utils.List1             (List1, pattern (:|), (<|))
@@ -198,7 +198,7 @@ inlineEval defs absCxt tagInfo =
         bindVarL' t1 t2 = t1 <&> (`Bind` LAltVar x2 t2)
         eval =
           FetchOpaque n                     `bindVarR'`
-          Case (Var 0) unreachable <$> alts `bindVarL'`
+          Case (Var 0) Unreachable <$> alts `bindVarL'`
           Update Nothing (n + 2) (Var 0)    `BindEmpty`
           Unit (Var 0)
 
@@ -327,10 +327,13 @@ specializeUpdate _absCxt def = do
     where
     alts' =
       for alts $ \case
-        CAltConstantNode tag xs t -> CAltConstantNode tag xs $ update `BindEmpty` t
-          where update = raise (length xs) $ mkUpdate tag 
-        CAltTag tag t -> CAltTag tag $ mkUpdate tag `BindEmpty` t
+        CAltConstantNode tag xs t -> CAltConstantNode tag xs (update `BindEmpty` t)
+          where update = raise (length xs) (mkUpdate tag)
+        CAltTag tag t -> CAltTag tag (mkUpdate tag `BindEmpty` t)
         _ -> __IMPOSSIBLE__
+
+
+  go (Update Nothing n1 (ConstantNode tag vs)) = pure $ Update (Just tag) n1 (ConstantNode tag vs)
 
   -- update n₁ n₂ ; λ () →
   -- unit n₂ ; λ CNat x →
@@ -346,9 +349,6 @@ specializeUpdate _absCxt def = do
         Update (Just tag) n1 (Var n2) `BindEmpty`
         Unit (Var n2') `Bind` LAltConstantNode tag xs t'
 
-  go (Update Nothing n1 (ConstantNode tag vs)) = pure $ Update (Just tag) n1 (ConstantNode tag vs)
-
-
   -- Returning eval/update [Boquist 1999, p. 95]
   go (Fetch' mtag n1 moffset `Bind` LAltVariableNode x1 xs1
      (Case v1 t _            `Bind` LAltVariableNode x2 xs2
@@ -362,7 +362,7 @@ specializeUpdate _absCxt def = do
     go (Fetch' mtag n1 moffset `Bind` LAltVariableNode x1 xs1
        (Case v1 t alts         `Bind` LAltVariableNode x2 xs2
        (Update Nothing n2 v2   `BindEmpty`
-        Case v2 unreachable alts)))
+        Case v2 Unreachable alts)))
     where
       genBody FTag{tDef, tArity} = App (Def tDef) $ map Var $ downFrom tArity
       genBody tag@CTag{tArity = map Var . downFrom -> vs} = Unit (ConstantNode tag vs)
@@ -395,10 +395,8 @@ specializeUpdate _absCxt def = do
     alts' <- mapM (\(splitCaltWithVars -> (mkAlt, t, xs)) -> mkAlt <$> varLocals xs (go t)) alts
     t' <- go t
     pure (Case n t' alts')
-  -- TODO hmm
-  go (Update mtag n1 n2)
-    | Nothing <- mtag = error $ "UPDATE SPECIALIZATION FAILED: " ++ prettyShow (Update mtag n1 n2)
-    | otherwise = pure (Update mtag n1 n2)
+  go (UpdateTag tag n v) = pure (UpdateTag tag n v)
+  go (Update Nothing n v) = error $ "UPDATE SPECIALIZATION FAILED: " ++ prettyShow (Update Nothing n v)
   go t = pure t
 
 
@@ -417,18 +415,19 @@ specializeUpdate _absCxt def = do
 -- Returns: (update n₁' n₂', 〈m 〉, case n₂ of alts)
 -- TODO use splitLaltWithVars
 caseUpdateView :: Term -> Maybe (Tag -> Term, Term -> Term, Term)
-caseUpdateView (Update Nothing n t1 `BindEmpty` t) = go IdS id t where
+caseUpdateView (Update Nothing n v1 `BindEmpty` t) = go IdS id t 
+  where
   go :: Substitution' Val
      -> (Term -> Term)
      -> Term
-     -> Maybe (Tag -> Term,Term -> Term, Term)
-  go rho m (Case t2 t3 alts)
-    | t1' <- applySubst rho t1
-    , t1' == t2 =
+     -> Maybe (Tag -> Term, Term -> Term, Term)
+  go rho m (Case v2 t3 alts)
+    | v1' <- applySubst rho v1
+    , v1' == v2 =
       let n' = case lookupS rho n of
                  Var n -> n
                  _     -> __IMPOSSIBLE__ in
-      Just (\tag -> Update (Just tag) n' t1', m , Case t2 t3 alts)
+      Just (\tag -> Update (Just tag) n' v1', m , Case v2 t3 alts)
     | otherwise = Nothing
   go rho m (Bind t1 (splitLaltWithVars -> (mkAlt, t2, xs))) = go rho' (m . Bind t1 . mkAlt) t2
     where
@@ -481,6 +480,17 @@ vectorize absCxt (Case v t alts) = do
   step (splitCalt -> (mkAlt, t)) = mkAlt <$> vectorize absCxt t
 
 vectorize _ t = pure t
+
+
+constantNodeUpdate :: Term -> Term
+constantNodeUpdate (Update (Just tag) n (VariableNode _ vs)) = 
+    Update (Just tag) n $ ConstantNode tag (take (tagArity tag) vs)
+constantNodeUpdate (t1 `Bind` (splitLalt -> (mkAlt, t2))) = 
+  constantNodeUpdate t1 `Bind` mkAlt (constantNodeUpdate t2)
+constantNodeUpdate(Case v t alts) = Case v (constantNodeUpdate t) (map step alts)
+  where step (splitCalt -> (mkAlt, t)) = mkAlt (constantNodeUpdate t)
+constantNodeUpdate t = t
+
 
 --
 -- <t1>
