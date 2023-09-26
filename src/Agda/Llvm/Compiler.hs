@@ -350,7 +350,7 @@ llvmPostCompile _ _ mods = do
 
   printInterpretGrin (defs_pushDownDup ++ defs_dupdrop)
 
-  let defs_fuseDupDrop = map (updateGrTerm fuseDupDrop) defs_specializeDrop
+  let defs_fuseDupDrop = map (updateGrTerm fuseDupDrop) defs_pushDownDup
   liftIO $ do
     putStrLn "\n------------------------------------------------------------------------"
     putStrLn "-- * Fuse dup/drop"
