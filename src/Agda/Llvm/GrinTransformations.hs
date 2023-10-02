@@ -17,7 +17,7 @@ import           Data.Map                     (Map)
 import qualified Data.Map                     as Map
 import           Data.Set                     (Set)
 import qualified Data.Set                     as Set
-import           Prelude                      hiding (drop)
+import           Prelude                      hiding (drop, (!!))
 
 import           Agda.Compiler.Backend        hiding (Prim)
 import           Agda.Llvm.Grin as G
@@ -294,16 +294,16 @@ normalise (Case n t alts) = Case n (normalise t) (map step alts)
 normalise t = t
 
 data UpdateCxt = UpdateCxt
-  { absCxt :: AbstractContext
+  { tagInfo :: TagInfo
   , vars   :: [Abs]
   }
 
-initUpdateCxt :: AbstractContext -> GrinDefinition -> UpdateCxt
-initUpdateCxt absCxt def = UpdateCxt{absCxt = absCxt, vars = reverse def.gr_args}
+initUpdateCxt :: TagInfo -> GrinDefinition -> UpdateCxt
+initUpdateCxt tagInfo def = UpdateCxt{tagInfo = tagInfo, vars = reverse def.gr_args}
 
-specializeUpdate :: forall mf. MonadFresh Int mf => AbstractContext -> GrinDefinition -> mf GrinDefinition
-specializeUpdate _absCxt def = do
-  term <- runReaderT (go def.gr_term) (initUpdateCxt _absCxt def)
+specializeUpdate :: forall mf. MonadFresh Int mf => TagInfo -> GrinDefinition -> mf GrinDefinition
+specializeUpdate tagInfo def = do
+  term <- runReaderT (go def.gr_term) (initUpdateCxt tagInfo def)
   pure (setGrTerm term def)
   where
 
@@ -350,44 +350,45 @@ specializeUpdate _absCxt def = do
         Unit (Var n2') `Bind` LAltConstantNode tag xs t'
 
   -- Returning eval/update [Boquist 1999, p. 95]
-  go (Fetch' mtag n1 moffset `Bind` LAltVariableNode x1 xs1
-     (Case v1 t _            `Bind` LAltVariableNode x2 xs2
-     (Update Nothing n2 v2   `BindEmpty`
-     (Unit v2' ))))
-    | v2' == v2 = do
-    x <- asks $ fromMaybe __IMPOSSIBLE__ . (!!! n1) . vars
-    tags <- maybe __IMPOSSIBLE__ toList <$> runMaybeT (fetchTagSet =<< fetchLocations x)
-    let alts = map (CAltTag <*> genBody) tags
+  -- FIXME ugly
+  go (Fetch' mtag n1 moffset     `Bind` LAltVar x1 
+     (Case v1 t alts             `Bind` LAltVar x2 
+     (Update Nothing n2 (Var n3) `BindEmpty`
+     (Unit (Var n3')))))
+    | n3' == n3 = do
+    x <- asks $ (!! n3) . ([x2, x1] ++ ) . vars
+    let tags = maybe (error $ "CANNOT FIND " ++ show x) Set.toList $ Map.lookup x (unTagInfo tagInfo)
+    alts' <- mapM (caltConstantNode <*> genBody) tags
     -- Rerun the transformation so it matches the case pattern
-    go (Fetch' mtag n1 moffset `Bind` LAltVariableNode x1 xs1
-       (Case v1 t alts         `Bind` LAltVariableNode x2 xs2
-       (Update Nothing n2 v2   `BindEmpty`
-        Case v2 Unreachable alts)))
+    go (Fetch' mtag n1 moffset     `Bind` LAltVar x1 
+       (Case v1 t alts             `Bind` LAltVar x2 
+       (Update Nothing n2 (Var n3) `BindEmpty`
+        Case (Var n3') Unreachable alts')))
     where
       genBody FTag{tDef, tArity} = App (Def tDef) $ map Var $ downFrom tArity
       genBody tag@CTag{tArity = map Var . downFrom -> vs} = Unit (ConstantNode tag vs)
       genBody _ = __IMPOSSIBLE__
 
-      fetchTagSet :: List1 Loc -> MaybeT (ReaderT UpdateCxt mf) (Set Tag)
-      fetchTagSet locs = do
-        heap <- asks ((^. lensAbsHeap) . absCxt)
-        hoistMaybe (foldMap filterTags <$> mapM (`lookup` heap) locs)
+      -- fetchTagSet :: List1 Loc -> MaybeT (ReaderT UpdateCxt mf) (Set Tag)
+      -- fetchTagSet locs = do
+      --   heap <- asks ((^. lensAbsHeap) . absCxt)
+      --   hoistMaybe (foldMap filterTags <$> mapM (`lookup` heap) locs)
 
-      fetchLocations :: Abs -> MaybeT (ReaderT UpdateCxt mf) (List1 Loc)
-      fetchLocations x = do
-        env <- asks ((^. lensAbsEnv) . absCxt)
-        hoistMaybe (mapM isLoc . valueToList =<< lookup x env)
-        where
-        isLoc = \case
-          Loc loc -> Just loc
-          _       -> Nothing
-
-      filterTags :: Value -> Set Tag
-      filterTags (valueToList -> vs) =
-        Set.fromList $ forMaybe (toList vs) $
-          \case
-            VNode tag _ -> Just tag
-            _           -> Nothing
+      -- fetchLocations :: Abs -> MaybeT (ReaderT UpdateCxt mf) (List1 Loc)
+      -- fetchLocations x = do
+      --   env <- asks ((^. lensAbsEnv) . absCxt)
+      --   hoistMaybe (mapM isLoc . valueToList =<< lookup x env)
+      --   where
+      --   isLoc = \case
+      --     Loc loc -> Just loc
+      --     _       -> Nothing
+      --
+      -- filterTags :: Value -> Set Tag
+      -- filterTags (valueToList -> vs) =
+      --   Set.fromList $ forMaybe (toList vs) $
+      --     \case
+      --       VNode tag _ -> Just tag
+      --       _           -> Nothing
 
   go (Bind t1 (splitLaltWithVars -> (mkAlt, t2, xs))) =
     liftA2 (\t1 t2 -> t1 `Bind` mkAlt t2) (go t1) (varLocals xs (go t2))

@@ -96,8 +96,8 @@ escapechar=!,
 }
 
 \title{ Precise reference counting for lazy functional languages with interprocedural analysis}
-\author{Martin Fredin}
-\date{June 2023}
+\author{Martin Fredin \\ \texttt{fredinm@chalmers.se}}
+\date{2023}
 
 \begin{document}
 
@@ -135,7 +135,7 @@ Still, tracing garbage collectors are usually favored over reference counting im
 
 \citet{reinking2021} reexamine reference counting with a new approach, utilizing static guarantees to make the algorithm precise so objects can be deallocated as soon as possible.
 They present a formalized algorithm called Perceus, which ensures preciseness. 
-Perceus is implemented in the functional language Koka, along with two optimizations for reducing reference counting operations and reusing memory.
+Perceus is implemented in the functional language Koka, along with optimizations for reducing reference counting operations and reusing memory.
 This, builds upon previous work by \citet{ullrich2021} in the Lean programming language and theorem prover. 
 
 Both Koka and Lean are, however, eagerly evaluated. 
@@ -226,20 +226,19 @@ that the scrutinee is always a variable, and the alternatives cannot be nested o
 Following is the treeless representation of \AgdaFunction{downFrom}.
 
 \begin{lstlisting}[language=treeless, xleftmargin=24pt]
-downFrom x$₁$ = case x$₁$ of
+downFrom x7 = case x7 of
   0 → []
-  _ → let x$₂$ = 1
-          x$₃$ = _-_ x$₁$ x$₂$
-          x$₄$ = downFrom x$₃$ in 
-      _$∷$_ x$₃$ x$₄$
+  _ → let x5 = 1
+          x4 = _-_ x7 x5
+          x3 = downFrom x4 in 
+      _$∷$_ x4 x3
 \end{lstlisting}
 The implementation uses de Bruijn indices to represent variables, but this paper uses variable names to make it more readable. 
 During this phase, we also transform the program so applications only take variables as operands.
 
-GRIN is very similar to the treeless syntax, but instead of the let-expressions we use the builtin state monad to bind variables and sequence operations.
+GRIN is very similar to the treeless syntax, but instead of let-expressions we use the builtin state monad to bind variables and sequence operations.
 The monadic operations are \lstinline{unit}, \lstinline{store}, \lstinline{fetch}, and \lstinline{update}. 
 The bind operator ";" is infix and right-associative.
-
 We can translate "\lstinline[language=treeless]{let x = $\emph{val}$ in foo x}" lazily
 by allocating the value and passing the pointer as an argument to the function: "\lstinline[]{store $\emph{val}$ ; λ x → foo x}".
 Here, \emph{val} must be a constant node value. 
@@ -250,23 +249,24 @@ The node arguments are usually pointers to other heap-allocated nodes, but they 
 For example, the boxed integer tag \lstinline{Cnat} accepts one unboxed integer.
 
 \begin{lstlisting}[xleftmargin=24pt]
-downFrom x$₁$ =
-  eval x$₁$ ; λ Cnat x$₂$ →
-  case x$₂$ of
-    0 → unit ([])
+downFrom x7 =
+  eval x7 ; λ Cnat x6 →
+  case x6 of
+    0 → unit (C[])
     _ →
-      store (Cnat 1) ; λ x$₃$ →
-      store (F_-_ x$₁$ x$₃$) ; λ x$₄$ →
-      store (FdownFrom x$₄$) ; λ x$₅$ →
-      unit (C_$∷$_ x$₄$ x$₅$)
+      store (Cnat 1) ; λ x5 →
+      store (F_-_ x7 x5) ; λ x4 →
+      store (FdownFrom x4) ; λ x3 →
+      unit (C_$∷$_ x4 x3)
 \end{lstlisting}
 
+\label{sec:analysis-and-transformations}
 \subsection{Analysis and transformations}
 The most important GRIN transformation is \emph{eval inlining}. 
 \lstinline{eval} is a normal GRIN function which forces suspended computations to its weak head normal form.
 There are no suspended computations in GRIN and all values are weak head normal form.
 Thus, "suspended computation" and "weak head normal form" should always refer to the corresponding representation in the source program.
-In the above function, "\lstinline{eval x$₁$ ; λ Cnat x$₂$ → ...}" evaluates the value at the pointer (\lstinline{x$₁$}) to a boxed integer \lstinline{Cnat x$₂$}.
+In the above function, "\lstinline{eval x7 ; λ Cnat x6 → ...}" evaluates the value at the pointer (\lstinline{x7}) to a boxed integer \lstinline{Cnat x6}.
 
 Eval inlining generates a specialized \lstinline{eval} function for each call site.
 To evaluate a suspended computation, we load the node from the heap using \lstinline{fetch}. 
@@ -276,28 +276,28 @@ Function nodes need to be evaluated by applying the arguments to the correspondi
 Finally, the heap is updated with the evaluated value.
 
 \begin{lstlisting}[xleftmargin=24pt]
-downFrom x$₁$ =
-  (fetch x$₁$ ; λ x$₆$ →
-   (case x$₆$ of
-      Cnat x$₇$ → unit (Cnat x$₇$)
-      F_-_ x$₈$ x$₉$ → _-_ x$₈$ x$₉$
-   ) ; λ x$_{10}$ →
-   update x$₁$ x$_{10}$ ; λ () →
-   unit x$_{10}$
-  ) ; λ Cnat x$₂$ →
-  case x$₂$ of
-    0 → unit ([])
+downFrom x7 =
+  (fetch x7 ; λ x34 →
+   (case x34 of
+      Cnat x36 → unit (Cnat x36)
+      F_-_ x37 x38 → _-_ x37 x38
+   ) ; λ x35 →
+   update x7 x34 ; λ () →
+   unit x35
+  ) ; λ Cnat x6 →
+  case x6 of
+    0 → unit (C[])
     _ →
-      store (Cnat 1) ; λ x$₃$ →
-      store (F_-_ x$₁$ x$₃$) ; λ x$₄$ →
-      store (FdownFrom x$₄$) ; λ x$₅$ →
-      unit (C_$∷$_ x$₄$ x$₅$)
+      store (Cnat 1) ; λ x5 →
+      store (F_-_ x7 x5) ; λ x4 →
+      store (FdownFrom x4) ; λ x3 →
+      unit (C_$∷$_ x4 x3)
 \end{lstlisting}
 
 % TODO fix ugly
 Eval inlining require a set of possible nodes for each abstract heap location.
 The set needs to be relatively small, or otherwise an excessive amount of code will be generated.
-We will use the \emph{heap points-to} analysis \citep{johnsson1991}.
+We use the \emph{heap points-to} analysis \citep{johnsson1991}.
 The analysis is interprocedural, meaning that multiple functions need to be analyzed together.
 We will not go into detail about the algorithm, as it is thoroughly described in \citep{boquist1996}. 
 Instead, this paper will only provide a general intuition of the algorithm.
@@ -308,18 +308,21 @@ There are two tags in the case expression: \lstinline{F_-_} and \lstinline{Cnat}
 
 \begin{lstlisting}[xleftmargin=24pt]
 main =
-  store (Cnat 100) ; λ x$_{11}$ →
-  store (FdownFrom x$_{11}$) ; λ x$_{12}$ →
-  sum x$_{12}$ ; λ Cnat x$_{13}$ →
-  printf x$_{13}$
+  store (Cnat 100) ; λ x20 →
+  store (FdownFrom x20) ; λ x19 →
+  sum x19 ; λ Cnat x18 →
+  printf x18
 \end{lstlisting}
 
-\citeauthor{boquist1999}'s thesis contains 24 transformations divided into two groups: simplifying transformations and optimizing 
+\citeauthor{boquist1999}'s thesis presents 24 transformations divided into two groups: simplifying transformations and optimizing 
 transformations \citep{boquist1999}. 
 The simplifying transformations are necessary for the code generator and are all implemented, except \emph{inlining calls to apply}
 which is used for partially applied functions. 
-For the optimizing transformations, only \emph{copy propagation} is implemented.
-% TODO describe many powerful optimization like inlining, arity raising, and general unboxing.
+The optimizing transformations significantly alter the program and achieve similar effects to deforestation \citep{wadler1988} and listlessness \citep{wadler1984}.
+We have only implemented \emph{copy propagation}.
+This project aims to combine lazy functional programming with precise reference counting. 
+Producing the most optimized code is out of the scope of this project. 
+However, this is something we would like to explore in future research.
 
 \section{Precise reference counting}
 After the GRIN transformations, we insert reference counting operations to automatically manage memory.
@@ -330,73 +333,15 @@ Our implementation uses GRIN which have explicit memory operations and different
 In this section, we give brief a overview of the algorithm and discuss some challenges when adapting Perceus to GRIN. 
 We also describe two optimizations: \emph{drop specialization} and \emph{dup/drop fusion}.
 
-% The key idea of precise reference counting is assigning and transfer ownership. 
-% When a node is stored to the heap, 
-
 The algorithm uses two sets of resource tokens; an owned environment and a borrowed environment. 
-Elements in the owned environment must be \emph{consumed} exactly once. 
+Elements in the owned environment must be consumed exactly once. 
 We consume a value by calling the function \lstinline{drop}, or by transfer ownership to another consumer.
 An example of this is \lstinline{main} which require no reference counting operations because it transfers ownership of both of its allocations.
-The allocation "\lstinline{store (Cnat 100) ; λ x$_{11}$ →}" is consumed by the suspended computation "\lstinline{store (FdownFrom x$_{11}$) ; λ x$_{12}$ →}", which in turn is consumed by "\lstinline{sum x$_{12}$}".
+The allocation "\lstinline{store (Cnat 100) ; λ x20 →}" is consumed by the suspended computation "\lstinline{store (FdownFrom x20) ; λ x19 →}", which in turn is consumed by "\lstinline{sum x19}".
 Elements in the borrowed environment can only be applied to non-consuming operations, such as pattern matching. 
 We can promote an element from the borrowed environment to the owned environment by calling the function \lstinline{dup}.
 
-To adapt Perceus to GRIN, TODO
-
-\begin{enumerate}
-\item
-Are all variables be reference counted? 
-\item
-Do bindings extend the borrowed environment or the owned environment?
-\item
-Which operations consume references? 
-\end{enumerate}
-
-
-
-
-%Figure \ref{fig:drop-insert} presents the function \lstinline{sum} after the GRIN transformations with reference counting operations.
-%The point-to analysis has determined 
-
-\begin{itemize}
-\item
-One of the goals of GRIN is to improve register utilization for lazy functional languages \citep{boquist1999}.
-As such, the result of function applications, \lstinline{fetch}, and \lstinline{unit} are regular values stored in registers.
-There is no point to reference count values in registers, so we need to treat pointer variables and non-pointer variables differently.
-This is in contrast to the calculus which Perceus is defined for, $λ₁$, where all values except for variables are heap-allocated \citep{reinking2021}.
-Another difference is that functions in GRIN are not allowed to return pointers. 
-Moreover, all function calls return \emph{explicit nodes} rather than node variables. 
-For example: "\lstinline{downFrom x40 ; λ x59 x60 x61 → ...}".
-This i problematic because \lstinline{x60} and \lstinline{x61} are undefined when \lstinline{downFrom} returns the empty list.
-
-\item
-Another challenge is the builtin operations \lstinline{fetch} and \lstinline{update}, which uses a reference but does not consume it.
-This is similar to how \lstinline{dup} does not consume their reference.
-However, one crucial difference is that \lstinline{dup} do not interfere with algorithm.
-To solve this, we need to introduce borrowing for \lstinline{fetch} and \lstinline{update}.
-\item
-When a node is stored to the heap, the reference count is set to one and the allocating function is responsible for decrementing the counter and potentially freeing the object.
-A function may instead transfer this responsibility to another \emph{consumer}. 
-\item
-Ownership can be transferred to either another function or a node (suspended function call or a constructor).
-Consuming the resources 
-A resource is consumed by calling the function \lstinline{drop}.
-\item
-In GRIN, we have to be explicit about allocations, retrieving nodes from the heap, and overwriting heap nodes.
-As a result, the Perceus reference counting primitives \texttt{dup}, \texttt{drop}, \texttt{is-unique}, \texttt{decref}, and \texttt{free} 
-can be described with GRIN's exisiting constructs.
-\footnote{This only possible in our slightly modified version of GRIN. 
-\citeauthor{boquist1999}'s specification of GRIN could not overwrite individual fields of a heap node using \texttt{update}.}
-Although, GRIN does not have a primitive for freeing memory, this can be simulated by a function call 
-to libc's \texttt{free}.
-\item
-\item 
-See Figure \ref{fig:drop-specialization}.
-\item 
-Crucial to specialize drops because of big drop function.
-\end{itemize}
- 
-\begin{figure*}[hptb]
+\begin{figure*}[hp]
 \begin{mdframed}
 \centering
 \setlength{\fboxsep}{0pt} % padding for border
@@ -406,15 +351,15 @@ Crucial to specialize drops because of big drop function.
 sum x14 =
   fetch x14 [2] ; λ x40 →
   downFrom x40 ; λ x59 x60 x61 →
-  case 2 of
+  case x59 of
     [] →
-      update x14 ([]) ; λ () →
+      update x14 (C[]) ; λ () →
       !\hl{drop x14 ; λ () →}!
       unit (Cnat 0)
     _$∷$_ →
       !\hl{dup x61 ; λ () →}!
       !\hl{dup x60 ; λ () →}!
-      update x14 (_$∷$_ x60 x61) ; λ () →
+      update x14 (C_$∷$_ x60 x61) ; λ () →
       !\hl{drop x14 ; λ () →}!
       store (Fsum x61) ; λ x10 →
       _+_ x10 x61
@@ -428,10 +373,10 @@ sum x14 =
 sum x14 =
   fetch x14 [2] ; λ x40 →
   downFrom x40 ; λ x59 x60 x61 →
-  case 2 of
+  case x59 of
     [] →
-      update x14 ([]) ; λ () →
-      fetch 4 [0] ; λ x499 →
+      update x14 (C[]) ; λ () →
+      fetch x14 [0] ; λ x499 →
       (case x499 of
          1 → free x14
          _ →
@@ -442,16 +387,16 @@ sum x14 =
     _$∷$_ →
       !\hl{dup x61 ; λ () →}!
       !\hl{dup x60 ; λ () →}!
-      update x14 (_$∷$_ x60 x61) ; λ () →
-      fetch 4 [0] ; λ x501 →
+      update x14 (C_$∷$_ x60 x61) ; λ () →
+      fetch x14 [0] ; λ x501 →
       (case x501 of
          1 →
            !\hl{drop x61 ; λ () →}!
            !\hl{drop x60 ; λ () →}!
-           free 5
+           free x14
          _ →
            PSub x501 1 ; λ x500 →
-           update 6 [0] x500
+           update x14 [0] x500
       ) ; λ () →
       store (Fsum x61) ; λ x10 →
       _+_ x10 x61
@@ -464,10 +409,10 @@ sum x14 =
 sum x14 =
   fetch x14 [2] ; λ x40 →
   downFrom x40 ; λ x59 x60 x61 →
-  case 2 of
+  case x59 of
     [] →
-      update x14 ([]) ; λ () →
-      fetch 4 [0] ; λ x499 →
+      update x14 (C[]) ; λ () →
+      fetch x14 [0] ; λ x499 →
       (case x499 of
          1 → free x14
          _ →
@@ -476,16 +421,16 @@ sum x14 =
       ) ; λ () →
       unit (Cnat 0)
     _$∷$_ →
-      update x14 (_$∷$_ x60 x61) ; λ () →
-      fetch 4 [0] ; λ x501 →
+      update x14 (C_$∷$_ x60 x61) ; λ () →
+      fetch x14 [0] ; λ x501 →
       (case x501 of
          1 →
-           free 5
+           free x14
          _ →
            !\hl{dup x61 ; λ () →}!
            !\hl{dup x60 ; λ () →}!
            PSub x501 1 ; λ x500 →
-           update 6 [0] x500
+           update x14 [0] x500
       ) ; λ () →
       store (Fsum x61) ; λ x10 →
       _+_ x10 x61
@@ -496,59 +441,101 @@ sum x14 =
 \label{fig:dup/drop-fusion}
 \end{subfigure}
 \end{mdframed}
-\caption{Perceus...}
-\label{fig:drop-specialization}
+\caption{Perceus transformations}
+\label{fig:perceus}
 \end{figure*}
 
+Figure \ref{fig:drop-insert} presents the function \lstinline{sum} with reference counting operations inserted and highlighted in gray.
+Many aspects of adapting Perceus to GRIN are present in \lstinline{sum}. 
+For example, we can conclude that the operations \lstinline{fetch} and \lstinline{update} must be borrowing operations. 
+This is evident because both \lstinline{fetch} and \lstinline{update} use \lstinline{x14} prior to it being explicitly dropped.
+We can also conclude that \lstinline{fetch} bind variables that extend the owned environment.
+Meanwhile, the bound variables of function applications extend the borrowed environment.
 
+One of the goals of GRIN is to improve register utilization for lazy functional languages \citep{boquist1999}.
+As such, the result of function applications, \lstinline{fetch}, and \lstinline{unit} are regular values stored in registers.
+There is no point to reference count values in registers, so we need to treat pointer variables and non-pointer variables differently.
+This is in contrast to the calculus which Perceus is defined for, $λ₁$, where all values except variables are heap-allocated \citep{reinking2021}.
+Another difference is that functions in GRIN are not allowed to return unboxed pointers. 
+Moreover, all function calls return explicit nodes rather than node variables. 
+For example: "\lstinline{downFrom x40 ; λ x59 x60 x61 → ...}".
+This i problematic because \lstinline{x60} and \lstinline{x61} are undefined when \lstinline{downFrom} returns the empty list.
+Therefore, we are only allowed to \lstinline{dup} the variables once the tag is known.
 
-\section{LLVM code generator}
-\begin{itemize}
-\item GRIN in unopinonated about the node representation. There only on reguiremnt: there should be 
-      an easy way to extract the tag.
-\item Explain node structure \texttt{[4 x i64]}
-\item Short text about tailcalls
-\item Currenlty we do not need a type system because all functions 
-      return full nodes but after the general unboxing transformation 
-      this will change. \citet{podlovics2021} have also developed a 
-      LLVM back-end for GRIN and they needed a type system for the mentioned 
-      reason.
-\item Currenlty we use libc's \texttt{malloc} and \texttt{free}, however, \citeauthor{pinto2023} suggest that these should be implemented in assembly.
-\item Non-atomic reference count operations.
-\end{itemize}
+As a result of GRIN's explicit memory operations, we can describe the Perceus primitives \lstinline{dup}, \lstinline{drop}, \lstinline{is-unique}, \lstinline{decref}, and \lstinline{free} with GRIN's existing constructs.
+GRIN lacks a primitive for deallocating memory, so \lstinline{free} is just a foreign function call to libc's \lstinline{free}. 
+However, our implementation of \lstinline{drop} is unsatisfactory. 
+Nodes of different tags vary in arity and the arguments can be either boxed or unboxed.
+Therefore, we need to pattern match on all possible tags to drop the child references. 
+This is similar to the problem with a general \lstinline{eval} function (Section \ref{sec:analysis-and-transformations}). 
+A crucial difference is that \lstinline{drop} is recursive, so we cannot always eliminate the general function by specialization and inlining.
+In Figure \ref{fig:drop-spec}, we specialize both calls to \lstinline{drop}.
+This eliminates all reference counting operations in the branch for the empty list.
+Then, we push down the \lstinline{dup} operations and eliminate \lstinline{dup}/\lstinline{drop} pairs.
+This optimization is called \emph{dup/drop fusion} and the result is presented in Figure \ref{fig:dup/drop-fusion}.
+We can eliminate the general \lstinline{drop} function completely for our example program, but this is not always the case. 
+\citeauthor{reinking2021} presents an additional optimization called \emph{reuse analysis}, which perfoms destructive updates when possible.
+This transformation is not yet implemented.
 
 \section{Result}
+We have implemented a GRIN interpreter and an LLVM code generator to check that our compiler works and that the programs reclaim all the allocated memory. 
+Our implementation of the code generator is simple. 
+GRIN does not demand a specific memory layout for the node values.
+The only requirements are that tags should be unique and easy to extract \citep{boquist1999}.
+We use an array of four 64-bit integer values for all heap-allocated nodes. 
+The first two address spaces contain the reference count and the tag, respectively.
+The node arguments occupy the rest of the array.
+LLVM IR is a statically typed language, while GRIN is untyped.
+This discrepancy is not an issue because all functions return nodes, and all variables are pointers or integers.
+Hence, we store the pointers as integer values and convert them to the pointer type (\lstinline{ptr}) as required.
+However, we will probably develop a type system for GRIN once we switch to a more sophisticated memory layout and implement the \emph{general unboxing} optimization \citep{boquist1999}.
 
-To test that our compiler back-end actually works and that all memory is reclaimed, we implemented a GRIN interpreter and a LLVM code generator.
-We discovered that our back-end allocate many objects. 
+The GRIN interpreter is convenient because it can evaluate all programs after the eval inlining transformation. 
+Meanwhile, the code generator only works for programs after the simplifying transformations (see Section \ref{sec:analysis-and-transformations}).
+It is also easier to collect information on the program evaluation.
+For instance, the final version of our example program allocates the following nodes: 101 \lstinline{Cnat}, 101 \lstinline{FdownFrom}, 100 \lstinline{F_-_},  and 100 \lstinline{Fsum}.
+A total of 402 allocations for our tiny example program is excessive. 
+The main culprit is too much laziness. 
+Another contributing factor is that we always allocate new memory instead of reusing previous allocations
 
-There are 402 allocations in our example program (page 2): 
-101 \texttt{Cnat} nodes, 101 \texttt{FdownFrom} nodes, 100 \texttt{F\_-\_} nodes, 100 \texttt{Fsum} nodes.
+% \begin{itemize}
+% \item Short text about tailcalls
+% \item Currenlty we use libc's \texttt{malloc} and \texttt{free}, however, \citeauthor{pinto2023} suggest that these should be implemented in assembly.
+% \end{itemize}
 
-\begin{itemize}
-\item Stack overflows (tail calls partly remedy this)
-\item Integer overflow
-\item The necessary parts of GRIN and Perceus is implemented but a lot of optimizations are 
-      left on the table. In GRIN we have mostly implemented the necessary simplifying transformations,
-      which turns GRIN into a state which is suitable for the code generator.
-      We haven't implemented drop specialization or heap reuse analysis.
-\end{itemize}
+% There are 402 allocations in our example program (page 2): 
 
-\section{Relevant Work}
+% \begin{itemize}
+% \item Stack overflows (tail calls partly remedy this)
+% \item Integer overflow
+% \item The necessary parts of GRIN and Perceus is implemented but a lot of optimizations are 
+      % left on the table. In GRIN we have mostly implemented the necessary simplifying transformations,
+      % which turns GRIN into a state which is suitable for the code generator.
+      % We haven't implemented drop specialization or heap reuse analysis.
+% \end{itemize}
+
+% \section{Relevant Work}
 % Lean and Koka: reference counting and reuse
 % Swift: automatic reference counting (ARC), and plans of borrowing
 % AST \& Rust: safe manual memory management through proofs and the borrow checker, respectively
-
 \section{Conclusion and Future Work}
-\begin{itemize}
-\item It would cool to benchmark our work but we lack many optimization.
-\item The current implementation of GRIN and Perceus have not yet implementation many optimization transformations. For example, GRIN lacks function inlining, generalized unboxing, and arity raising. Perceus lacks it two most import transformations; drop specialization and reuse analysis.
-\item Another huge optimization on is a strictness analysis. 
-\item Add reuse and borrowing
-\item Utilse GRIN's whole program compilation strategy and the heap points-to analysis to statically determine unshared values during compile time, and thus minimizing the number of reference countinging operations.
-\item It would also be intresting to utilse 0-modality (erasure) in Agda's type system, and later also 1-modality when Agda gets it.
-\item In the current naive implementation drop enumerates all the possible tags 
-\end{itemize}
+In this paper, we combine lazy functional programming with precise reference counting.
+Our implementation compiles Agda to GRIN and extends GRIN with precise reference counting instructions. 
+Then, we compile GRIN to LLVM and show that the program reclaims all the memory.
+Currently, our implementation allocates a lot of nodes. 
+In future research, we would like to minimize allocations by implementing the rest of the GRIN optimizing transformations and the Perceus reuse analysis.
+We are also interested in developing a type system for GRIN and compiling a larger set of Agda programs.
+
+% \begin{itemize} 
+% \item implement reuse analysis and the rest of transformation to avoid uneccessary allocations and laziness.
+%\item It would cool to benchmark our work but we lack many optimization.
+%\item The current implementation of GRIN and Perceus have not yet implementation many optimization transformations. For example, GRIN lacks function inlining, generalized unboxing, and arity raising. Perceus lacks it two most import transformations; drop specialization and reuse analysis.
+%\item Another huge optimization on is a strictness analysis. 
+%\item Add reuse and borrowing
+%\item Utilse GRIN's whole program compilation strategy and the heap points-to analysis to statically determine unshared values during compile time, and thus minimizing the number of reference countinging operations.
+%\item It would also be intresting to utilse 0-modality (erasure) in Agda's type system, and later also 1-modality when Agda gets it.
+%\item In the current naive implementation drop enumerates all the possible tags 
+%\end{itemize}
 
 % Lambda lifting
 % The rest of the GRIN transformations and optimizations

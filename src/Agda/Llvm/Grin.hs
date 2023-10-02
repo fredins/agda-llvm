@@ -100,6 +100,7 @@ pattern UpdateTag tag n v = Update (Just tag) n v
 
 pattern Drop n = App (Def "drop") [Var n]
 pattern Dup n = App (Def "dup") [Var n]
+pattern Decref n = App (Def "decref") [Var n]
 
 store :: MonadFresh Int m => Val -> m Term
 store t = (`Store` t) <$> freshLoc

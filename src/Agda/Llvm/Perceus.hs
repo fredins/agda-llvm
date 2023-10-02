@@ -514,12 +514,20 @@ drop x₀ =
     _ →
       decref 0
 -}
+
+
+
 mkDrop :: forall mf. MonadFresh Int mf => [GrinDefinition] -> mf GrinDefinition
 mkDrop defs = do
-  decref' <- decref
-  unique' <- unique
-  term <- FetchOpaqueOffset 0 0 `bindVar`
-          Case (Var 0) decref' [CAltLit (LitNat 1) unique']
+  decref <- 
+    App (Prim PSub) [Var 0, mkLit 1] `bindVar`
+    UpdateOffset 2 0 (Var 0)
+  unique <- 
+    FetchOpaqueOffset 1 1 `bindVarR`
+    Case (Var 0) Unreachable <$> mapM mkAlt tags
+  term <- 
+    FetchOpaqueOffset 0 0 `bindVar`
+    Case (Var 0) decref [CAltLit (LitNat 1) unique]
 
   arg <- freshAbs
   pure GrinDefinition
@@ -534,16 +542,6 @@ mkDrop defs = do
     }
   where
   tags = Set.toList $ foldMap (gatherTags . gr_term) defs
-
-  decref :: mf Term
-  decref =
-    App (Prim PSub) [Var 0, mkLit 1] `bindVar`
-    UpdateOffset 2 0 (Var 0)
-
-  unique :: mf Term
-  unique =
-    FetchOpaqueOffset 1 1 `bindVarR`
-    Case (Var 0) Unreachable <$> mapM mkAlt tags
 
   -- TODO big layout
   mkAlt :: Tag -> mf CAlt

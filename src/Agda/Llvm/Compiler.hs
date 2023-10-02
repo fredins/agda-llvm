@@ -236,7 +236,7 @@ llvmPostCompile _ _ mods = do
 
   -- printInterpretGrin defs_leftUnitLaw
 
-  defs_specializeUpdate <- mapM (specializeUpdate absCxt) defs_leftUnitLaw
+  defs_specializeUpdate <- mapM (specializeUpdate tagInfo_inlineEval) defs_leftUnitLaw
   liftIO $ do
     putStrLn "\n------------------------------------------------------------------------"
     putStrLn "-- * Specialize Update"
@@ -289,7 +289,7 @@ llvmPostCompile _ _ mods = do
     putStrLn "------------------------------------------------------------------------\n"
     putStrLn $ intercalate "\n\n" $ map prettyShow defs_splitFetch
 
-  --printInterpretGrin defs_splitFetch
+  -- printInterpretGrin defs_splitFetch
 
   let defs_leftUnitLaw = map (updateGrTerm leftUnitLaw) defs_splitFetch
   liftIO $ do
@@ -318,18 +318,23 @@ llvmPostCompile _ _ mods = do
 
   -- printInterpretGrin defs_evaluateCase
 
+
+
   defs_perceus <- map (updateGrTerm normalise) <$> mapM perceus defs_evaluateCase
+
+  defs_mem <- do 
+    drop <- mkDrop defs_rightHoistFetch
+    dup <- mkDup 
+    pure [drop, dup]
+
   liftIO $ do
     putStrLn "\n------------------------------------------------------------------------"
     putStrLn "-- * Perceus"
     putStrLn "------------------------------------------------------------------------\n"
-    putStrLn $ intercalate "\n\n" (map prettyShow defs_perceus) ++ "\n"
-  
-
-  defs_dupdrop <- liftA2 (\x y -> [x, y]) mkDup (mkDrop defs_rightHoistFetch)
+    putStrLn $ intercalate "\n\n" (map prettyShow $ defs_perceus ++ defs_mem) ++ "\n"
 
   -- liftIO $ removeFile "trace.log"
-  printInterpretGrin (defs_perceus ++ defs_dupdrop)
+  -- printInterpretGrin (defs_perceus ++ defs_mem)
 
   defs_specializeDrop <- map (updateGrTerm normalise) <$> mapM specializeDrop defs_perceus
   liftIO $ do
@@ -338,7 +343,7 @@ llvmPostCompile _ _ mods = do
     putStrLn "------------------------------------------------------------------------\n"
     putStrLn $ intercalate "\n\n" (map prettyShow defs_specializeDrop) ++ "\n"
 
-  printInterpretGrin (defs_specializeDrop ++ defs_dupdrop)
+  -- printInterpretGrin (defs_specializeDrop ++ defs_mem)
 
 
   let defs_pushDownDup = map (updateGrTerm pushDownDup) defs_specializeDrop
@@ -348,7 +353,7 @@ llvmPostCompile _ _ mods = do
     putStrLn "------------------------------------------------------------------------\n"
     putStrLn $ intercalate "\n\n" (map prettyShow defs_pushDownDup) ++ "\n"
 
-  printInterpretGrin (defs_pushDownDup ++ defs_dupdrop)
+  -- printInterpretGrin (defs_pushDownDup ++ defs_mem)
 
   let defs_fuseDupDrop = map (updateGrTerm fuseDupDrop) defs_pushDownDup
   liftIO $ do
@@ -357,7 +362,7 @@ llvmPostCompile _ _ mods = do
     putStrLn "------------------------------------------------------------------------\n"
     putStrLn $ intercalate "\n\n" (map prettyShow defs_fuseDupDrop) ++ "\n"
 
-  printInterpretGrin (defs_fuseDupDrop ++ defs_dupdrop)
+  printInterpretGrin (defs_fuseDupDrop ++ defs_mem)
 
 
 
@@ -373,7 +378,7 @@ llvmPostCompile _ _ mods = do
   -- res_introduceRegisters <- interpretGrin defs_introduceRegisters
   -- liftIO $ putStrLn $ "\nResult: " ++ show res_introduceRegisters
 
-  let (llvm_ir, tagsToInt) = grinToLlvm (defs_fuseDupDrop ++ defs_dupdrop)
+  let (llvm_ir, tagsToInt) = grinToLlvm (defs_fuseDupDrop ++ defs_mem)
       header =
         unlines
           [ "target triple = \"x86_64-unknown-linux-gnu\""
@@ -708,11 +713,13 @@ mkGlobalTys defs =
       | getShortName def == "main" = ([], L.Void)
       | getShortName def == "drop" = ([L.I64], L.Void)
       | getShortName def == "dup"  = ([L.I64], L.Void)
+      -- | getShortName def == "decref"  = ([L.I64], L.Void)
       | otherwise = (replicate def.gr_arity L.I64, L.nodeTySyn)
 
 mkCont :: GrinDefinition -> Continuation
 mkCont (getShortName -> "drop") instruction = pure [instruction, L.RetVoid]
 mkCont (getShortName -> "dup")  instruction = pure [instruction, L.RetVoid]
+-- mkCont (getShortName -> "decref")  instruction = pure [instruction, L.RetVoid]
 mkCont _ i = do
   (x_unnamed, i_setVar) <- first L.LocalId <$> setVar i
   pure [i_setVar, L.RetNode x_unnamed]
