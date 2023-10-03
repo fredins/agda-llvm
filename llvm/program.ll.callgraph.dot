@@ -1,0 +1,32 @@
+digraph "Call graph: program.ll" {
+	label="Call graph: program.ll";
+
+	Node0x12b3f40 [shape=record,label="{printf}"];
+	Node0x12a4470 [shape=record,label="{malloc}"];
+	Node0x129f1e0 [shape=record,label="{free}"];
+	Node0x129f6c0 [shape=record,label="{DownFrom.downFrom}"];
+	Node0x129f6c0 -> Node0x129f740;
+	Node0x129f6c0 -> Node0x129f1e0;
+	Node0x129f6c0 -> Node0x12a4470;
+	Node0x129f6c0 -> Node0x129dd80;
+	Node0x129aba0 [shape=record,label="{DownFrom.sum}"];
+	Node0x129aba0 -> Node0x129f6c0;
+	Node0x129aba0 -> Node0x129f1e0;
+	Node0x129aba0 -> Node0x12b6130;
+	Node0x129aba0 -> Node0x129dd80;
+	Node0x129aba0 -> Node0x12a4470;
+	Node0x12b61b0 [shape=record,label="{main}"];
+	Node0x12b61b0 -> Node0x12a4470;
+	Node0x12b61b0 -> Node0x129aba0;
+	Node0x12b6130 [shape=record,label="{Agda.Builtin.Nat._+_}"];
+	Node0x12b6130 -> Node0x129aba0;
+	Node0x12b6130 -> Node0x129f1e0;
+	Node0x12b6130 -> Node0x129f740;
+	Node0x129f740 [shape=record,label="{Agda.Builtin.Nat._-_}"];
+	Node0x129f740 -> Node0x129f740;
+	Node0x129f740 -> Node0x129f1e0;
+	Node0x12b62e0 [shape=record,label="{drop}"];
+	Node0x12b62e0 -> Node0x129f1e0;
+	Node0x12b62e0 -> Node0x12b62e0;
+	Node0x129dd80 [shape=record,label="{dup}"];
+}

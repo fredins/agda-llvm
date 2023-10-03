@@ -21,6 +21,21 @@ css: Agda.css
   ```
 
 
+### W.38 & W.39
+
+Read the following:
+
+ - @teeuwissen2023
+ - @wadler1984
+
+Did the following: 
+
+- Modified the Perceus algorithm so arguments are dupped by caller instead of the callee (See report of details).
+
+- Implemented _drop specialization_ and _dup/drop fusion_ to avoid reference counting operations (See report for details).
+
+- Wrote sections 2, 3, 4, and 5. The report is basically finished but it lacks a related works section.
+
 ### W.37
 
 Read the following:

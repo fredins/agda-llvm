@@ -157,7 +157,7 @@ simplifyAppAlts = map go
   where
   go alt@TACon{aBody} = alt{aBody = simplifyApp aBody}
   go alt@TALit{aBody} = alt{aBody = simplifyApp aBody}
-  go _                = error "TODO"
+  go alt                = error $ "TODO " ++ (show alt)
 
 
 -- Split arguments on the first application or constructor

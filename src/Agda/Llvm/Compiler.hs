@@ -51,7 +51,7 @@ import           Agda.TypeChecking.Substitute
 import           Agda.Utils.Applicative         (forA)
 import           Agda.Utils.Function            (applyWhen, applyWhenM)
 import           Agda.Utils.Functor
-import           Agda.Utils.Impossible
+import           Agda.Utils.Impossible (__IMPOSSIBLE__)
 import           Agda.Utils.Lens
 import           Agda.Utils.List
 import           Agda.Utils.List1               (List1, pattern (:|), (<|))
@@ -111,7 +111,7 @@ llvmCommandLineFlags =
 llvmPreCompile :: LlvmOptions -> TCM LlvmEnv
 llvmPreCompile _ = pure LlvmEnv
 
--- TODO need to filter unreachable functions
+-- TODO need to filter Unreachable functions
 llvmCompileDef :: LlvmEnv
                -> LlvmModuleEnv
                -> IsMain
@@ -236,16 +236,7 @@ llvmPostCompile _ _ mods = do
 
   -- printInterpretGrin defs_leftUnitLaw
 
-  defs_vectorize <- mapM (lensGrTerm $ vectorize tagInfo_inlineEval) defs_leftUnitLaw
-  liftIO $ do
-    putStrLn "\n------------------------------------------------------------------------"
-    putStrLn "-- * Vectorization"
-    putStrLn "------------------------------------------------------------------------\n"
-    putStrLn $ intercalate "\n\n" $ map prettyShow defs_vectorize
-
-  -- printInterpretGrin defs_vectorize
-
-  defs_specializeUpdate <- mapM (specializeUpdate absCxt) defs_vectorize
+  defs_specializeUpdate <- mapM (specializeUpdate tagInfo_inlineEval) defs_leftUnitLaw
   liftIO $ do
     putStrLn "\n------------------------------------------------------------------------"
     putStrLn "-- * Specialize Update"
@@ -263,7 +254,17 @@ llvmPostCompile _ _ mods = do
 
   -- printInterpretGrin defs_normalize
 
-  let defs_leftUnitLaw = map (updateGrTerm leftUnitLaw) defs_normalize
+  defs_vectorize <- mapM (lensGrTerm $ fmap constantNodeUpdate . vectorize tagInfo_inlineEval) defs_normalize
+  liftIO $ do
+    putStrLn "\n------------------------------------------------------------------------"
+    putStrLn "-- * Vectorization"
+    putStrLn "------------------------------------------------------------------------\n"
+    putStrLn $ intercalate "\n\n" $ map prettyShow defs_vectorize
+
+  -- printInterpretGrin defs_vectorize
+
+
+  let defs_leftUnitLaw = map (updateGrTerm leftUnitLaw) defs_vectorize
   liftIO $ do
     putStrLn "\n------------------------------------------------------------------------"
     putStrLn "-- * Left unit law"
@@ -288,7 +289,7 @@ llvmPostCompile _ _ mods = do
     putStrLn "------------------------------------------------------------------------\n"
     putStrLn $ intercalate "\n\n" $ map prettyShow defs_splitFetch
 
-  --printInterpretGrin defs_splitFetch
+  -- printInterpretGrin defs_splitFetch
 
   let defs_leftUnitLaw = map (updateGrTerm leftUnitLaw) defs_splitFetch
   liftIO $ do
@@ -317,17 +318,53 @@ llvmPostCompile _ _ mods = do
 
   -- printInterpretGrin defs_evaluateCase
 
-  -- liftIO $ removeFile "trace.log"
-  def_dup <- mkDup
-  def_drop <- mkDrop defs_rightHoistFetch
-  defs_perceus <- (++ [def_drop, def_dup]) . map (updateGrTerm normalise) <$> mapM perceus defs_evaluateCase
+
+
+  defs_perceus <- map (updateGrTerm normalise) <$> mapM perceus defs_evaluateCase
+
+  defs_mem <- do 
+    drop <- mkDrop defs_rightHoistFetch
+    dup <- mkDup 
+    pure [drop, dup]
+
   liftIO $ do
     putStrLn "\n------------------------------------------------------------------------"
     putStrLn "-- * Perceus"
     putStrLn "------------------------------------------------------------------------\n"
-    putStrLn $ intercalate "\n\n" (map prettyShow defs_perceus) ++ "\n"
+    putStrLn $ intercalate "\n\n" (map prettyShow $ defs_perceus ++ defs_mem) ++ "\n"
 
-  printInterpretGrin defs_perceus
+  -- liftIO $ removeFile "trace.log"
+  -- printInterpretGrin (defs_perceus ++ defs_mem)
+
+  defs_specializeDrop <- map (updateGrTerm normalise) <$> mapM specializeDrop defs_perceus
+  liftIO $ do
+    putStrLn "\n------------------------------------------------------------------------"
+    putStrLn "-- * Specialize drop"
+    putStrLn "------------------------------------------------------------------------\n"
+    putStrLn $ intercalate "\n\n" (map prettyShow defs_specializeDrop) ++ "\n"
+
+  -- printInterpretGrin (defs_specializeDrop ++ defs_mem)
+
+
+  let defs_pushDownDup = map (updateGrTerm pushDownDup) defs_specializeDrop
+  liftIO $ do
+    putStrLn "\n------------------------------------------------------------------------"
+    putStrLn "-- * Push down dup"
+    putStrLn "------------------------------------------------------------------------\n"
+    putStrLn $ intercalate "\n\n" (map prettyShow defs_pushDownDup) ++ "\n"
+
+  -- printInterpretGrin (defs_pushDownDup ++ defs_mem)
+
+  let defs_fuseDupDrop = map (updateGrTerm fuseDupDrop) defs_pushDownDup
+  liftIO $ do
+    putStrLn "\n------------------------------------------------------------------------"
+    putStrLn "-- * Fuse dup/drop"
+    putStrLn "------------------------------------------------------------------------\n"
+    putStrLn $ intercalate "\n\n" (map prettyShow defs_fuseDupDrop) ++ "\n"
+
+  printInterpretGrin (defs_fuseDupDrop ++ defs_mem)
+
+
 
   -- Not used
   --
@@ -341,7 +378,7 @@ llvmPostCompile _ _ mods = do
   -- res_introduceRegisters <- interpretGrin defs_introduceRegisters
   -- liftIO $ putStrLn $ "\nResult: " ++ show res_introduceRegisters
 
-  let (llvm_ir, tagsToInt) = grinToLlvm defs_perceus
+  let (llvm_ir, tagsToInt) = grinToLlvm (defs_fuseDupDrop ++ defs_mem)
       header =
         unlines
           [ "target triple = \"x86_64-unknown-linux-gnu\""
@@ -537,7 +574,7 @@ termToGrinR (TApp (TCon q) vs) =
 termToGrinR (TLet t1 t2) = termToGrinC t1 `bindVarM` localEvaluatedNoOffset (termToGrinR t2)
 -- Always return a node
 termToGrinR (TCon q) = pure (Unit (constantCNode (prettyShow q) []))
-termToGrinR (TError TUnreachable) = pure unreachable
+termToGrinR (TError TUnreachable) = pure Unreachable
 termToGrinR (TVar n) = maybe (eval n) (Unit . Var) <$> applyEvaluatedOffset n
 
 termToGrinR t = error $ "TODO R scheme: " ++ take 40 (show t)
@@ -676,11 +713,13 @@ mkGlobalTys defs =
       | getShortName def == "main" = ([], L.Void)
       | getShortName def == "drop" = ([L.I64], L.Void)
       | getShortName def == "dup"  = ([L.I64], L.Void)
+      -- | getShortName def == "decref"  = ([L.I64], L.Void)
       | otherwise = (replicate def.gr_arity L.I64, L.nodeTySyn)
 
 mkCont :: GrinDefinition -> Continuation
 mkCont (getShortName -> "drop") instruction = pure [instruction, L.RetVoid]
 mkCont (getShortName -> "dup")  instruction = pure [instruction, L.RetVoid]
+-- mkCont (getShortName -> "decref")  instruction = pure [instruction, L.RetVoid]
 mkCont _ i = do
   (x_unnamed, i_setVar) <- first L.LocalId <$> setVar i
   pure [i_setVar, L.RetNode x_unnamed]
@@ -777,6 +816,33 @@ termToLlvm (FetchOpaqueOffset n offset `Bind` alt)
   | elem @[] offset [0, 1] = fetchToLlvm n offset alt
 termToLlvm (FetchOffset _ n offset `Bind` alt)
   | elem @[] offset [1, 2, 3] = fetchToLlvm n offset alt
+
+
+termToLlvm (FetchOffset _ n 0 `Bind` LAltVar (L.mkLocalId -> x )
+           (Case (Var 0) t1 alts `BindEmpty` t2)) = do 
+  continue <- ("continue_" ++) .  show <$> freshAltNum
+
+  x_ptr <- fromMaybe __IMPOSSIBLE__ <$> varLookup n
+
+  (x_unnamed_ptr, instruction_inttoptr) <- setVar (L.inttoptr x_ptr)
+  (x_unnamed, instruction_getelemtptr) <- setVar (L.getelementptr x_unnamed_ptr 0)
+  let instruction_setVar = L.SetVar x (L.load L.I64 x_unnamed)
+
+  instructions1 <- varLocal x $ continuationLocal 
+                     (\instruction ->  pure [instruction, L.Br $ L.mkLocalId continue]) 
+                     (termToLlvm $ Case (Var 0) t1 alts)
+
+  instructions2 <- varLocal x_ptr (termToLlvm t2)
+
+  let instruction_continue = L.Label continue instructions2
+
+  pure $
+    [ instruction_inttoptr 
+    , instruction_getelemtptr 
+    , instruction_setVar ] <> 
+     (instructions1 |> 
+      instruction_continue)
+  
 
 termToLlvm (App (Prim prim) [v1, v2] `Bind` alt) = do
   let op = case prim of
@@ -875,7 +941,7 @@ termToLlvm (UpdateOffset n offset v) = do
     <> instructions2
 
 termToLlvm (Error TUnreachable) = pure $ List1.singleton L.Unreachable
-termToLlvm t = error $ "BAD: " ++ show t
+termToLlvm t = error $ "BAD:\n" ++ render (nest 4 $ pretty t)
 
 fetchToLlvm :: Int -> Int -> LAlt -> LlvmGen (List1 L.Instruction)
 fetchToLlvm n offset alt = do

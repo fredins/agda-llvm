@@ -76,6 +76,12 @@ data Val = ConstantNode Tag [Val]
          | Prim TPrim
            deriving (Show, Eq, Ord)
 
+allVariables (Var n : vs) = (n :) <$> allVariables vs
+allVariables [] = Just []
+allVariables _ = Nothing
+
+pattern ConstantNodeVect tag ns <- ConstantNode tag (allVariables -> Just ns)
+  where ConstantNodeVect tag ns = ConstantNode tag (map Var ns)
 
 pattern Fetch :: Tag -> Int -> Term
 pattern Fetch tag n = Fetch' (Just tag) n Nothing
@@ -94,16 +100,17 @@ pattern UpdateTag tag n v = Update (Just tag) n v
 
 pattern Drop n = App (Def "drop") [Var n]
 pattern Dup n = App (Def "dup") [Var n]
+pattern Decref n = App (Def "decref") [Var n]
 
 store :: MonadFresh Int m => Val -> m Term
 store t = (`Store` t) <$> freshLoc
+
 
 instance Unreachable Term where
   isUnreachable (Error TUnreachable) = True
   isUnreachable _                    = False
 
-unreachable :: Term
-unreachable = Error TUnreachable
+pattern Unreachable = Error TUnreachable
 
 
 data Tag = CTag {tCon :: String, tArity :: Int}
@@ -122,6 +129,8 @@ constantCNode name vs = ConstantNode (CTag name (length vs)) vs
 
 cnat :: Val -> Val
 cnat = ConstantNode natTag . singleton
+
+pattern Cnat n = ConstantNode NatTag [n]
 
 constantFNode :: String -> [Val] -> Val
 constantFNode name vs = ConstantNode (FTag name (length vs)) vs
@@ -285,6 +294,8 @@ mkLit = Lit . LitNat
 natTag :: Tag
 natTag = CTag{tCon = "nat" , tArity = 1}
 
+pattern NatTag = CTag{tCon = "nat" , tArity = 1}
+
 gatherTags :: Term -> Set Tag
 gatherTags (Unit (ConstantNode tag _)) = Set.singleton tag
 gatherTags (Store _ (ConstantNode tag _)) = Set.singleton tag
@@ -313,9 +324,10 @@ applySubstTerm rho term = case term of
   Fetch' mtag n mn
     | Var n' <- lookupS rho n -> Fetch' mtag n' mn
     | otherwise -> __IMPOSSIBLE__
-  Update tag n t
-    | Var n' <- lookupS rho n -> Update tag n' (applySubst rho t)
-    | otherwise -> error $ "VAD HÄNDER: " ++ show (lookupS rho n)
+  Update tag (lookupS rho -> Var n') v -> Update tag n' (applySubst rho v)
+  Update{} -> __IMPOSSIBLE__ 
+  UpdateOffset (lookupS rho -> Var n') offset v -> UpdateOffset n' offset (applySubst rho v)
+  UpdateOffset{} -> __IMPOSSIBLE__
   Error{} -> term
 
 instance Subst LAlt where

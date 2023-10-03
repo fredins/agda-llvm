@@ -25,7 +25,7 @@ import           Agda.Llvm.Utils
 import           Agda.Syntax.Common.Pretty
 import           Agda.Syntax.Literal       (Literal (LitNat))
 import           Agda.Utils.Functor
-import           Agda.Utils.Impossible
+import           Agda.Utils.Impossible (__IMPOSSIBLE__)
 import           Agda.Utils.Lens
 import           Agda.Utils.List
 import           Agda.Utils.Maybe
@@ -228,7 +228,7 @@ interpretGrin defs =
       selAlt :: Value -> [CAlt] -> Term -> ([Abs], Term)
       selAlt (vTagView -> Just tag1) alts t =
         case matching of
-          [] | t == unreachable -> error $ "Couln't match tag " ++ prettyShow tag1 ++ " in\n" ++ render (nest 4 (pretty (Case v def alts)))
+          [] | t == Unreachable -> error $ "Couln't match tag " ++ prettyShow tag1 ++ " in\n" ++ render (nest 4 (pretty (Case v def alts)))
           []    -> ([], t)
           [alt] -> alt
           _     -> __IMPOSSIBLE__
@@ -240,7 +240,7 @@ interpretGrin defs =
 
       selAlt (BasNat n1) alts t =
         case matching of
-          [] | t == unreachable -> error $ "Couln't match lit " ++ prettyShow n1
+          [] | t == Unreachable -> error $ "Couln't match lit " ++ prettyShow n1
           [] -> ([], t)
           [t] -> ([], t)
           _   -> __IMPOSSIBLE__
