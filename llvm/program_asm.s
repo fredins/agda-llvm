@@ -362,53 +362,6 @@ main:                                   # @main
 .Lfunc_end4:
 	.size	"Agda.Builtin.Nat._-_", .Lfunc_end4-"Agda.Builtin.Nat._-_"
                                         # -- End function
-	.globl	drop                            # -- Begin function drop
-	.p2align	4, 0x90
-	.type	drop,@function
-drop:                                   # @drop
-# %bb.0:
-	push	rbx
-	mov	rbx, rdi
-	mov	rax, qword ptr [rdi]
-	cmp	rax, 1
-	jne	.LBB5_6
-# %bb.1:                                # %"1_19"
-	mov	rax, qword ptr [rbx + 8]
-	lea	rcx, [rip + .LJTI5_0]
-	movsxd	rax, dword ptr [rcx + 4*rax]
-	add	rax, rcx
-	jmp	rax
-.LBB5_2:                                # %"CDownFrom.List._\E2\88\B7__20"
-	mov	rdi, qword ptr [rbx + 16]
-	call	drop@PLT
-	mov	rdi, qword ptr [rbx + 24]
-	jmp	.LBB5_4
-.LBB5_6:                                # %default_19
-	dec	rax
-	mov	qword ptr [rbx], rax
-	pop	rbx
-	ret
-.LBB5_3:                                # %FDownFrom.sum_20
-	mov	rdi, qword ptr [rbx + 16]
-.LBB5_4:                                # %FDownFrom.sum_20
-	call	drop@PLT
-.LBB5_5:                                # %"CDownFrom.List.[]_20"
-	mov	rdi, rbx
-	pop	rbx
-	jmp	free@PLT                        # TAILCALL
-.Lfunc_end5:
-	.size	drop, .Lfunc_end5-drop
-	.section	.rodata,"a",@progbits
-	.p2align	2
-.LJTI5_0:
-	.long	.LBB5_5-.LJTI5_0
-	.long	.LBB5_2-.LJTI5_0
-	.long	.LBB5_5-.LJTI5_0
-	.long	.LBB5_3-.LJTI5_0
-	.long	.LBB5_2-.LJTI5_0
-	.long	.LBB5_3-.LJTI5_0
-                                        # -- End function
-	.text
 	.globl	dup                             # -- Begin function dup
 	.p2align	4, 0x90
 	.type	dup,@function
@@ -416,8 +369,8 @@ dup:                                    # @dup
 # %bb.0:
 	inc	qword ptr [rdi]
 	ret
-.Lfunc_end6:
-	.size	dup, .Lfunc_end6-dup
+.Lfunc_end5:
+	.size	dup, .Lfunc_end5-dup
                                         # -- End function
 	.type	".L%d",@object                  # @"%d"
 	.section	.rodata,"a",@progbits

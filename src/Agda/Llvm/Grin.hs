@@ -55,6 +55,10 @@ getShortName = List1.last . list1splitOnDots . gr_name
 -- TODO
 -- • Remove Loc from Store
 -- • Combine Update and UpdateOffset
+-- • Think about using another syntax for variables 
+--   - Need to have global access and/or tag info and/or type
+--   - Need to have easy substitutions/weakining/strengthening
+--   - Idea: use De Bruijn indicies as normal but use AbsInfo (type, tagInfo)
 data Term = Bind Term LAlt
           | Case Val Term [CAlt] -- List1?
           | App Val [Val] 

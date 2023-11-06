@@ -520,3 +520,22 @@ year={2023},
 title={Reference Counting with Reuse in Roc},
 url = {https://studenttheses.uu.nl/handle/20.500.12932/44634}
 }
+
+@article{ho2023,
+author = {Ho, Son and Fromherz, Aymeric and Protzenko, Jonathan},
+title = {Modularity, Code Specialization, and Zero-Cost Abstractions for Program Verification},
+year = {2023},
+issue_date = {August 2023},
+publisher = {Association for Computing Machinery},
+address = {New York, NY, USA},
+volume = {7},
+number = {ICFP},
+url = {https://doi.org/10.1145/3607844},
+doi = {10.1145/3607844},
+abstract = {For all the successes in verifying low-level, efficient, security-critical code, little has been said or studied about the structure, architecture and engineering of such large-scale proof developments. We present the design, implementation and evaluation of a set of language-based techniques that allow the programmer to modularly write and verify code at a high level of abstraction, while retaining control over the compilation process and producing high-quality, zero-overhead, low-level code suitable for integration into mainstream software. We implement our techniques within the F proof assistant, and specifically its shallowly-embedded Low toolchain that compiles to C. Through our evaluation, we establish that our techniques were critical in scaling the popular HACL library past 100,000 lines of verified source code, and brought about significant gains in proof engineer productivity. The exposition of our methodology converges on one final, novel case study: the streaming API, a finicky API that has historically caused many bugs in high-profile software. Using our approach, we manage to capture the streaming semantics in a generic way, and apply it “for free” to over a dozen use-cases. Six of those have made it into the reference implementation of the Python programming language, replacing the previous CVE-ridden code.},
+journal = {Proc. ACM Program. Lang.},
+month = {aug},
+articleno = {202},
+numpages = {32},
+keywords = {Cryptographic Primitives, Proof Engineering}
+}

@@ -18,6 +18,7 @@ import           Control.Monad.State            (MonadState, State, StateT,
                                                  evalStateT, gets, modify,
                                                  runState)
 import           Data.Bifunctor                 (Bifunctor (bimap, first))
+import Data.Bool (bool)
 import           Data.Foldable                  (foldrM, toList)
 import           Data.Function                  (on)
 import           Data.List                      (intercalate, mapAccumL,
@@ -30,6 +31,7 @@ import qualified Data.Set                       as Set
 import           Data.Tuple.Extra               (second, swap, uncurry3)
 import           GHC.Generics                   (Generic)
 import           Prelude                        hiding (drop, (!!))
+import qualified Prelude as P
 import           System.FilePath                ((<.>), (</>))
 import           System.Process.Extra           (readCreateProcess, shell)
 
@@ -61,9 +63,104 @@ import           Agda.Utils.Monad               (ifM)
 import           Control.Applicative            (Applicative (liftA2))
 import           GHC.IO                         (unsafePerformIO)
 import           System.Directory.Extra         (removeFile)
-import Data.Bool (bool)
 
 
+-- LONG TERM IDEAS AND TODOs
+--
+-- • Lambda lifting
+--
+-- • Monomorphization
+--
+-- • Dead code elimination (worked on by Jesper in #4733)
+--
+-- • Erase proofs
+--
+-- • Incremental/parallel compilation by storing call graph information in 
+--   interface-like files. Then, there can be "thin" interprodural analysis 
+--   which performs monomorphization and points-to analysis, and later cross-module 
+--   inlining. The monomorphization pass should be independent off the points-to 
+--   analysis so it can be used in the MAlonzo backend. These ideas are similiar to 
+--   LLVM's ThinLTO. 
+--        
+--           +            +            +     • Frontend stuff 
+--           |            |            |  
+--         .agdai       .agdai       .agdai   (internal syntax + other info)
+--           |            |            |
+--           +            +            +     • Optionally do any of the following: add call graph information, lambda lift, add type constraints, add points-to equations.
+--           |            |            |  
+--         .agdai       .agdai       .agdai   (maybe treeless)
+--           \            |            /
+--            +--------.agdao---------+      • Interprodural analysis. Calculate transitive closure (reachability), mono types, and solve points-to equations.
+--            |           |           | 
+--            +           +           +      • Backend stuff. Use some smart diffing algorithm to only recompile affected modules.
+--            |           |           |
+--          .hs,ll      .hs,ll      .hs,ll
+--            |           |           |
+--            +           +           +      • GHC / Clang
+--            |           |           | 
+--            .o          .o          .o
+--             \          |          /
+--              +---------+---------+        • Linking
+--                        |
+--                   ELF executable
+--          
+-- • Some other GRIN transformations require interprodural analysis e.g. late inlining and arity rasing.
+--   Look at ThinLTO how they solved it. ThinLTO seems to only be able to do one layer of cross-module 
+--   inlining. And it is unclear how "imports" work when funA inlines a function funB which require an 
+--   new import funC.
+--      
+--      module A where    module B where    module C  where
+--      open import B     open import C     
+--      funA = funB       funB = funC       funC = ...
+--
+-- • Solve integer overflow issues. Maybe use bignum for Nat and an arbirary precision integer 
+--   for Fin. Also, look into GHC's approach of premoting to bignum.
+--
+-- • Need to prevent stack overflow either by making things more strict by 
+--   a demand analysis or/and by optimizing away laziness with deforestation and listlessness 
+--   (via e.g. arity raising and late inlining).
+--
+-- • Figure out a data layout that is optimal for Perceus-style memory reuse.
+--
+-- • Figure out some smart way to identify and flatten/pack trees. If we know that the data 
+--   structure is packed (with a certain alignment) and we know the pattern (size), then we 
+--   should be able to optimize it to a O(1) access. However, it is non-trivial to pack an 
+--   arbirary tree, and I wonder how this will interact with different node layouts.
+--
+--   ```
+--     -- Treeless
+--     proj₃ : Vec A 4 → A
+--     proj₃ xs₁ = 
+--       case xs₁ of
+--         _ ∷ xs₂ → 
+--         case xs₂ of
+--           _ ∷ xs₃ → 
+--           case xs₃ of
+--             x ∷ _ → x
+--
+--     -- Semi-optimized GRIN
+--     -- 4 sequential pointer dereferences
+--     proj₃ xs₁ = 
+--       fetch [3] xs₁ ; λ xs₂ →
+--       fetch [3] xs₂ ; λ xs₃ →
+--       fetch [2] xs₃ ; λ x →
+--       fetch [2] x   ; λ n → 
+--       unit (Cnat n)
+--     
+--     -- Optimized GRIN
+--     -- Assume packed layout [cons , _ , next , cons , _ , next , cons , (nat n) , next , cons ,  _ , nil]
+--     -- Maybe remove next pointers when packing structure?
+--     -- Unclear if nested structure also have to be packed. And what happens when we extend arrays.
+--     -- Is it possible to do dynamic arrays (reallocate and expand when x% full)?
+--     proj₃ xs = 
+--       fetch [8] xs ; λ → n
+--       unit (Cnat n)
+-- 
+--   ```
+--
+-- • Use sized types (BUILTIN) to maybe inline recursive functions, and pack/flatten inductive types.
+--
+-- • Add proper interop with C and possibly C++.
 
 llvmBackend :: Backend
 llvmBackend = Backend llvmBackend'
@@ -120,6 +217,10 @@ llvmCompileDef :: LlvmEnv
 
 llvmCompileDef _ _ = definitionToTreeless
 
+
+
+--  defs_grin <- map (updateGrTerm normalise) <$> treelessToGrin defs_treeless
+
 llvmPostModule :: LlvmEnv
                -> LlvmModuleEnv
                -> IsMain
@@ -131,47 +232,47 @@ llvmPostModule _ _ _ _ defs =
 
 
 
-myDefs :: MonadFresh Int mf => mf [GrinDefinition]
-myDefs = do
-  main <-
-    store (cnat $ mkLit 4)         `bindVarM`
-    store (cnat $ mkLit 6)         `bindVarM`
-    App (Def "_+_") [Var 1, Var 0] `bindCnat`
-    printf 0
-
-  let def_main =
-        GrinDefinition
-          { gr_name = "main"
-          , gr_isMain = True
-          , gr_primitive = Nothing
-          , gr_arity = 0
-          , gr_type = Nothing
-          , gr_term = main
-          , gr_args = []
-          , gr_return = Nothing }
-
-  plus <-
-    eval 1 `bindCnatR`
-    eval 2 `bindCnatR`
-    App (Prim PAdd) [Var 2, Var 0] `bindVar`
-    Unit (cnat $ Var 0)
-
-  arg1 <- freshAbs
-  arg2 <- freshAbs
-  ret <- freshAbs
-
-  let def_plus =
-        GrinDefinition
-          { gr_name = "_+_"
-          , gr_isMain = False
-          , gr_primitive = Just PAdd
-          , gr_arity = 2
-          , gr_type = Nothing
-          , gr_term = plus
-          , gr_args = [arg1, arg2]
-          , gr_return = Just ret }
-
-  pure [def_plus, def_main]
+-- myDefs :: MonadFresh Int mf => mf [GrinDefinition]
+-- myDefs = do
+--   main <-
+--     store (cnat $ mkLit 4)         `bindVarM`
+--     store (cnat $ mkLit 6)         `bindVarM`
+--     App (Def "_+_") [Var 1, Var 0] `bindCnat`
+--     printf 0
+--
+--   let def_main =
+--         GrinDefinition
+--           { gr_name = "main"
+--           , gr_isMain = True
+--           , gr_primitive = Nothing
+--           , gr_arity = 0
+--           , gr_type = Nothing
+--           , gr_term = main
+--           , gr_args = []
+--           , gr_return = Nothing }
+--
+--   plus <-
+--     eval 1 `bindCnatR`
+--     eval 2 `bindCnatR`
+--     App (Prim PAdd) [Var 2, Var 0] `bindVar`
+--     Unit (cnat $ Var 0)
+--
+--   arg1 <- freshAbs
+--   arg2 <- freshAbs
+--   ret <- freshAbs
+--
+--   let def_plus =
+--         GrinDefinition
+--           { gr_name = "_+_"
+--           , gr_isMain = False
+--           , gr_primitive = Just PAdd
+--           , gr_arity = 2
+--           , gr_type = Nothing
+--           , gr_term = plus
+--           , gr_args = [arg1, arg2]
+--           , gr_return = Just ret }
+--
+--   pure [def_plus, def_main]
 
 
 
@@ -187,6 +288,7 @@ llvmPostCompile _ _ mods = do
     putStrLn "-- * Treeless"
     putStrLn "------------------------------------------------------------------------\n"
     putStrLn $ intercalate "\n\n" $ map prettyShow defs_treeless
+    putStrLn $ "\nSHOW:\n" ++ (show $ tl_term $ head $ P.drop 1 $ reverse defs_treeless)
 
   defs_grin <- map (updateGrTerm normalise) <$> treelessToGrin defs_treeless
   liftIO $ do
@@ -323,9 +425,9 @@ llvmPostCompile _ _ mods = do
   defs_perceus <- map (updateGrTerm normalise) <$> mapM perceus defs_evaluateCase
 
   defs_mem <- do 
-    drop <- mkDrop defs_rightHoistFetch
+    -- drop <- mkDrop defs_rightHoistFetch
     dup <- mkDup 
-    pure [drop, dup]
+    pure [{- drop, -} dup]
 
   liftIO $ do
     putStrLn "\n------------------------------------------------------------------------"
@@ -362,7 +464,7 @@ llvmPostCompile _ _ mods = do
     putStrLn "------------------------------------------------------------------------\n"
     putStrLn $ intercalate "\n\n" (map prettyShow defs_fuseDupDrop) ++ "\n"
 
-  printInterpretGrin (defs_fuseDupDrop ++ defs_mem)
+  -- printInterpretGrin (defs_fuseDupDrop ++ defs_mem)
 
 
 
@@ -385,23 +487,7 @@ llvmPostCompile _ _ mods = do
           , "declare void @printf(ptr, ...)"
           , "declare ptr @malloc(i64)"
           , "declare void @free(ptr)"
-          -- TODO In all instances except Cnat the arguments are points and thus
-          --      only need 8 bits. Using 64 bits for pointers are wastefull.
-          --
-          -- Optimal layout? (Cnat will occupy all args)
-          --
-          --          88 bits
-          -- ----------------------------
-          -- | tag | rc | arg1 ... arg8 |
-          -- ----------------------------
-          --   16    8        8*8
-          --
-          -- Current layout:
-          --           256 bits
-          -- ---------------------------------------
-          -- | tag | rc | arg1 | arg2 |
-          -- ---------------------------------------
-          --   64    64    64     64
+          -- FIXME data layout
           , "%Node = type [4 x i64]"
           -- , "%HeapNode = type {i64, %Node}"
           ]
@@ -444,6 +530,88 @@ llvmPostCompile _ _ mods = do
 
 
 -- TODO
+-- • treelessToGrin to Grin should only take one @TreelessDefinition@ so it can support
+--   seperate compilation. To do this, we need to solve the primitives issue. The plan
+--   is to to modify the current treeless implementation:
+--
+--   >>> current
+--    
+--   RTE.hs
+--     addInt :: Integer -> Integer -> Integer
+--     addInt = (+)
+--     
+--   file.hs
+--     main = ... addInt ...
+--     
+--   >>> new
+--
+--   file.hs
+--     main = ... (+) ...    perhaps with type application (+) @Integer or type annotation ((+) :: Integer -> Integer -> Integer)
+--
+--
+--   Implementation
+--
+--    Treeless/ToTreeless.hs needs to be modified so a compiler pass can accepts a QName too.
+--
+--      - compilerPass :: String -> Int -> String -> (EvaluationStrategy -> TTerm -> TCM TTerm) -> Pipeline
+--      + compilerPass :: String -> Int -> String -> (EvaluationStrategy -> QName -> TTerm -> TCM TTerm) -> Pipeline
+--
+--    Treeless/Builtin.hs replace the the definition body instead of the callsite.
+--
+--      _+_ : Nat → Nat → Nat
+--      zero  + m = m
+--      suc n + m = suc (n + m)
+--
+--      {-# BUILTIN NATPLUS _+_ #-}
+--
+--      main = 1 + 2
+--
+--      >>> translateBuiltins
+--
+--      _+_ : Nat → Nat → Nat
+--      n + m = PAdd n m
+--
+--      main = 1 + 2
+--
+--      >>> MAlonzo
+--
+--      _+_ = (+) 
+--
+--      main = Agda.Builtin.Nat._+_ 1 2
+--      
+--
+--
+--      Changes:
+--
+--      + -- Example: Agda.Builtin.Nat._+_ returns PAdd (How are arguments dealt with?)
+--      + lookupBuiltin : QName -> TCM (Maybe TTerm) 
+--      + lookupBuiltin q = ...
+--
+--      - translateBuiltins :: TTerm -> TCM TTerm
+--      + translateBuiltins :: QName -> TTerm -> TCM TTerm
+--      - translateBuiltins q t = do
+--      + translateBuiltins q t = do
+--          kit <- builtinKit
+--      -   return $ transform kit t
+ --     +   fromMaybe t <$> lookupBuiltin q 
+--
+--    
+--    MAlonzo/Primitives.hs we do not need 
+--
+--      treelessPrimName :: TPrim -> String
+--      treelessPrimName p =
+--        case p of
+--      -   PAdd    -> "addInt"
+--      +   PAdd    -> "(+) @Integer"
+--      -   PAdd64  -> "addInt64"
+--      +   PAdd64  -> "(+) @Word64"
+--
+--    Questions: 
+--      1. Is @PAdd64@ unused?
+--      2. Why do we create wrappers? E.g. @intAdd@ instead of @(+)@
+--      3. Why are the types specialized? @intAdd :: Integer -> Integer -> Integer@ instead of @Num a => a -> a -> a@
+--      4. Builtin in Treeless but Primitive in MAlonzo. Why?
+--
 -- • Fix super ugly code
 -- • Need to deal with erased arguments and parameters
 -- • Reuse evaluated variables (partially done)
@@ -901,7 +1069,7 @@ termToLlvm (App (Def (L.mkGlobalId -> f)) vs) = do
   -- If the tail call contains are passed references to new alllocations made in 
   -- the current function then Clang is unable to tail call optimize. So, currently 
   -- we only uses the tailcall hint `tail` instead of the garantee `musttail`.
-  tail <- asks $ flip boolToMaybe L.Tail . cg_returning 
+  tail <- asks $ flip boolToMaybe L.Musttail . cg_returning 
   let instruction_call = L.Call tail L.Fastcc returnTy f (zip argsTy vs')
   instructions2 <- ($ instruction_call) =<< view continuationLens
   pure (instructions1 `List1.prependList` instructions2)
@@ -991,6 +1159,7 @@ insertValues cont tagNum vs = do
   (instructions1, vs') <- first concat . unzip <$> mapM valToLlvm vs
   let (vs, v) = List1.initLast (tagNum :| vs')
       (offsets, offset) = List1.initLast [1 .. length vs' + 1]
+  -- TODO replace undef with poison (LLVM devs are trying to remove undef)
   (acc, instructions2) <- mapAccumM insertValue L.Undef (zip vs offsets)
   instructions3 <- cont (L.insertvalue acc v offset)
   pure (List1.prependList (instructions1 <> instructions2) instructions3)

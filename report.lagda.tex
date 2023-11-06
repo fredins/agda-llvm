@@ -113,6 +113,68 @@ data List A : Set where
   _∷_ : (x : A) (xs : List A) → List A
 \end{code}
 
+
+% Motivation: 
+% - Conflict between abstract code and runtime performance
+%   • It is important for verified code to be performant: 
+%       "Such security-critical code often lies on the critical path of larger subsystems; users therefore 
+%        expect security-critical code to be not only secure and reliable, but also fast" \cite{ho2023}
+%   • Many optimizations are hindered by module barriers, e.g. monomorphization, defunctionalization, and inlining. 
+%   • As a result, polymorphic code are plagued with boxed types, dynamic dispatch and indirect function. 
+%   • Non-strict evalutation semantics also encourage more allocations and indirect function calls. And purity prevents in-place mutation.
+%   • Automatic memory management is often mandatory in high-level languages, which limits throughput and may introduce signficant delays.
+%
+% - In this paper, we address indirect function calls and automatic memory management.
+%
+% - We belive it is neccessary to utilse whole program compilation and interprocedural analysis to compile away abstractions. Hence GRIN.
+%   TODO perhaps only focus on memory management and reference counting and mention that we chose GRIN address other concerns such as indirect 
+%   function calls.
+%
+% - Precise reference counting is promising technique to enable in-place mutations for pure function languages (pure or immutable), 
+%   and to avoid delays associtated with tracing-based garbage collectors. However, Perceus have only been applied for strict functional 
+%   languages.
+%
+% Contribution: 
+%   • We demonstrate the applicability of combining non-strict languages with precise reference counting.
+%   • We implement a a compiler backend which compiles Agda to GRIN. Then, we perform transformations on the GRIN code to 
+%     remove indirect function calls by an interprocedural analysis. 
+%   • We implement a Perceus-like algorithm for the GRIN syntax which is much more low-level then previous implementations.
+%    
+%
+% Related Work and Discussions
+% - ASAP uses compile-time garbage collection using interprocedural analysis. Would be interesting to apply some of these techniques to reduce reference counting operations.
+% - Two objections two whole program compilation and reference counting are long compile times and innability to collect cyclic data structures, respectively.
+%   We have been "avoiding" these uses for now. Hopefully, someone will come up with a nice solution. Some reference counting implementations like Swift and Python uses 
+%   weak references. Koka do not handle cycles (Or doesn't have cycles). Roc does not have cycles. Lean? 
+% - Our precise reference counting algorithm targets GRIN but perhaps it can also be used in other simliar strict and low-level intermediate languages like the STG.
+% - Our implementation is not ready for benchmarks. We would like to compile a larger subset of Agda, implement the rest of optimizing transformations, and reuse-analysis.
+% - We would also like to formalize our precise reference counting algorithm.
+%
+
+% TODO
+% - Focus more on motivation: problem of high-level verified code and efficient evaluation and memory management plays a huge role.
+% - Maybe use non-strict/strict instead of lazy/eager 
+% - Agda have normal order evaluation. Compiler writers can decide the most efficient evaluation order.
+% - Remove result and create a separate section for code generator and interpreter.
+% - Write in maybe abstract and introduction that we "cheat" by transforming non-strictness into a 
+%   strict language 
+% - Also write that we implement Perceus for a much more lower-level language (GRIN)
+% - Need to make the section "Precise reference counting" more detailed
+% - Fix bad writing
+% - Think about which is the best de Brujin representation
+% - Maybe make Perceus @fetch@ borrowing and then use dup/drop fusion
+
+% - Section: introduction
+%   • Write a motivation for the work. Why is this important for "outsiders"? 
+%      - (Non-strictness is nice? Memory management / cache-fredliness is super important. Conflict between nice polymorphic code and performance)
+%      - "Such security-critical code often lies on the critical path of larger subsystems; users therefore 
+%         expect security-critical code to be not only secure and reliable, but also fast" \cite{ho2023}
+% - Section: codegen/interpreter
+%   • Mention that the layout is simple because we need to give it more thought
+%     before implementing the reuse analysis
+% - Section: Related work 
+%
+
 \begin{abstract}
 Precise reference counting is a technique by \citeauthor{reinking2021} that uses ownership to deallocate objects as soon as possible. 
 The algorithm is called Perceus, and as of this writing, it has only been implemented for eager functional languages.
@@ -233,6 +295,7 @@ downFrom x7 = case x7 of
           x3 = downFrom x4 in 
       _$∷$_ x4 x3
 \end{lstlisting}
+% cite De Bruijn 72
 The implementation uses de Bruijn indices to represent variables, but this paper uses variable names to make it more readable. 
 During this phase, we also transform the program so applications only take variables as operands.
 

@@ -10,6 +10,7 @@ module Agda.Llvm.Utils
   , list1zip3
   , list1zipWith3
   , list1unzip4
+  , list1lookup
   , adjustWithDefault
   , setfilterM
   , unionNub
@@ -94,6 +95,9 @@ list1unzip4 :: List1 (a, b, c, d) -> (List1 a, List1 b, List1 c, List1 d)
 list1unzip4 ((a, b, c, d) :| xs) = (a :| as, b :| bs, c :| cs, d :| ds)
   where
     (as, bs, cs, ds) = unzip4 xs
+
+list1lookup :: Eq k => k -> List1 (k, v) -> Maybe v
+list1lookup k = lookup k . List1.toList
 
 setfilterM :: (Ord a, Applicative f) => (a -> f Bool) -> Set a -> f (Set a)
 setfilterM p = fmap Set.fromList . filterM p . Set.toList

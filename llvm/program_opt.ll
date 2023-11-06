@@ -44,8 +44,8 @@ continue_0:                                       ; preds = %FAgda.Builtin.Nat._
   br i1 %cond, label %"0_1", label %default_1
 
 "0_1":                                            ; preds = %continue_0
-  %x95 = load i64, ptr %1, align 4
-  %cond1 = icmp eq i64 %x95, 1
+  %x85 = load i64, ptr %1, align 4
+  %cond1 = icmp eq i64 %x85, 1
   br i1 %cond1, label %"1_3", label %default_3
 
 "1_3":                                            ; preds = %"0_1"
@@ -53,8 +53,8 @@ continue_0:                                       ; preds = %FAgda.Builtin.Nat._
   br label %common.ret
 
 default_3:                                        ; preds = %"0_1"
-  %x94 = add i64 %x95, -1
-  store i64 %x94, ptr %1, align 4
+  %x84 = add i64 %x85, -1
+  store i64 %x84, ptr %1, align 4
   br label %common.ret
 
 common.ret:                                       ; preds = %"1_3", %default_3, %default_1
@@ -99,8 +99,8 @@ define fastcc [4 x i64] @DownFrom.sum(i64 %x14) local_unnamed_addr #3 {
 
 "CDownFrom.List.[]_4":                            ; preds = %0
   store i64 2, ptr %.repack14, align 4
-  %x97 = load i64, ptr %1, align 4
-  %cond1 = icmp eq i64 %x97, 1
+  %x87 = load i64, ptr %1, align 4
+  %cond1 = icmp eq i64 %x87, 1
   br i1 %cond1, label %"1_6", label %default_6
 
 "1_6":                                            ; preds = %"CDownFrom.List.[]_4"
@@ -108,8 +108,8 @@ define fastcc [4 x i64] @DownFrom.sum(i64 %x14) local_unnamed_addr #3 {
   br label %common.ret
 
 default_6:                                        ; preds = %"CDownFrom.List.[]_4"
-  %x96 = add i64 %x97, -1
-  store i64 %x96, ptr %1, align 4
+  %x86 = add i64 %x87, -1
+  store i64 %x86, ptr %1, align 4
   br label %common.ret
 
 common.ret:                                       ; preds = %"1_6", %default_6, %"Agda.Builtin.Nat._+_.exit"
@@ -121,8 +121,8 @@ common.ret:                                       ; preds = %"1_6", %default_6, 
   store i64 %x60, ptr %2, align 4
   %.repack6 = getelementptr inbounds [4 x i64], ptr %1, i64 0, i64 3
   store i64 %x61, ptr %.repack6, align 4
-  %x99 = load i64, ptr %1, align 4
-  %cond = icmp eq i64 %x99, 1
+  %x89 = load i64, ptr %1, align 4
+  %cond = icmp eq i64 %x89, 1
   br i1 %cond, label %"1_8", label %default_8
 
 "1_8":                                            ; preds = %"CDownFrom.List._\E2\88\B7__4"
@@ -132,15 +132,15 @@ common.ret:                                       ; preds = %"1_6", %default_6, 
 
 default_8:                                        ; preds = %"CDownFrom.List._\E2\88\B7__4"
   %4 = inttoptr i64 %x61 to ptr
-  %x92.i = load i64, ptr %4, align 4
-  %x91.i = add i64 %x92.i, 1
-  store i64 %x91.i, ptr %4, align 4
+  %x82.i = load i64, ptr %4, align 4
+  %x81.i = add i64 %x82.i, 1
+  store i64 %x81.i, ptr %4, align 4
   %5 = inttoptr i64 %x60 to ptr
-  %x92.i20 = load i64, ptr %5, align 4
-  %x91.i21 = add i64 %x92.i20, 1
-  store i64 %x91.i21, ptr %5, align 4
-  %x98 = add i64 %x99, -1
-  store i64 %x98, ptr %1, align 4
+  %x82.i20 = load i64, ptr %5, align 4
+  %x81.i21 = add i64 %x82.i20, 1
+  store i64 %x81.i21, ptr %5, align 4
+  %x88 = add i64 %x89, -1
+  store i64 %x88, ptr %1, align 4
   br label %continue_9.i
 
 continue_9.i:                                     ; preds = %default_8, %"1_8"
@@ -170,8 +170,8 @@ continue_11.i:                                    ; preds = %FAgda.Builtin.Nat._
   store i64 0, ptr %7, align 4
   %.repack10.i = getelementptr inbounds [4 x i64], ptr %.pre-phi, i64 0, i64 2
   store i64 %x62.i, ptr %.repack10.i, align 4
-  %x103.i = load i64, ptr %.pre-phi, align 4
-  %cond1.i = icmp eq i64 %x103.i, 1
+  %x93.i = load i64, ptr %.pre-phi, align 4
+  %cond1.i = icmp eq i64 %x93.i, 1
   br i1 %cond1.i, label %"1_13.i", label %default_13.i
 
 "1_13.i":                                         ; preds = %continue_11.i
@@ -179,8 +179,8 @@ continue_11.i:                                    ; preds = %FAgda.Builtin.Nat._
   br label %"Agda.Builtin.Nat._+_.exit"
 
 default_13.i:                                     ; preds = %continue_11.i
-  %x102.i = add i64 %x103.i, -1
-  store i64 %x102.i, ptr %.pre-phi, align 4
+  %x92.i = add i64 %x93.i, -1
+  store i64 %x92.i, ptr %.pre-phi, align 4
   br label %"Agda.Builtin.Nat._+_.exit"
 
 "Agda.Builtin.Nat._+_.exit":                      ; preds = %"1_13.i", %default_13.i
@@ -216,8 +216,8 @@ define fastcc [4 x i64] @"Agda.Builtin.Nat._+_"(i64 %x25, i64 %x26) local_unname
   %.repack2 = getelementptr inbounds [4 x i64], ptr %1, i64 0, i64 1
   store i64 0, ptr %.repack2, align 4
   store i64 %x66, ptr %2, align 4
-  %x101 = load i64, ptr %1, align 4
-  %cond = icmp eq i64 %x101, 1
+  %x91 = load i64, ptr %1, align 4
+  %cond = icmp eq i64 %x91, 1
   br i1 %cond, label %"1_10", label %default_10
 
 "1_10":                                           ; preds = %0
@@ -225,8 +225,8 @@ define fastcc [4 x i64] @"Agda.Builtin.Nat._+_"(i64 %x25, i64 %x26) local_unname
   br label %continue_9
 
 default_10:                                       ; preds = %0
-  %x100 = add i64 %x101, -1
-  store i64 %x100, ptr %1, align 4
+  %x90 = add i64 %x91, -1
+  store i64 %x90, ptr %1, align 4
   br label %continue_9
 
 continue_9:                                       ; preds = %default_10, %"1_10"
@@ -254,8 +254,8 @@ continue_11:                                      ; preds = %FAgda.Builtin.Nat._
   store i64 0, ptr %5, align 4
   %.repack10 = getelementptr inbounds [4 x i64], ptr %4, i64 0, i64 2
   store i64 %x62, ptr %.repack10, align 4
-  %x103 = load i64, ptr %4, align 4
-  %cond1 = icmp eq i64 %x103, 1
+  %x93 = load i64, ptr %4, align 4
+  %cond1 = icmp eq i64 %x93, 1
   br i1 %cond1, label %"1_13", label %default_13
 
 "1_13":                                           ; preds = %continue_11
@@ -263,8 +263,8 @@ continue_11:                                      ; preds = %FAgda.Builtin.Nat._
   br label %continue_12
 
 default_13:                                       ; preds = %continue_11
-  %x102 = add i64 %x103, -1
-  store i64 %x102, ptr %4, align 4
+  %x92 = add i64 %x93, -1
+  store i64 %x92, ptr %4, align 4
   br label %continue_12
 
 continue_12:                                      ; preds = %default_13, %"1_13"
@@ -299,8 +299,8 @@ continue_14:                                      ; preds = %FAgda.Builtin.Nat._
   store i64 0, ptr %2, align 4
   %.repack4 = getelementptr inbounds [4 x i64], ptr %1, i64 0, i64 2
   store i64 %x68, ptr %.repack4, align 4
-  %x105 = load i64, ptr %1, align 4
-  %cond = icmp eq i64 %x105, 1
+  %x95 = load i64, ptr %1, align 4
+  %cond = icmp eq i64 %x95, 1
   br i1 %cond, label %"1_16", label %default_16
 
 "1_16":                                           ; preds = %continue_14
@@ -308,8 +308,8 @@ continue_14:                                      ; preds = %FAgda.Builtin.Nat._
   br label %continue_15
 
 default_16:                                       ; preds = %continue_14
-  %x104 = add i64 %x105, -1
-  store i64 %x104, ptr %1, align 4
+  %x94 = add i64 %x95, -1
+  store i64 %x94, ptr %1, align 4
   br label %continue_15
 
 continue_15:                                      ; preds = %default_16, %"1_16"
@@ -318,8 +318,8 @@ continue_15:                                      ; preds = %default_16, %"1_16"
   %x54 = load i64, ptr %7, align 4
   %.repack8 = getelementptr inbounds [4 x i64], ptr %6, i64 0, i64 1
   store i64 0, ptr %.repack8, align 4
-  %x107 = load i64, ptr %6, align 4
-  %cond1 = icmp eq i64 %x107, 1
+  %x97 = load i64, ptr %6, align 4
+  %cond1 = icmp eq i64 %x97, 1
   br i1 %cond1, label %"1_18", label %default_18
 
 "1_18":                                           ; preds = %continue_15
@@ -327,8 +327,8 @@ continue_15:                                      ; preds = %default_16, %"1_16"
   br label %continue_17
 
 default_18:                                       ; preds = %continue_15
-  %x106 = add i64 %x107, -1
-  store i64 %x106, ptr %6, align 4
+  %x96 = add i64 %x97, -1
+  store i64 %x96, ptr %6, align 4
   br label %continue_17
 
 continue_17:                                      ; preds = %default_18, %"1_18"
@@ -337,85 +337,12 @@ continue_17:                                      ; preds = %default_18, %"1_18"
   ret [4 x i64] %8
 }
 
-; Function Attrs: nounwind
-define fastcc void @drop(i64 %x90) local_unnamed_addr #3 {
-  %1 = inttoptr i64 %x90 to ptr
-  %x89 = load i64, ptr %1, align 4
-  %cond = icmp eq i64 %x89, 1
-  br i1 %cond, label %"1_19", label %default_19
-
-"1_19":                                           ; preds = %0
-  %2 = getelementptr inbounds [4 x i64], ptr %1, i64 0, i64 1
-  %x88 = load i64, ptr %2, align 4
-  switch i64 %x88, label %default_20 [
-    i64 2, label %"CDownFrom.List.[]_20"
-    i64 4, label %"CDownFrom.List._\E2\88\B7__20"
-    i64 0, label %Cnat_20
-    i64 1, label %FAgda.Builtin.Nat._-__20
-    i64 3, label %FDownFrom.downFrom_20
-    i64 5, label %FDownFrom.sum_20
-  ]
-
-common.ret:                                       ; preds = %default_19, %Cnat_20, %"CDownFrom.List.[]_20", %FDownFrom.sum_20, %FDownFrom.downFrom_20, %FAgda.Builtin.Nat._-__20, %"CDownFrom.List._\E2\88\B7__20"
-  ret void
-
-"CDownFrom.List.[]_20":                           ; preds = %"1_19"
-  tail call fastcc void @free(ptr nonnull %1)
-  br label %common.ret
-
-"CDownFrom.List._\E2\88\B7__20":                  ; preds = %"1_19"
-  %3 = getelementptr inbounds [4 x i64], ptr %1, i64 0, i64 2
-  %x83 = load i64, ptr %3, align 4
-  tail call fastcc void @drop(i64 %x83)
-  %4 = getelementptr inbounds [4 x i64], ptr %1, i64 0, i64 3
-  %x82 = load i64, ptr %4, align 4
-  tail call fastcc void @drop(i64 %x82)
-  tail call fastcc void @free(ptr nonnull %1)
-  br label %common.ret
-
-Cnat_20:                                          ; preds = %"1_19"
-  tail call fastcc void @free(ptr nonnull %1)
-  br label %common.ret
-
-FAgda.Builtin.Nat._-__20:                         ; preds = %"1_19"
-  %5 = getelementptr inbounds [4 x i64], ptr %1, i64 0, i64 2
-  %x85 = load i64, ptr %5, align 4
-  tail call fastcc void @drop(i64 %x85)
-  %6 = getelementptr inbounds [4 x i64], ptr %1, i64 0, i64 3
-  %x84 = load i64, ptr %6, align 4
-  tail call fastcc void @drop(i64 %x84)
-  tail call fastcc void @free(ptr nonnull %1)
-  br label %common.ret
-
-FDownFrom.downFrom_20:                            ; preds = %"1_19"
-  %7 = getelementptr inbounds [4 x i64], ptr %1, i64 0, i64 2
-  %x86 = load i64, ptr %7, align 4
-  tail call fastcc void @drop(i64 %x86)
-  tail call fastcc void @free(ptr nonnull %1)
-  br label %common.ret
-
-FDownFrom.sum_20:                                 ; preds = %"1_19"
-  %8 = getelementptr inbounds [4 x i64], ptr %1, i64 0, i64 2
-  %x87 = load i64, ptr %8, align 4
-  tail call fastcc void @drop(i64 %x87)
-  tail call fastcc void @free(ptr nonnull %1)
-  br label %common.ret
-
-default_20:                                       ; preds = %"1_19"
-  unreachable
-
-default_19:                                       ; preds = %0
-  %x81 = add i64 %x89, -1
-  store i64 %x81, ptr %1, align 4
-  br label %common.ret
-}
-
 ; Function Attrs: mustprogress nofree norecurse nosync nounwind willreturn
-define fastcc void @dup(i64 %x93) local_unnamed_addr #4 {
-  %1 = inttoptr i64 %x93 to ptr
-  %x92 = load i64, ptr %1, align 4
-  %x91 = add i64 %x92, 1
-  store i64 %x91, ptr %1, align 4
+define fastcc void @dup(i64 %x83) local_unnamed_addr #4 {
+  %1 = inttoptr i64 %x83 to ptr
+  %x82 = load i64, ptr %1, align 4
+  %x81 = add i64 %x82, 1
+  store i64 %x81, ptr %1, align 4
   ret void
 }
 

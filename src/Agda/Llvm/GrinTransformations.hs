@@ -21,7 +21,7 @@ import           Prelude                      hiding (drop, (!!))
 
 import           Agda.Compiler.Backend        hiding (Prim)
 import           Agda.Llvm.Grin as G
-import           Agda.Llvm.HeapPointsTo
+import           Agda.Llvm.HeapPointsToType
 import           Agda.Llvm.Utils
 import           Agda.Syntax.Common.Pretty
 import           Agda.TypeChecking.Substitute
@@ -765,7 +765,7 @@ evaluateCase t = t
 
 
 
-
+calculate = (sum . filter even) .: enumFromTo
 
 
 

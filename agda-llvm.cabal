@@ -60,11 +60,14 @@ library
   exposed-modules:
     Agda.Llvm.Compiler
     Agda.Llvm.Grin
+    Agda.Llvm.GrinTypes
     Agda.Llvm.GrinInterpreter
     Agda.Llvm.GrinTransformations
     Agda.Llvm.HeapPointsTo
+    Agda.Llvm.HeapPointsToType
     Agda.Llvm.Llvm
     Agda.Llvm.Perceus
+    Agda.Llvm.SolveEquations
     Agda.Llvm.TreelessTransform
     Agda.Llvm.Utils
        

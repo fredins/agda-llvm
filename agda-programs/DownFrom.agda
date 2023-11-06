@@ -12,9 +12,14 @@ downFrom : ℕ → List ℕ
 downFrom zero = []
 downFrom (suc n) = n ∷ downFrom n 
 
+{-# STATIC downFrom #-}
+
 sum : List ℕ → ℕ
 sum [] = 0
 sum (x ∷ xs) = x + sum xs
 
+{-# STATIC sum #-}
+
 -- Current max: 58 000
 main = sum (downFrom 100) 
+
