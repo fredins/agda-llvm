@@ -1,17 +1,25 @@
+-- {-# OPTIONS --sized-types #-}
+{-# OPTIONS --sized-types --guardedness #-}
 
 module Fibonacci where
 
-open import Agda.Builtin.Nat using (suc; zero; _+_) renaming (Nat to ℕ) 
+open import Agda.Builtin.Nat using (suc; zero; _+_; _-_) renaming (Nat to ℕ) 
 
-fib : ℕ → ℕ
-fib zero = 1
-fib (suc zero) = 1
-fib (suc (suc n)) = fib (suc n) + fib n
+-- Naive fibonacci
+-- fib : ℕ → ℕ
+-- fib zero = 1
+-- fib (suc zero) = 1
+-- fib (suc (suc n)) = fib (suc n) + fib n
 
+open import Codata.Guarded.Stream
 
-fibs : List ℕ → ℕ → List ℕ
-fibs acc zero = 1 ∷ []
-fibs acc (suc n) = 1 ∷ 1 ∷ [] 
-fibs acc (suc (suc n)) = fibs 
+fibs′ : ℕ → ℕ → Stream ℕ
+head (fibs′ x y) = x
+tail (fibs′ x y) = fibs′ y (x + y)
 
-main = fib 100
+fibs : Stream ℕ
+fibs = fibs′ 0 1
+
+main : ℕ
+main = lookup fibs 100
+

@@ -10,16 +10,12 @@ data List A : Set where
 
 downFrom : ℕ → List ℕ
 downFrom zero = []
-downFrom (suc n) = n ∷ downFrom n 
-
-{-# STATIC downFrom #-}
+downFrom (suc n) = n ∷ downFrom n
 
 sum : List ℕ → ℕ
 sum [] = 0
 sum (x ∷ xs) = x + sum xs
 
-{-# STATIC sum #-}
-
--- Current max: 58 000
-main = sum (downFrom 100) 
+-- Stack overflow when > 58 000
+main = sum (downFrom 10_000) 
 

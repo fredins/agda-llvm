@@ -23,21 +23,21 @@ define fastcc %Node
 "Cnat_0":
   %3 = inttoptr i64 %x7 to ptr
   %4 = getelementptr inbounds %Node, ptr %3, i32 0, i64 2
-  %x72 = load i64, ptr %4
+  %x71 = load i64, ptr %4
   %5 = insertvalue %Node undef, i64 0, 1
-  %"Cnat_0_res" = insertvalue %Node %5, i64 %x72, 2
+  %"Cnat_0_res" = insertvalue %Node %5, i64 %x71, 2
   br label %continue_0
 "FAgda.Builtin.Nat._-__0":
   %6 = inttoptr i64 %x7 to ptr
   %7 = getelementptr inbounds %Node, ptr %6, i32 0, i64 2
-  %x73 = load i64, ptr %7
+  %x72 = load i64, ptr %7
   %8 = inttoptr i64 %x7 to ptr
   %9 = getelementptr inbounds %Node, ptr %8, i32 0, i64 3
-  %x74 = load i64, ptr %9
+  %x73 = load i64, ptr %9
   %"FAgda.Builtin.Nat._-__0_res" = call
                                    fastcc
                                    %Node
-                                   @"Agda.Builtin.Nat._-_"(i64 %x73, i64 %x74)
+                                   @"Agda.Builtin.Nat._-_"(i64 %x72, i64 %x73)
   br label %continue_0
 default_0:
   unreachable
@@ -56,17 +56,17 @@ continue_0:
 "0_1":
   %17 = inttoptr i64 %x7 to ptr
   %18 = getelementptr inbounds %Node, ptr %17, i32 0, i64 0
-  %x85 = load i64, ptr %18
-  switch i64 %x85, label %default_3 [i64 1, label %"1_3"]
+  %x84 = load i64, ptr %18
+  switch i64 %x84, label %default_3 [i64 1, label %"1_3"]
 "1_3":
   %19 = inttoptr i64 %x7 to ptr
   call fastcc void @free(ptr %19)
   br label %continue_2
 default_3:
-  %x84 = sub i64 %x85, 1
+  %x83 = sub i64 %x84, 1
   %20 = inttoptr i64 %x7 to ptr
   %21 = getelementptr inbounds %Node, ptr %20, i32 0, i64 0
-  store i64 %x84, ptr %21
+  store i64 %x83, ptr %21
   br label %continue_2
 continue_2:
   %22 = insertvalue %Node undef, i64 2, 1
@@ -118,17 +118,17 @@ define fastcc %Node
   store %Node %8, ptr %5
   %9 = inttoptr i64 %x14 to ptr
   %10 = getelementptr inbounds %Node, ptr %9, i32 0, i64 0
-  %x87 = load i64, ptr %10
-  switch i64 %x87, label %default_6 [i64 1, label %"1_6"]
+  %x86 = load i64, ptr %10
+  switch i64 %x86, label %default_6 [i64 1, label %"1_6"]
 "1_6":
   %11 = inttoptr i64 %x14 to ptr
   call fastcc void @free(ptr %11)
   br label %continue_5
 default_6:
-  %x86 = sub i64 %x87, 1
+  %x85 = sub i64 %x86, 1
   %12 = inttoptr i64 %x14 to ptr
   %13 = getelementptr inbounds %Node, ptr %12, i32 0, i64 0
-  store i64 %x86, ptr %13
+  store i64 %x85, ptr %13
   br label %continue_5
 continue_5:
   %14 = insertvalue %Node undef, i64 0, 1
@@ -145,8 +145,8 @@ continue_5:
   store %Node %22, ptr %19
   %23 = inttoptr i64 %x14 to ptr
   %24 = getelementptr inbounds %Node, ptr %23, i32 0, i64 0
-  %x89 = load i64, ptr %24
-  switch i64 %x89, label %default_8 [i64 1, label %"1_8"]
+  %x88 = load i64, ptr %24
+  switch i64 %x88, label %default_8 [i64 1, label %"1_8"]
 "1_8":
   %25 = inttoptr i64 %x14 to ptr
   call fastcc void @free(ptr %25)
@@ -154,10 +154,10 @@ continue_5:
 default_8:
   call fastcc void @"dup"(i64 %x61)
   call fastcc void @"dup"(i64 %x60)
-  %x88 = sub i64 %x89, 1
+  %x87 = sub i64 %x88, 1
   %26 = inttoptr i64 %x14 to ptr
   %27 = getelementptr inbounds %Node, ptr %26, i32 0, i64 0
-  store i64 %x88, ptr %27
+  store i64 %x87, ptr %27
   br label %continue_7
 continue_7:
   %28 = insertvalue %Node undef, i64 5, 1
@@ -211,17 +211,17 @@ define fastcc %Node
   store %Node %9, ptr %6
   %10 = inttoptr i64 %x25 to ptr
   %11 = getelementptr inbounds %Node, ptr %10, i32 0, i64 0
-  %x91 = load i64, ptr %11
-  switch i64 %x91, label %default_10 [i64 1, label %"1_10"]
+  %x90 = load i64, ptr %11
+  switch i64 %x90, label %default_10 [i64 1, label %"1_10"]
 "1_10":
   %12 = inttoptr i64 %x25 to ptr
   call fastcc void @free(ptr %12)
   br label %continue_9
 default_10:
-  %x90 = sub i64 %x91, 1
+  %x89 = sub i64 %x90, 1
   %13 = inttoptr i64 %x25 to ptr
   %14 = getelementptr inbounds %Node, ptr %13, i32 0, i64 0
-  store i64 %x90, ptr %14
+  store i64 %x89, ptr %14
   br label %continue_9
 continue_9:
   %15 = inttoptr i64 %x26 to ptr
@@ -232,21 +232,21 @@ continue_9:
 "Cnat_11":
   %17 = inttoptr i64 %x26 to ptr
   %18 = getelementptr inbounds %Node, ptr %17, i32 0, i64 2
-  %x75 = load i64, ptr %18
+  %x74 = load i64, ptr %18
   %19 = insertvalue %Node undef, i64 0, 1
-  %"Cnat_11_res" = insertvalue %Node %19, i64 %x75, 2
+  %"Cnat_11_res" = insertvalue %Node %19, i64 %x74, 2
   br label %continue_11
 "FAgda.Builtin.Nat._-__11":
   %20 = inttoptr i64 %x26 to ptr
   %21 = getelementptr inbounds %Node, ptr %20, i32 0, i64 2
-  %x76 = load i64, ptr %21
+  %x75 = load i64, ptr %21
   %22 = inttoptr i64 %x26 to ptr
   %23 = getelementptr inbounds %Node, ptr %22, i32 0, i64 3
-  %x77 = load i64, ptr %23
+  %x76 = load i64, ptr %23
   %"FAgda.Builtin.Nat._-__11_res" = call
                                     fastcc
                                     %Node
-                                    @"Agda.Builtin.Nat._-_"(i64 %x76, i64 %x77)
+                                    @"Agda.Builtin.Nat._-_"(i64 %x75, i64 %x76)
   br label %continue_11
 default_11:
   unreachable
@@ -263,17 +263,17 @@ continue_11:
   store %Node %30, ptr %27
   %31 = inttoptr i64 %x26 to ptr
   %32 = getelementptr inbounds %Node, ptr %31, i32 0, i64 0
-  %x93 = load i64, ptr %32
-  switch i64 %x93, label %default_13 [i64 1, label %"1_13"]
+  %x92 = load i64, ptr %32
+  switch i64 %x92, label %default_13 [i64 1, label %"1_13"]
 "1_13":
   %33 = inttoptr i64 %x26 to ptr
   call fastcc void @free(ptr %33)
   br label %continue_12
 default_13:
-  %x92 = sub i64 %x93, 1
+  %x91 = sub i64 %x92, 1
   %34 = inttoptr i64 %x26 to ptr
   %35 = getelementptr inbounds %Node, ptr %34, i32 0, i64 0
-  store i64 %x92, ptr %35
+  store i64 %x91, ptr %35
   br label %continue_12
 continue_12:
   %x24 = add i64 %x66, %x62
@@ -286,36 +286,36 @@ define fastcc %Node
 @"Agda.Builtin.Nat._-_"(i64 %x31, i64 %x32){
   %1 = inttoptr i64 %x31 to ptr
   %2 = getelementptr inbounds %Node, ptr %1, i32 0, i64 1
-  %x69 = load i64, ptr %2
-  switch i64 %x69, label %default_14 [i64 0, label %"Cnat_14"
+  %x68 = load i64, ptr %2
+  switch i64 %x68, label %default_14 [i64 0, label %"Cnat_14"
                                       i64 1, label %"FAgda.Builtin.Nat._-__14"]
 "Cnat_14":
   %3 = inttoptr i64 %x31 to ptr
   %4 = getelementptr inbounds %Node, ptr %3, i32 0, i64 2
-  %x78 = load i64, ptr %4
+  %x77 = load i64, ptr %4
   %5 = insertvalue %Node undef, i64 0, 1
-  %"Cnat_14_res" = insertvalue %Node %5, i64 %x78, 2
+  %"Cnat_14_res" = insertvalue %Node %5, i64 %x77, 2
   br label %continue_14
 "FAgda.Builtin.Nat._-__14":
   %6 = inttoptr i64 %x31 to ptr
   %7 = getelementptr inbounds %Node, ptr %6, i32 0, i64 2
-  %x79 = load i64, ptr %7
+  %x78 = load i64, ptr %7
   %8 = inttoptr i64 %x31 to ptr
   %9 = getelementptr inbounds %Node, ptr %8, i32 0, i64 3
-  %x80 = load i64, ptr %9
+  %x79 = load i64, ptr %9
   %"FAgda.Builtin.Nat._-__14_res" = call
                                     fastcc
                                     %Node
-                                    @"Agda.Builtin.Nat._-_"(i64 %x79, i64 %x80)
+                                    @"Agda.Builtin.Nat._-_"(i64 %x78, i64 %x79)
   br label %continue_14
 default_14:
   unreachable
 continue_14:
   %10 = phi %Node  [%"Cnat_14_res", %"Cnat_14"]
                  , [%"FAgda.Builtin.Nat._-__14_res", %"FAgda.Builtin.Nat._-__14"]
-  %x68 = extractvalue %Node %10, 2
+  %x67 = extractvalue %Node %10, 2
   %11 = insertvalue %Node undef, i64 0, 1
-  %12 = insertvalue %Node %11, i64 %x68, 2
+  %12 = insertvalue %Node %11, i64 %x67, 2
   %13 = inttoptr i64 %x31 to ptr
   %14 = getelementptr inbounds %Node, ptr %13, i32 0, i64 0
   %15 = load i64, ptr %14
@@ -323,17 +323,17 @@ continue_14:
   store %Node %16, ptr %13
   %17 = inttoptr i64 %x31 to ptr
   %18 = getelementptr inbounds %Node, ptr %17, i32 0, i64 0
-  %x95 = load i64, ptr %18
-  switch i64 %x95, label %default_16 [i64 1, label %"1_16"]
+  %x94 = load i64, ptr %18
+  switch i64 %x94, label %default_16 [i64 1, label %"1_16"]
 "1_16":
   %19 = inttoptr i64 %x31 to ptr
   call fastcc void @free(ptr %19)
   br label %continue_15
 default_16:
-  %x94 = sub i64 %x95, 1
+  %x93 = sub i64 %x94, 1
   %20 = inttoptr i64 %x31 to ptr
   %21 = getelementptr inbounds %Node, ptr %20, i32 0, i64 0
-  store i64 %x94, ptr %21
+  store i64 %x93, ptr %21
   br label %continue_15
 continue_15:
   %22 = inttoptr i64 %x32 to ptr
@@ -348,33 +348,33 @@ continue_15:
   store %Node %29, ptr %26
   %30 = inttoptr i64 %x32 to ptr
   %31 = getelementptr inbounds %Node, ptr %30, i32 0, i64 0
-  %x97 = load i64, ptr %31
-  switch i64 %x97, label %default_18 [i64 1, label %"1_18"]
+  %x96 = load i64, ptr %31
+  switch i64 %x96, label %default_18 [i64 1, label %"1_18"]
 "1_18":
   %32 = inttoptr i64 %x32 to ptr
   call fastcc void @free(ptr %32)
   br label %continue_17
 default_18:
-  %x96 = sub i64 %x97, 1
+  %x95 = sub i64 %x96, 1
   %33 = inttoptr i64 %x32 to ptr
   %34 = getelementptr inbounds %Node, ptr %33, i32 0, i64 0
-  store i64 %x96, ptr %34
+  store i64 %x95, ptr %34
   br label %continue_17
 continue_17:
-  %x30 = sub i64 %x68, %x54
+  %x30 = sub i64 %x67, %x54
   %35 = insertvalue %Node undef, i64 0, 1
   %36 = insertvalue %Node %35, i64 %x30, 2
   ret %Node %36
 }
 
 define fastcc void
-@"dup"(i64 %x83){
-  %1 = inttoptr i64 %x83 to ptr
+@"dup"(i64 %x82){
+  %1 = inttoptr i64 %x82 to ptr
   %2 = getelementptr inbounds %Node, ptr %1, i32 0, i64 0
-  %x82 = load i64, ptr %2
-  %x81 = add i64 %x82, 1
-  %3 = inttoptr i64 %x83 to ptr
+  %x81 = load i64, ptr %2
+  %x80 = add i64 %x81, 1
+  %3 = inttoptr i64 %x82 to ptr
   %4 = getelementptr inbounds %Node, ptr %3, i32 0, i64 0
-  store i64 %x81, ptr %4
+  store i64 %x80, ptr %4
   ret void
 }
