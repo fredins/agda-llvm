@@ -1,4 +1,6 @@
 packages: .
           agda
 
+flags: +debug -optimise-heavily
+optimization: 0
 tests: True

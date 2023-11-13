@@ -1,11 +1,12 @@
 *.agdai
 dist-newstyle
 output.hs
-output/
+output
 plan.md
 latex/*
 !latex/report.pdf
 test/*.err
+_build
 program
 *.log
 *.fls
