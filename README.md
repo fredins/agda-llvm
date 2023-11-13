@@ -53,6 +53,7 @@ main = sum 0 (downFrom [] 10_000_000)
 ```
 
 ### Restrictions
+- No lambdas.  
 - No higher-order functions or partial applications.  
 - No parametric polymorphism.  
 - Only pure functions.
