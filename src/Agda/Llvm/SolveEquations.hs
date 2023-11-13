@@ -68,8 +68,7 @@ dfo :: Tree Vertex -> [Vertex]
 dfo (Node parent children) = parent : foldr (\tree vs -> vs ++ dfo tree) [] children
 
 -- TODO [Boquist, 1996] recommends the depth-first ordering [Aho, 2006] but this approach doesn't 
---      converge for our test program. Instead, we reverse the DF ordering which intuitively makes 
---      sense but this could be wrong. Need to look into this further.
+--      converge for our test program. Need to look into this further.
 solveEquations :: [GrinDefinition] -> AbstractContext -> AbstractContext
 solveEquations definitions context = 
   -- logg (

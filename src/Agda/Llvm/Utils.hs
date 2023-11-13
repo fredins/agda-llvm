@@ -134,7 +134,6 @@ printPretty = putStrLn . prettyShow
 trace' :: String -> a -> a
 trace' s = unsafePerformIO . (logIO s $>)
 
--- really want liftIO : MonadIO m => IO a -> m a from base 4
 logIO :: MonadIO m => String -> m ()
 logIO s = liftIO $ appendFile "trace.log" (s ++ "\n")
 

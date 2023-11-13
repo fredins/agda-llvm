@@ -103,7 +103,8 @@ printInterpretGrin defs = do
   liftIO $ putStrLn $ render $ vcat
     [ text "Result:" <+> pretty val
     , text "Allocations" <+> vcat (allocationCounts ++ [text "Total:" <+> pretty allocations])
-    , text "In use at exit:" <+> pretty env.heap ]
+    , text "In use at exit:" <+> pretty (Map.size $ env.heap.unHeap)
+    {- , text "Heap:" <+> pretty env.heap -} ]
 
 
 interpretGrin :: forall mf. MonadFresh Int mf => [GrinDefinition] -> mf (Value, Env)

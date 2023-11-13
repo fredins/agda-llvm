@@ -213,7 +213,7 @@ inlineEval defs absCxt tagInfo =
     genBody _ = __IMPOSSIBLE__
 
   fetchTagSet :: Abs -> Set Tag
-  fetchTagSet x = maybe (error $ "bad: " ++ prettyShow x) (foldMap filterTags) . (mapM heapLookup <=< fetchLocations) $ x
+  fetchTagSet x = maybe (error $ "Can't find: " ++ prettyShow x) (foldMap filterTags) . (mapM heapLookup <=< fetchLocations) $ x
 
   fetchLocations :: Abs -> Maybe (List1 Loc)
   fetchLocations x = do
@@ -262,7 +262,7 @@ leftUnitLaw :: Term -> Term
 -- 〈t 〉
 -- >>>
 -- 〈t 〉[n / m]
-leftUnitLaw (Unit (Var n) `Bind` LAltVar _ t) = strengthen impossible (applySubst (inplaceS 0 $ Var $ succ n) t)
+leftUnitLaw (Unit (Var n) `Bind` LAltVar _ t) = strengthen impossible (applySubst (inplaceS 0 $ Var $ succ n) $ leftUnitLaw t)
 -- unit (tag v₁ v₂) ; λ tag x₁ x₂ →
 -- 〈t 〉
 -- >>>
@@ -277,6 +277,15 @@ leftUnitLaw (Unit (ConstantNode tag1 vs) `Bind` LAltConstantNode tag2 xs t)
   t' = foldr applySubst (leftUnitLaw t) (zipWith inplaceS [0 ..] vs')
   -- Remove pattern variables by strengthening 
   t'' = applySubst (strengthenS impossible numSubst) t'
+-- -- unit (tag v₁ v₂) ; λ x →
+-- -- 〈t 〉
+-- -- >>>
+-- -- 〈t 〉[(tag v₁ v₂) / 0]
+leftUnitLaw (Unit (ConstantNode tag vs) `Bind` LAltVar _ t) = t''
+  where
+  v = raise 1 (ConstantNode tag vs)
+  t' = applySubst (inplaceS 0 v) $ leftUnitLaw t
+  t'' = strengthen impossible t'
 leftUnitLaw (Bind t1 (splitLalt -> (mkAlt, t2))) = Bind (leftUnitLaw t1) (mkAlt $ leftUnitLaw t2)
 leftUnitLaw (Case n t alts) = Case n (leftUnitLaw t) (map step alts)
   where
@@ -397,7 +406,7 @@ specializeUpdate tagInfo def = do
     t' <- go t
     pure (Case n t' alts')
   go (UpdateTag tag n v) = pure (UpdateTag tag n v)
-  go (Update Nothing n v) = error $ "UPDATE SPECIALIZATION FAILED: " ++ prettyShow (Update Nothing n v)
+  -- go (Update Nothing n v) = error $ "UPDATE SPECIALIZATION FAILED: " ++ prettyShow (Update Nothing n v)
   go t = pure t
 
 

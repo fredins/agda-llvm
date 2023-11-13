@@ -63,6 +63,7 @@ import           Agda.Utils.Monad               (ifM)
 import           Control.Applicative            (Applicative (liftA2))
 import           GHC.IO                         (unsafePerformIO)
 import           System.Directory.Extra         (removeFile)
+import Agda.TypeChecking.SizedTypes.Utils (setDebugging)
 
 
 -- LONG TERM IDEAS AND TODOs
@@ -215,7 +216,9 @@ llvmCompileDef :: LlvmEnv
                -> Definition
                -> TCM (Maybe TreelessDefinition)
 
-llvmCompileDef _ _ = definitionToTreeless
+llvmCompileDef _ _ isMain def = do 
+  liftIO $ setDebugging True
+  definitionToTreeless isMain def
 
 
 
@@ -288,9 +291,8 @@ llvmPostCompile _ _ mods = do
     putStrLn "-- * Treeless"
     putStrLn "------------------------------------------------------------------------\n"
     putStrLn $ intercalate "\n\n" $ map prettyShow defs_treeless
-    putStrLn $ "\nSHOW:\n" ++ (show $ tl_term $ head $ P.drop 1 $ reverse defs_treeless)
 
-  defs_grin <- map (updateGrTerm normalise) <$> treelessToGrin defs_treeless
+  defs_grin <- mapM (fmap (updateGrTerm normalise) . treelessToGrin) defs_treeless
   liftIO $ do
     putStrLn "\n------------------------------------------------------------------------"
     putStrLn "-- * GRIN"
@@ -335,6 +337,7 @@ llvmPostCompile _ _ mods = do
     putStrLn "-- * Left unit law"
     putStrLn "------------------------------------------------------------------------\n"
     putStrLn $ intercalate "\n\n" $ map prettyShow defs_leftUnitLaw
+
 
   -- printInterpretGrin defs_leftUnitLaw
 
@@ -425,6 +428,7 @@ llvmPostCompile _ _ mods = do
   defs_perceus <- map (updateGrTerm normalise) <$> mapM perceus defs_evaluateCase
 
   defs_mem <- do 
+    -- drop is only need prior to Perceus optimizations
     -- drop <- mkDrop defs_rightHoistFetch
     dup <- mkDup 
     pure [{- drop, -} dup]
@@ -624,10 +628,9 @@ llvmPostCompile _ _ mods = do
 -- • Saturated constructors
 
 -- TODO: remember to raise when ever we create a new abstraction that doesn't exist in treeless
-treelessToGrin :: MonadFresh Int mf => [TreelessDefinition] -> mf [GrinDefinition]
-treelessToGrin defs =
-  forM defs $ \def -> do
-    gr_term <- runReaderT (termToGrinR def.tl_term) (initGrinGenCxt def primitives)
+treelessToGrin :: MonadFresh Int mf => TreelessDefinition -> mf GrinDefinition
+treelessToGrin def = do
+    gr_term <- runReaderT (termToGrinR def.tl_term) (initGrinGenCxt def)
     gr_args <- replicateM def.tl_arity freshAbs
     gr_return <- boolToMaybe (not def.tl_isMain) <$> freshAbs
 
@@ -641,8 +644,6 @@ treelessToGrin defs =
       , gr_args = gr_args
       , gr_return = gr_return
       }
-  where
-    primitives = mapMaybe (\def -> (, def.tl_name) <$> def.tl_primitive) defs
 
 termToGrinR :: forall mf. MonadFresh Int mf => TTerm -> GrinGen mf Term
 termToGrinR (TCase n CaseInfo{caseType} t alts) =
@@ -674,21 +675,19 @@ termToGrinR (TCase n CaseInfo{caseType} t alts) =
       t' <- termToGrinR t
       pure (Case (Var n') t' alts')
 
+-- primForce in R scheme is unnecessary
+-- seq x (f x)
+termToGrinR (TApp (TPrim PSeq) (_ : f : xs)) = termToGrinR $ mkTApp f xs
+
 -- | 𝓡 [x + y] = eval 1 ; λ Cnat x0 →
 --               eval 1 ; λ Cnat x1 →
 --               add 1 0 ; λ x2 →
 --               unit 0
-termToGrinR (TApp (TPrim prim) vs) = do
-  isPrimWrapper <- asks $ (Just prim ==) . tl_primitive . definition
-  if isPrimWrapper then do
-    t <- forceValues (App (Prim prim)) vs
-    t `bindVar` Unit (cnat $ Var 0)
-  else do
-    f_wrapper <- asks (maybe __IMPOSSIBLE__ Def . lookup prim . primitives)
-    App f_wrapper <$> mapM operandToGrin vs
+termToGrinR (TApp (TPrim prim) ts) = do
+  t <- forceValues (App (Prim prim)) ts
+  t `bindVar` Unit (cnat $ Var 0)
 
   where
-    -- TODO wrap unit Cnat
   forceValues :: MonadFresh Int mf => ([Val] -> Term) -> [TTerm] -> GrinGen mf Term
   forceValues mkT vs = do
     (mevals, vs') <- foldrM step (Nothing, []) vs
@@ -738,6 +737,16 @@ termToGrinR (TApp (TCon q) vs) =
   where
   name = prettyShow q
 
+
+-- TODO generalize
+termToGrinR (TLet (TApp (TPrim PSeq) (_ : TApp f xs : ys)) t) = 
+  termToGrinR (TApp f $ xs ++ ys) `bindCnatM` 
+  store (cnat $ Var 0) `bindVarM`
+  (raiseFrom 1 1 <$> termToGrinR t)
+  -- app <- termToGrinR $ mkTApp f xs
+  -- t' <- raiseFrom 1 1 <$> termToGrinR t
+  -- app `bindCnatR` store (cnat $ Var 0) `bindVarL` t'
+
 -- 𝓡 [let t1 in t2] = 𝓒 [t1] ; λ x → 𝓡 [t2]
 termToGrinR (TLet t1 t2) = termToGrinC t1 `bindVarM` localEvaluatedNoOffset (termToGrinR t2)
 -- Always return a node
@@ -764,11 +773,12 @@ termToGrinC (TApp (TCon q) (v : vs))
   loc <- freshLoc 
   pure $ Store loc $ constantCNode (prettyShow q) (v' : vs')
 
-termToGrinC (TApp (TPrim prim) (v : vs))  
-  | Just (v' :| vs') <- allTVars1 (v :| vs) = do
-  name <- asks (fromMaybe __IMPOSSIBLE__ . lookup prim . primitives)
-  loc <- freshLoc
-  pure $ Store loc $ constantFNode name (v' : vs')
+
+-- termToGrinC (TApp (TPrim prim) (v : vs))  
+--   | Just (v' :| vs') <- allTVars1 (v :| vs) = do
+--   name <- asks (fromMaybe __IMPOSSIBLE__ . lookup prim . primitives)
+--   loc <- freshLoc
+--   pure $ Store loc $ constantFNode name (v' : vs')
 
 termToGrinC (TLit (LitNat n)) = do
   loc <- freshLoc
@@ -778,11 +788,12 @@ termToGrinC (TCon q) = do
   loc <- freshLoc
   pure $ Store loc (constantCNode (prettyShow q) [])
 
+
 -- TODO this probably works but currently we normalize all lets in TreelessTransform which is a bit unnecessary 
 --      as everything will be normalized again after eval inlining
 -- termToGrinC (TLet t1 t2) = termToGrinC t1 `bindVarM` localEvaluatedNoOffset (termToGrinC t2)
 
-termToGrinC t = error $ "TODO C scheme: " ++ take 40 (show t)
+termToGrinC t = error $ "TODO C scheme: " ++ take 80 (show t)
 
 allTVars1 :: List1 TTerm -> Maybe (List1 Val)
 allTVars1 (TVar n :| vs) = (Var n :|) <$> allTVars vs
@@ -826,15 +837,13 @@ operandToGrin _          = __IMPOSSIBLE__
 type GrinGen mf a = ReaderT GrinGenCxt mf a
 
 data GrinGenCxt = GrinGenCxt
-  { primitives       :: [(TPrim, String)]
-  , definition       :: TreelessDefinition
+  { definition       :: TreelessDefinition
   , evaluatedOffsets :: [Maybe (Int -> Int)]
   }
 
-initGrinGenCxt :: TreelessDefinition -> [(TPrim, String)] -> GrinGenCxt
-initGrinGenCxt def primitives = GrinGenCxt
-  { primitives = primitives
-  , definition = def
+initGrinGenCxt :: TreelessDefinition -> GrinGenCxt
+initGrinGenCxt def = GrinGenCxt
+  { definition = def
   , evaluatedOffsets = replicate def.tl_arity Nothing
   }
 

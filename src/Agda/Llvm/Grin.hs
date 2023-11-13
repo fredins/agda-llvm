@@ -36,8 +36,8 @@ data GrinDefinition = GrinDefinition
   , gr_type      :: Maybe Type
   , gr_term      :: Term
   , gr_args      :: [Abs]
-  , gr_return    :: Maybe Abs
-  }
+  , gr_return    :: Maybe Abs }
+  deriving (Eq, Show)
 
 lensGrTerm :: Lens' GrinDefinition Term
 lensGrTerm f def = f def.gr_term <&> \t -> def{gr_term = t}
