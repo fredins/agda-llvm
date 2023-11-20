@@ -1,12 +1,13 @@
 {-# LANGUAGE ViewPatterns #-}
 {-# LANGUAGE OverloadedRecordDot #-}
+{-# LANGUAGE BlockArguments #-}
 
 module Agda.Llvm.TreelessTransform
   ( definitionToTreeless
   , TreelessDefinition(..)
   ) where
 
-import           Control.Monad                         (when, zipWithM, (<=<))
+import           Control.Monad                         (when, zipWithM, (<=<), (>=>))
 import           Control.Monad.IO.Class                (MonadIO (liftIO))
 import           Data.Function                         (on)
 
@@ -68,27 +69,32 @@ wrapPrimitives (TCase n info t alts) = liftA2 (TCase n info) (wrapPrimitives t) 
   step :: TAlt -> TCM TAlt
   step (TACon q n t) = TACon q n <$> wrapPrimitives t
   step (TALit lit t) = TALit lit <$> wrapPrimitives t
-  step TAGuard{} = __IMPOSSIBLE__ -- TODO
+  step (TAGuard t1 t2) = liftA2 TAGuard (wrapPrimitives t1) (wrapPrimitives t2)
 wrapPrimitives t = pure t
 
 definitionToTreeless :: IsMain -> Definition -> TCM (Maybe TreelessDefinition)
-definitionToTreeless isMainModule Defn{defName, defType, theDef=Function{funCompiled = Just cc}} = do
-  (fmap . fmap)
-    (mkTreelessDef . normalizeLets'' . insertLets  . skipLambdas )
-    (mapMM (wrapPrimitives <=< normalizeNames) (toTreeless LazyEvaluation defName))
-  where
-    mkTreelessDef term = TreelessDefinition
+definitionToTreeless isMainModule Defn{defName, defType, theDef=theDef@Function{funCompiled = Just cc}} = 
+  caseMaybeM (toTreeless LazyEvaluation defName) (pure Nothing) \t ->  do 
+    traceM ("\n" ++ prettyShow defName ++ " theDef:\n" ++ prettyShow theDef)
+    traceM ("\n" ++ prettyShow defName ++ " info:\n\n" ++ show theDef)
+    traceM ("\n" ++ prettyShow defName ++ " to treeless:\n" ++ prettyShow t)
+    -- traceM ("toTreeless: \n" ++ prettyShow t) 
+    -- TODO turn back simplify in /agda (And only modify for seq) so it removes let a = b in...
+    t' <- wrapPrimitives =<< normalizeNames t
+    -- traceM ("insert: \n" ++ prettyShow t') 
+    let ta = insertLets $ skipLambdas t'
+    let t'' = normalizeLets'' ta
+    --traceM ("\n\nnormalizeLets: \n" ++ prettyShow t'') 
+    pure $ Just $ TreelessDefinition
       { tl_name      = prettyShow defName
       , tl_isMain    = isMain
       , tl_arity     = arity defType
       , tl_type      = defType
-      , tl_term      = term
+      , tl_term      = t''
       , tl_primitive = Nothing
       }
-
-    isMain =
-      isMainModule == IsMain &&
-      "main" == (prettyShow . nameConcrete . qnameName) defName
+  where
+  isMain = isMainModule == IsMain && "main" == (prettyShow . nameConcrete . qnameName) defName
 
 -- Create definitions for builtin functions so they can be used lazily.
 definitionToTreeless _ Defn{defName, defType, theDef=Primitive{}} = do
@@ -167,7 +173,9 @@ normalizeLets (TCase n info t alts) =
   where
   step (TACon q a t) = TACon q a (normalizeLets t)
   step (TALit l t) = TALit l (normalizeLets t)
-  step _ = __IMPOSSIBLE__
+  step (TAGuard t1 t2) = on TAGuard normalizeLets t1 t2
+                                               -- ^ not sure about this
+
 normalizeLets (TLam t) = TLam (normalizeLets t)
 normalizeLets t = t
 
@@ -178,18 +186,18 @@ normalizeLets'' t
   t' = normalizeLets t
 
 
-p = TPrim PLt
-f x y z = TApp (TPrim PAdd) [x , y , z]
-g x = TApp p [x]
-h = g
-i = g
-
-a = TVar 10
-b = TVar 11
-c = TVar 12
-
-ex1 = f (TLet (g a) $ TVar 0) b c
-ex2 = f (TLet (g a) $ TLet (h $ TVar 0) $ TVar 0) b c
+-- p = TPrim PLt
+-- f x y z = TApp (TPrim PAdd) [x , y , z]
+-- g x = TApp p [x]
+-- h = g
+-- i = g
+--
+-- a = TVar 10
+-- b = TVar 11
+-- c = TVar 12
+--
+-- ex1 = f (TLet (g a) $ TVar 0) b c
+-- ex2 = f (TLet (g a) $ TLet (h $ TVar 0) $ TVar 0) b c
 
 
 
@@ -240,6 +248,7 @@ insertLets' _ (TVar n) = TVar n
 insertLets' _ (TDef q) = TDef q
 insertLets' _ (TLam _) = __IMPOSSIBLE__
 insertLets' _ (TError e) = TError e
+insertLets' _ TErased = TErased 
 insertLets' _ (TPrim p) = TPrim p
 insertLets' p (TLet t1 t2) = TLet (insertLets' False t1) (insertLets' p t2)
 insertLets' p (TCase n info t alts) = 
@@ -249,53 +258,12 @@ insertLets' p (TCase n info t alts) =
   step :: TAlt -> TAlt
   step (TACon q n t) = TACon q n $ insertLets' False t
   step (TALit lit t) = TALit lit $ insertLets' False t
-  step TAGuard{} = __IMPOSSIBLE__ -- TODO
+  -- Guards are always strict 
+  -- TODO fix when nested applications
+  step (TAGuard t1 t2) = TAGuard t1 $ insertLets' False t2
+                                       -- ^ not sure about this
 insertLets' _ t = error $ "insertLets': " ++ prettyShow t
 
 insertLets :: TTerm -> TTerm
 insertLets = insertLets' False
 
-simplifyApp (TApp (TPrim PSeq) ts) = error $ prettyShow $ TApp (TPrim PSeq) ts -- FIXME
-
--- TODO rewrite this mess
-simplifyApp (tAppView -> (f, splitArgs -> Just (before, t, after))) =
-  simplifyApp (foldr mkLet app ts)
-  where
-  ts = uncurry snoc (tLetView (simplifyApp t))
-  raiseN :: Subst a => a -> a
-  raiseN = raise (length ts)
-  app = mkTApp (raiseN f) $ raiseN before ++ TVar 0 : raiseN after
-
-
-simplifyApp t = case t of
-  TLet t1 t2            -> on mkLet simplifyApp t1 t2
-  TCase n info def alts -> TCase n info (simplifyApp def) (simplifyAppAlts alts)
-  TLam t                -> TLam (simplifyApp t)
-  TCon _                -> t
-  TLit _                -> t
-  TError _              -> t
-  TVar _                -> t
-  TPrim _               -> t
-  TDef _                -> t
-  TApp _ _              -> t
-
-  _                     -> error $ "TODO " ++ show t
-
-
-simplifyAppAlts :: [TAlt] -> [TAlt]
-simplifyAppAlts = map go
-  where
-  go alt@TACon{aBody} = alt{aBody = simplifyApp aBody}
-  go alt@TALit{aBody} = alt{aBody = simplifyApp aBody}
-  go alt                = error $ "TODO " ++ (show alt)
-
-
--- Split arguments on the first application, constructor, or literal
-splitArgs :: Args -> Maybe (Args, TTerm, Args)
-splitArgs []              = Nothing
-splitArgs (a@TApp{} : as) = Just ([], a, as)
-splitArgs (a@TCon{} : as) = Just ([], a, as)
-splitArgs (a@TLit{} : as) = Just ([], a, as)
-splitArgs (a : as)
-  | Just (before, t, after) <- splitArgs as = Just (a:before, t, after)
-  | otherwise = Nothing

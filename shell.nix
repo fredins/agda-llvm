@@ -13,6 +13,8 @@ stdenv.mkDerivation {
       # Debugging
       lldb_15 
       valgrind
+      massif-visualizer
+
 
       # Required for the logbook HTML document
       pandoc

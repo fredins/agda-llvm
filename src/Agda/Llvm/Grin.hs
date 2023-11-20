@@ -55,6 +55,8 @@ getShortName = List1.last . list1splitOnDots . gr_name
 -- TODO
 -- • Remove Loc from Store
 -- • Combine Update and UpdateOffset
+-- • Rename *Offset to *Index
+-- • Maybe rename Abs
 -- • Think about using another syntax for variables 
 --   - Need to have global access and/or tag info and/or type
 --   - Need to have easy substitutions/weakining/strengthening
@@ -101,6 +103,9 @@ pattern FetchOffset tag n1 n2 = Fetch' (Just tag) n1 (Just n2)
 
 pattern UpdateTag :: Tag -> Int -> Val -> Term
 pattern UpdateTag tag n v = Update (Just tag) n v
+
+pattern UpdateOpaque :: Int -> Val -> Term
+pattern UpdateOpaque n v = Update Nothing n v
 
 pattern Drop n = App (Def "drop") [Var n]
 pattern Dup n = App (Def "dup") [Var n]
@@ -159,6 +164,7 @@ data LAlt = LAltConstantNode Tag [Abs] Term
 data CAlt = CAltConstantNode Tag [Abs] Term
           | CAltTag Tag Term
           | CAltLit Literal Term
+          | CAltGuard Term Term
             deriving (Show, Eq, Ord)
 
 
@@ -208,7 +214,7 @@ laltBody :: LensGet LAlt Term
 laltBody = \case
   LAltConstantNode _ _ t -> t
   LAltVariableNode _ _ t -> t
-  LAltVar x t            -> t
+  LAltVar _ t            -> t
   LAltEmpty t            -> t
 
 splitLalt :: LAlt -> (Term -> LAlt, Term)
@@ -227,11 +233,13 @@ splitCalt :: CAlt -> (Term -> CAlt, Term)
 splitCalt (CAltConstantNode tag xs t) = (CAltConstantNode tag xs, t)
 splitCalt (CAltTag tag t)               = (CAltTag tag, t)
 splitCalt (CAltLit lit t)               = (CAltLit lit, t)
+splitCalt (CAltGuard t1 t2)             = (CAltGuard t1, t2)
 
 splitCaltWithVars :: CAlt -> (Term -> CAlt, Term, [Abs])
 splitCaltWithVars (CAltConstantNode tag xs t) = (CAltConstantNode tag xs, t, xs)
-splitCaltWithVars (CAltTag tag t)               = (CAltTag tag, t, [])
-splitCaltWithVars (CAltLit lit t)               = (CAltLit lit, t, [])
+splitCaltWithVars (CAltTag tag t)             = (CAltTag tag, t, [])
+splitCaltWithVars (CAltLit lit t)             = (CAltLit lit, t, [])
+splitCaltWithVars (CAltGuard t1 t2)                   = (CAltGuard t1, t2, [])
 
 tagArity :: Tag -> Int
 tagArity = \case
@@ -357,6 +365,7 @@ applySubstCAlt rho (CAltConstantNode tag xs t) =
   CAltConstantNode tag xs $ applySubst (liftS (length xs) rho) t
 applySubstCAlt rho (CAltTag tag t) = CAltTag tag $ applySubst rho t
 applySubstCAlt rho (CAltLit lit t) = CAltLit lit $ applySubst rho t
+applySubstCAlt rho (CAltGuard t1 t2) = on CAltGuard (applySubst rho) t1 t2
 
 instance DeBruijn Val where
   deBruijnVar = Var
@@ -499,6 +508,7 @@ instance Pretty CAlt where
     sep [ pretty lit <+> text "→"
         , nest 2 $ pretty t
         ]
+  pretty (CAltGuard t1 t2) = text "_ |" <+> pretty t1 <+> text "→" <+> nest 2 (pretty t2)
 
 instance Pretty Tag where
   pretty CTag{..} = text "C" <> pretty tCon

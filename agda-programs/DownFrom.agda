@@ -17,5 +17,5 @@ sum [] = 0
 sum (x ∷ xs) = x + sum xs
 
 -- Stack overflow when > 58 000
-main = sum (downFrom 10_000) 
+main = sum (downFrom 100) 
 

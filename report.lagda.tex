@@ -20,6 +20,9 @@
 \renewcommand{\AgdaCommentFontStyle}[1]{{\AgdaTypewriterFont{}#1}}
 \renewcommand{\AgdaBoundFontStyle}[1]{\textit{\AgdaSerifFont{}#1}}
 
+% Small underscore
+\renewcommand{\AgdaUnderscore}{\texttt{\_}}
+
 % Bibliography
 \usepackage[backend=biber, style=apa, natbib=true]{biblatex}
 \addbibresource{../bibliography.bib}
@@ -78,12 +81,12 @@ keywords={case, of, store, update, unit, fetch}
 
 \lstset{
 frame=none,
-framexleftmargin=4pt,
+framexleftmargin=0pt,
 framesep=10pt,
 stepnumber=1,
-numbers=none,
-numbersep=5pt,
-numberstyle=\ttfamily\tiny\color[gray]{0.3},
+numbers=left,
+numbersep=7pt,
+numberstyle=\ttfamily\scriptsize\color[gray]{0.4},
 basicstyle=\linespread{1}\ttfamily\fontseries{l}\selectfont,
 keywordstyle=\linespread{1}\ttfamily\fontseries{b}\selectfont,
 captionpos=b,
@@ -95,7 +98,7 @@ mathescape=true,
 escapechar=!,
 }
 
-\title{ Precise reference counting for lazy functional languages with interprocedural analysis}
+\title{Precise reference counting for lazy functional languages with interprocedural points-to analysis}
 \author{Martin Fredin \\ \texttt{fredinm@chalmers.se}}
 \date{2023}
 
@@ -106,6 +109,7 @@ escapechar=!,
 
 \begin{code}[hide]
 open import Agda.Builtin.Nat using (suc; zero; _+_) renaming (Nat to ℕ) 
+open import Agda.Builtin.Strict using (primForce)
 
 infixr 5 _∷_
 data List A : Set where
@@ -137,15 +141,16 @@ data List A : Set where
 % Contribution: 
 %   • We demonstrate the applicability of combining non-strict languages with precise reference counting.
 %   • We implement a a compiler backend which compiles Agda to GRIN. Then, we perform transformations on the GRIN code to 
-%     remove indirect function calls by an interprocedural analysis. 
+%     remove indirect function calls by an interprocedural analysis.  
 %   • We implement a Perceus-like algorithm for the GRIN syntax which is much more low-level then previous implementations.
-%    
+%   • We implement a GRIN interpreter and a LLVM code generator.
 %
 % Related Work and Discussions
 % - ASAP uses compile-time garbage collection using interprocedural analysis. Would be interesting to apply some of these techniques to reduce reference counting operations.
 % - Two objections two whole program compilation and reference counting are long compile times and innability to collect cyclic data structures, respectively.
 %   We have been "avoiding" these uses for now. Hopefully, someone will come up with a nice solution. Some reference counting implementations like Swift and Python uses 
-%   weak references. Koka do not handle cycles (Or doesn't have cycles). Roc does not have cycles. Lean? 
+%   weak references. Koka do not handle cycles (Or doesn't have cycles). Roc does not have cycles. Lean does not have uncontrollable recursion nor mutable references, so it 
+%   is impossible to create circular references.
 % - Our precise reference counting algorithm targets GRIN but perhaps it can also be used in other simliar strict and low-level intermediate languages like the STG.
 % - Our implementation is not ready for benchmarks. We would like to compile a larger subset of Agda, implement the rest of optimizing transformations, and reuse-analysis.
 % - We would also like to formalize our precise reference counting algorithm.
@@ -154,7 +159,8 @@ data List A : Set where
 % TODO
 % - Focus more on motivation: problem of high-level verified code and efficient evaluation and memory management plays a huge role.
 % - Maybe use non-strict/strict instead of lazy/eager 
-% - Agda have normal order evaluation. Compiler writers can decide the most efficient evaluation order.
+% - Agda have normal order evaluation (This is maybe only true in compile-time normalization). Compiler writers can decide the most 
+%   efficient evaluation order.
 % - Remove result and create a separate section for code generator and interpreter.
 % - Write in maybe abstract and introduction that we "cheat" by transforming non-strictness into a 
 %   strict language 
@@ -181,8 +187,10 @@ The algorithm is called Perceus, and as of this writing, it has only been implem
 This paper describes the implementation of a new lazy compiler back-end for the Agda programming language with 
 precise reference counting. 
 The compiler uses \citeauthor{boquist1999} and \citeauthor{johnsson1991}'s intermediate language GRIN to compile lazy programs. 
-GRIN uses interprocedural analysis to inline the evaluation of suspended computations.
+GRIN uses interprocedural points-to analysis to inline the evaluation of suspended computations.
 We extend GRIN with a variant of Perceus, and demonstrate the applicability of combining lazy functional programming with precise reference counting by developing a GRIN interpreter and an LLVM code generator. 
+% Our results suggest that strictness analysis is vital for mitigating space leaks.
+% We conclude that...
 
 \end{abstract}
 
@@ -196,7 +204,7 @@ As a result of the interleaved collection strategy, memory usage remain low and 
 Still, tracing garbage collectors are usually favored over reference counting implementations due to cheaper allocations, higher throughput, and the ability to collect cyclic data structures.
 
 \citet{reinking2021} reexamine reference counting with a new approach, utilizing static guarantees to make the algorithm precise so objects can be deallocated as soon as possible.
-They present a formalized algorithm called Perceus, which ensures preciseness. 
+They present a formalized algorithm called Perceus, which ensures precision. 
 Perceus is implemented in the functional language Koka, along with optimizations for reducing reference counting operations and reusing memory.
 This, builds upon previous work by \citet{ullrich2021} in the Lean programming language and theorem prover. 
 
@@ -204,13 +212,41 @@ Both Koka and Lean are, however, eagerly evaluated.
 Lazy languages pose an extra challenge for compiler writers because of their unintuitive control flow. 
 In this paper, we adapt the Perceus algorithm to a new lazy compiler back-end for the Agda programming language and proof assistant.
 As a first step, we transform Agda into an intermediate language called GRIN \citep{johnsson1991}.
+% FIXME "their unintuitive control" looks like it refererce to "compiler writers"
 
-\section{Graph Reduction Intermediate Notation}
-In \citeyear{johnsson1991}, \citeauthor{johnsson1991} presented the Graph Reduction Intermediate Notation (GRIN) as an imperative version of the G-machine \citep{johnsson1984}, where lexically scoped variables are stored in registers instead of the stack. 
+%\begingroup
+%\large{TODO SKRIV RENT}
+%\endgroup
+%\normalfont
+%\begin{itemize}
+%\item expand on laziness (see boquist1996). Why is laziness important? Osasaki pure functional data structures.
+%\item Lazy languages are hard optimize. For example, common implementations of laziness are implemented we indirect functional calls to 
+%   evaluated suspended computations (johnsson1984, Peyton Jones 1992). Indirect function calls prevent optimization such as 
+%   inlining and is proven to cache misses. 
+%\item In this paper, we develop a new lazy compiler back-end for the Agda programming language and proof assistant.
+%      Our implementation uses the intermediate language GRIN to compile lazy programs. GRIN uses an interprocedural points-to analysis
+%      to eliminate all indirect function calls.
+%\item We extend GRIN with variant of the Perceus algorithm for precise reference counting.
+%\item Contributions:
+%  \begin{itemize}
+%  \item Demonstrate the applicability of combining lazy function programming with precise reference counting.
+%  \item Adapt the Perceus algorithm to a much lower-level language than previous implementations
+%  \item We develop GRIN interpreter and a LLVM code generator to compile GRIN to machine code.
+%  \end{itemize}
+%\end{itemize}
+
+
+\section{Graph Reduction \\ Intermediate Notation}
+In \citeyear{johnsson1991}, \citeauthor{johnsson1991} presented the Graph Reduction Intermediate Notation (GRIN) as an imperative version of the G-machine \citep{johnsson1984}, where lexically scoped variables are stored in registers instead of on the stack. 
 Later, GRIN was reformulated with a more "functional flavor" \citep{boquist1995}.
 In this project, we introduce an additional variant of GRIN adapted for the internal representation of Agda and precise reference counting. 
 
-The syntax of our variant are shown in Figure \ref{fig:grin-syntax}.
+% TODO
+% • We choosed GRIN because of powerful optimizations and simple. But, we belive that, precise reference counting could also be applied 
+%   to languages like GHC's Core (PJ 96) and STG (92).
+GRIN is strict, untyped, first-order language. All values in GRIN are in weak head normal form
+
+The syntax of our variant are shown in \mbox{Figure \ref{fig:grin-syntax}}.
 There are 4 kinds of constructs; terms, values, lambda patterns, and case patterns.
 All syntactically correct expressions are not valid. For example, the value at the function position of an application must be either a top-level function (\emph{def}) or a primitive (\emph{prim}). It cannot be a variable because
 there are no indirect function calls in GRIN. Likewise, top-level functions cannot be passed 
@@ -222,25 +258,26 @@ as arguments because GRIN is a first-order language.
 \begin{figure*}[htbp]
 \centering
 \begin{empheq}[box=\fbox]{align*}
+% TODO fix rest of emph
 &\begin{array}{l l l l}
-term & ::=      & term \; ; \; \lambda lpat \rightarrow term                & \; \text{binding} \\
-     & \; \mid  & \texttt{case} \; val \; \texttt{of} \; term \; \{calt\}*  & \; \text{case} \\
+term & ::=    & \emph{term} \; ; \; \lambda \emph{lpat} \rightarrow \emph{term}                        & \; \text{binding} \\
+     & \; \mid  & \texttt{case} \; \emph{val} \; \texttt{of} \; \emph{term} \; \{\emph{calt}\,\}*  & \; \text{case} \\
      & \; \mid  & val \; \{val\}*                                           & \; \text{application} \\
      & \; \mid  & \texttt{unit} \; val                                      & \; \text{return value} \\
      & \; \mid  & \texttt{store} \; val                                     & \; \text{allocate new heap node} \\
-        & \; \mid  & \texttt{fetch} \; \{tag\} \; n \;  \{i\}                  & \; \text{load heap node} \\
-        & \; \mid  & \texttt{update} \; \{tag\} \; n \; \{i\} \; val           & \; \text{overwrite heap node} \\
-        & \; \mid  & \texttt{unreachable}                                      & \; \text{unreachable} \\
+     & \; \mid  & \texttt{fetch} \; \{tag\} \; n \;  \{i\}                  & \; \text{load heap node} \\
+     & \; \mid  & \texttt{update} \; \{tag\} \; n \; \{i\} \; val           & \; \text{overwrite heap node} \\
+     & \; \mid  & \texttt{unreachable}                                      & \; \text{unreachable} \\
 \end{array} \\ \\
 &\begin{array}{l l l l}
-val & ::=     & tag \; \{val\}* & \; \text{constant node} \\
-    & \; \mid & n \; \{val\}*   & \; \text{variable node} \\
-    & \; \mid & tag             & \; \text{single tag} \\
-    & \; \mid & ()              & \; \text{empty} \\
-    & \; \mid & lit             & \; \text{literal} \\
-    & \; \mid & n               & \; \text{variable (de Bruijn index)} \\
-    & \; \mid & def             & \; \text{function definition} \\
-    & \; \mid & prim            & \; \text{primitive definition} \\
+val & ::=     & \emph{tag} \; \{\emph{val}\,\}* & \; \text{constant node} \\
+    & \; \mid & \emph{n} \; \{\emph{val}\,\}*   & \; \text{variable node} \\
+    & \; \mid & \emph{tag}      & \; \text{single tag} \\
+    & \; \mid & \emph{()}       & \; \text{empty} \\
+    & \; \mid & \emph{lit}      & \; \text{literal} \\
+    & \; \mid & \emph{n}        & \; \text{variable (de Bruijn index)} \\
+    & \; \mid & \emph{def}      & \; \text{function definition} \\
+    & \; \mid & \emph{prim}     & \; \text{primitive definition} \\
 \end{array} \\ \\
 &\begin{array}{l l l l}
 lpat & ::=     & tag \; \{x\}* & \; \text{constant node pattern} \\
@@ -265,9 +302,10 @@ cpat & ::=     & tag \; \{x\}* & \; \text{constant node pattern} \\
 
 
 \subsection{Code generation}
-The current implementation of GRIN only compiles a subset of Agda which is lambda lifted, first order, and monomorphic.
+Currently, our compiler only accepts a subset of Agda which is lambda lifted, first-order, and monomorphic.
+Following is Agda program which computes the sum of the first 100 numbers. 
 %\begin{figure}[hb!]
-\begin{code}
+\begin{code}[]
 downFrom : ℕ → List ℕ
 downFrom zero = []
 downFrom (suc n) = n ∷ downFrom n 
@@ -299,11 +337,12 @@ downFrom x7 = case x7 of
 The implementation uses de Bruijn indices to represent variables, but this paper uses variable names to make it more readable. 
 During this phase, we also transform the program so applications only take variables as operands.
 
+% FIXME don't use very
 GRIN is very similar to the treeless syntax, but instead of let-expressions we use the builtin state monad to bind variables and sequence operations.
 The monadic operations are \lstinline{unit}, \lstinline{store}, \lstinline{fetch}, and \lstinline{update}. 
 The bind operator ";" is infix and right-associative.
 We can translate "\lstinline[language=treeless]{let x = $\emph{val}$ in foo x}" lazily
-by allocating the value and passing the pointer as an argument to the function: "\lstinline[]{store $\emph{val}$ ; λ x → foo x}".
+by allocating the value and passing the pointer as an argument to the function: "\lstinline[]{store $\emph{val}$ ; λ x$_{ptr}$ → foo x$_{ptr}$}".
 Here, \emph{val} must be a constant node value. 
 A constant node is a tag followed by a sequence of arguments. 
 We can pattern match on a tag with the case expression to determine the kind.
@@ -322,6 +361,15 @@ downFrom x7 =
       store (FdownFrom x4) ; λ x3 →
       unit (C_$∷$_ x4 x3)
 \end{lstlisting}
+
+\subsection{Semantics}
+The GRIN interpreter is convenient because it can evaluate all programs after the eval inlining transformation. 
+Meanwhile, the code generator only works for programs after the simplifying transformations (see Section \ref{sec:analysis-and-transformations}).
+It is also easier to collect information on the program evaluation.
+For instance, the final version of our example program allocates the following nodes: 101 \lstinline{Cnat}, 101 \lstinline{FdownFrom}, 100 \lstinline{F_-_},  and 100 \lstinline{Fsum}.
+A total of 402 allocations for our tiny example program is excessive. 
+The main culprit is too much laziness. 
+Another contributing factor is that we always allocate new memory instead of reusing previous allocations
 
 \label{sec:analysis-and-transformations}
 \subsection{Analysis and transformations}
@@ -408,7 +456,7 @@ We can promote an element from the borrowed environment to the owned environment
 \begin{mdframed}
 \centering
 \setlength{\fboxsep}{0pt} % padding for border
-\begin{subfigure}[t]{0.50\textwidth}
+\begin{subfigure}[t]{0.44\textwidth}
 \centering
 \begin{lstlisting}
 sum x14 =
@@ -430,7 +478,7 @@ sum x14 =
 \caption{dup/drop insertion}
 \label{fig:drop-insert}
 \end{subfigure}\par\medskip
-\begin{subfigure}[b]{0.48\textwidth}
+\begin{subfigure}[b]{0.44\textwidth}
 \centering
 \begin{lstlisting}
 sum x14 =
@@ -467,8 +515,8 @@ sum x14 =
 \caption{drop specialization}
 \label{fig:drop-spec}
 \end{subfigure}
-\begin{subfigure}[b]{0.48\textwidth}
-\begin{lstlisting}[showlines=true]
+\begin{subfigure}[b]{0.44\textwidth}
+\begin{lstlisting}[showlines=true, numbers=none]
 sum x14 =
   fetch x14 [2] ; λ x40 →
   downFrom x40 ; λ x59 x60 x61 →
@@ -540,7 +588,7 @@ We can eliminate the general \lstinline{drop} function completely for our exampl
 \citeauthor{reinking2021} presents an additional optimization called \emph{reuse analysis}, which perfoms destructive updates when possible.
 This transformation is not yet implemented.
 
-\section{Result}
+\section{LLVM code generator}
 We have implemented a GRIN interpreter and an LLVM code generator to check that our compiler works and that the programs reclaim all the allocated memory. 
 Our implementation of the code generator is simple. 
 GRIN does not demand a specific memory layout for the node values.
@@ -553,13 +601,23 @@ This discrepancy is not an issue because all functions return nodes, and all var
 Hence, we store the pointers as integer values and convert them to the pointer type (\lstinline{ptr}) as required.
 However, we will probably develop a type system for GRIN once we switch to a more sophisticated memory layout and implement the \emph{general unboxing} optimization \citep{boquist1999}.
 
-The GRIN interpreter is convenient because it can evaluate all programs after the eval inlining transformation. 
-Meanwhile, the code generator only works for programs after the simplifying transformations (see Section \ref{sec:analysis-and-transformations}).
-It is also easier to collect information on the program evaluation.
-For instance, the final version of our example program allocates the following nodes: 101 \lstinline{Cnat}, 101 \lstinline{FdownFrom}, 100 \lstinline{F_-_},  and 100 \lstinline{Fsum}.
-A total of 402 allocations for our tiny example program is excessive. 
-The main culprit is too much laziness. 
-Another contributing factor is that we always allocate new memory instead of reusing previous allocations
+\section{Result}
+
+\begin{code}
+{-# TERMINATING #-}
+downFrom′ : ℕ → List ℕ
+downFrom′ zero = []
+downFrom′ (suc n) = 
+  primForce n (λ n → n ∷ downFrom′ n)
+
+sum′ : ℕ → List ℕ → ℕ
+sum′ acc [] = acc
+sum′ acc (x ∷ xs) = 
+  sum′ (primForce x _+_ acc) xs
+
+main′ = sum′ 0 (downFrom′ 100) 
+\end{code}
+
 
 % \begin{itemize}
 % \item Short text about tailcalls
@@ -577,11 +635,75 @@ Another contributing factor is that we always allocate new memory instead of reu
       % We haven't implemented drop specialization or heap reuse analysis.
 % \end{itemize}
 
-% \section{Relevant Work}
+\section{Related work}
+
+To our knowledge, Perceus is the main memory management technique in the Koka \citep{reinking2021}, Lean \citep{TODO}, and Roc \citep{teeuwissen2023}.
+There is also an experimental implementation in OCaml \citep{pinto2023}.
+All of these, are eager functional languages and mostly immutable.
+Our back-end uses lazy evaluation.
+
+
+
+
+%\begin{itemize}
+%\item GRIN \citep{podlovics2021}
+%
+%\item Our Perceus implementation is also unique because the it is adapted to much lower-level language with explicit memory operations and pointers.
+%      Koka, Lean, and OCaml uses an intermediate languages simliar to the lambda calculus.
+%      Roc is also implemented in low-level language.
+%      But one major differnce is that Roc lacks pattern matching.
+%      Roc have also a lot hard coded types like arrays.
+%      Roc performs defunctionalization of higher-order functions simliar to how we use defunctionalization for on thunks. 
+%      \citeauthor{teeuwissen2023} claims that this helps the reuse-analysis enables more instances of FBIP.
+%
+%\item We have not implemented the most powerful optimizations like \emph{Functional But In Place} (FBIP) and borrowing specialization.
+%
+%\item Cycles. Both Lean and Roc eager purely functional languages which makes it impossible to create cycles.
+%      Cycles are possible in Koka since it allows mutable references.
+%      The programmer is responsible for to break cycles manually by marking certain references a weak.
+%      This strategy is also found in Swift and Python.
+%      Agda is a total language so every program is productive regardless of evaluation order. 
+%      Thus, in principle, we could turn to eager evaluation when there is a circular reference.
+%      Furthermore, unspecified evaluation order enable many optimization.
+%
+%\item ASAP is an intresting language which uses compile-time garbage collection using interprocedural analysis.
+%      Can we leverage some information for the points-to analysis and sharing analysis?
+%\item Lobster is another intresting reference counted language with support for compile-time reference counting.
+%
+%\item Other Agda Backends. MAlonzo inserts a lot of unsafeCoerce (which kills optimzations) because treeless is untyped citep{hausmann2015}.
+%
+%\end{itemize}
+
+
+% Perceus
+% • To our knowledge, Perceus is the main memory management technique in the following languages Koka, Lean, and Roc. 
+% • There has also been an experimental implementation in OCaml.
+% • All of these languages are eagerly evaluated.
+% 
+% Cycles
+% • 
+% • 
+% • 
+%   
+%   
+
+
+
+% Related Work and Discussions
+% - ASAP uses compile-time garbage collection using interprocedural analysis. Would be interesting to apply some of these techniques to reduce reference counting operations.
+% - Two objections two whole program compilation and reference counting are long compile times and innability to collect cyclic data structures, respectively.
+%   We have been "avoiding" these uses for now. Hopefully, someone will come up with a nice solution. Some reference counting implementations like Swift and Python uses 
+%   weak references. Koka do not handle cycles (Or doesn't have cycles). Roc does not have cycles. Lean does not have uncontrollable recursion nor mutable references, so it 
+%   is impossible to create circular references.
+
+% - Our precise reference counting algorithm targets GRIN but perhaps it can also be used in other simliar strict and low-level intermediate languages like the STG.
+% - Our implementation is not ready for benchmarks. We would like to compile a larger subset of Agda, implement the rest of optimizing transformations, and reuse-analysis.
+% - We would also like to formalize our precise reference counting algorithm.
+
 % Lean and Koka: reference counting and reuse
 % Swift: automatic reference counting (ARC), and plans of borrowing
 % AST \& Rust: safe manual memory management through proofs and the borrow checker, respectively
-\section{Conclusion and Future Work}
+\section{Conclusions and future work}
 In this paper, we combine lazy functional programming with precise reference counting.
 Our implementation compiles Agda to GRIN and extends GRIN with precise reference counting instructions. 
 Then, we compile GRIN to LLVM and show that the program reclaims all the memory.

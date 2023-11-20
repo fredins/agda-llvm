@@ -9,7 +9,7 @@ module Agda.Llvm.Compiler (module Agda.Llvm.Compiler) where
 
 import           Control.DeepSeq                (NFData)
 import           Control.Monad                  (forM, mapAndUnzipM, replicateM,
-                                                 void, when)
+                                                 void, when, join)
 import           Control.Monad.IO.Class         (liftIO)
 import           Control.Monad.Reader           (MonadReader,
                                                  ReaderT (runReaderT), asks,
@@ -59,29 +59,42 @@ import           Agda.Utils.List
 import           Agda.Utils.List1               (List1, pattern (:|), (<|))
 import qualified Agda.Utils.List1               as List1
 import           Agda.Utils.Maybe
-import           Agda.Utils.Monad               (ifM)
+import           Agda.Utils.Monad               (ifM, mapMaybeM)
 import           Control.Applicative            (Applicative (liftA2))
 import           GHC.IO                         (unsafePerformIO)
 import           System.Directory.Extra         (removeFile)
-import Agda.TypeChecking.SizedTypes.Utils (setDebugging)
+import Agda.TypeChecking.SizedTypes.Utils (setDebugging, traceM)
 
 
 -- LONG TERM IDEAS AND TODOs
 --
 -- • Lambda lifting
 --
+-- • Erase proofs and other unused terms (e.g. second argument of const). #6928
+-- 
+-- • Typed GRIN. 
+--   - Only use layout types for better code generation.
+--   - Distinguish between linear and omega modalities (all zero modalities are  
+--     hopefully erased).
+--
 -- • Monomorphization
+--   - Treeless is untyped. So, unfortunetly, the monomorphization may need to be part 
+--     of a treeless-to-GRIN type inference phase. Which means that MAlonzo can not reuse 
+--     the optimizations. 
+--   - Big obstacles are higher ranked types and polymorphic recursion. But it 
+--     should be feasible with interprodural analysis. We may end up doing something 
+--     similiar to [Brandon, 2023]. However, it would be best to do a "simple" monomorphization
+--     (fuctions with the same layout type share one definition) and then implement a more general 
+--     specializtion pass to avoid branching.
 --
--- • Dead code elimination (worked on by Jesper in #4733)
---
--- • Erase proofs
+-- • Dead code elimination. #4733
 --
 -- • Incremental/parallel compilation by storing call graph information in 
 --   interface-like files. Then, there can be "thin" interprodural analysis 
---   which performs monomorphization and points-to analysis, and later cross-module 
---   inlining. The monomorphization pass should be independent off the points-to 
---   analysis so it can be used in the MAlonzo backend. These ideas are similiar to 
---   LLVM's ThinLTO. 
+--   which performs monomorphization and points-to analysis. These ideas are 
+--   similiar to LLVM's ThinLTO. 
+--
+--   FIXME figure is wrong
 --        
 --           +            +            +     • Frontend stuff 
 --           |            |            |  
@@ -299,6 +312,9 @@ llvmPostCompile _ _ mods = do
     putStrLn "------------------------------------------------------------------------\n"
     putStrLn $ intercalate "\n\n" $ map prettyShow defs_grin
 
+  -- FIXME
+  -- printInterpretGrin defs_grin
+
   let (absCxtEqs, absCxt, share) = heapPointsTo defs_grin
   let tagInfo_pointsTo = initTagInfo absCxt
   liftIO $ do
@@ -429,9 +445,9 @@ llvmPostCompile _ _ mods = do
 
   defs_mem <- do 
     -- drop is only need prior to Perceus optimizations
-    -- drop <- mkDrop defs_rightHoistFetch
+    drop <- mkDrop defs_rightHoistFetch
     dup <- mkDup 
-    pure [{- drop, -} dup]
+    pure [drop, dup]
 
   liftIO $ do
     putStrLn "\n------------------------------------------------------------------------"
@@ -468,7 +484,7 @@ llvmPostCompile _ _ mods = do
     putStrLn "------------------------------------------------------------------------\n"
     putStrLn $ intercalate "\n\n" (map prettyShow defs_fuseDupDrop) ++ "\n"
 
-  -- printInterpretGrin (defs_fuseDupDrop ++ defs_mem)
+  printInterpretGrin (defs_fuseDupDrop ++ defs_mem)
 
 
 
@@ -630,7 +646,9 @@ llvmPostCompile _ _ mods = do
 -- TODO: remember to raise when ever we create a new abstraction that doesn't exist in treeless
 treelessToGrin :: MonadFresh Int mf => TreelessDefinition -> mf GrinDefinition
 treelessToGrin def = do
+    traceM ("\n" ++ def.tl_name ++ " final treeless:\n" ++ prettyShow def)
     gr_term <- runReaderT (termToGrinR def.tl_term) (initGrinGenCxt def)
+    traceM ("\n" ++ def.tl_name ++ " to grin:\n" ++ prettyShow gr_term)
     gr_args <- replicateM def.tl_arity freshAbs
     gr_return <- boolToMaybe (not def.tl_isMain) <$> freshAbs
 
@@ -712,7 +730,7 @@ termToGrinR (TApp (TPrim prim) ts) = do
 
 -- | 𝓡 [foo x y] = foo x y
 termToGrinR (TApp (TDef q) vs) = do
-  let call = App (Def (prettyShow q)) <$> mapM operandToGrin vs
+  let call = App (Def (prettyShow q)) <$> mapMaybeM operandToGrin vs
   shortName <- asks $ List1.last . list1splitOnDots . tl_name . definition
   applyWhen (shortName == "main") (`bindCnatL` printf 0) call
 
@@ -733,10 +751,17 @@ termToGrinR (TLit lit) = do
 termToGrinR (TApp (TCon q) vs) =
   caseList vs
     (pure (Unit (Tag (FTag name 0))))
-    (\v vs -> Unit . constantCNode name . toList <$> mapM operandToGrin  (v :| vs))
+    (\v vs -> Unit . constantCNode name  <$> mapMaybeM operandToGrin  (v : vs))
   where
   name = prettyShow q
 
+
+
+-- Forcing and argument via the identity function
+termToGrinR (TLet (TApp (TPrim PSeq) [TVar n, TVar n']) t) | n == n' = 
+  termToGrinR (TVar n) `bindCnatM` 
+  store (cnat $ Var 0) `bindVarM`
+  (raiseFrom 1 1 <$> termToGrinR t)
 
 -- TODO generalize
 termToGrinR (TLet (TApp (TPrim PSeq) (_ : TApp f xs : ys)) t) = 
@@ -754,7 +779,7 @@ termToGrinR (TCon q) = pure (Unit (constantCNode (prettyShow q) []))
 termToGrinR (TError TUnreachable) = pure Unreachable
 termToGrinR (TVar n) = maybe (eval n) (Unit . Var) <$> applyEvaluatedOffset n
 
-termToGrinR t = error $ "TODO R scheme: " ++ take 40 (show t)
+termToGrinR t = error $ "TODO R scheme: " ++ prettyShow t
 
 
 termToGrinC (TApp f []) = error "TODO CAF"
@@ -774,6 +799,14 @@ termToGrinC (TApp (TCon q) (v : vs))
   pure $ Store loc $ constantCNode (prettyShow q) (v' : vs')
 
 
+
+
+  -- termToGrinR (TApp f $ xs ++ ys) `bindCnatM` 
+  -- store (cnat $ Var 0) `bindVarM`
+  -- (raiseFrom 1 1 <$> termToGrinR t)
+
+-- termToGrinC (TApp (TPrim PSeq) vs) = undefined
+
 -- termToGrinC (TApp (TPrim prim) (v : vs))  
 --   | Just (v' :| vs') <- allTVars1 (v :| vs) = do
 --   name <- asks (fromMaybe __IMPOSSIBLE__ . lookup prim . primitives)
@@ -792,6 +825,7 @@ termToGrinC (TCon q) = do
 -- TODO this probably works but currently we normalize all lets in TreelessTransform which is a bit unnecessary 
 --      as everything will be normalized again after eval inlining
 -- termToGrinC (TLet t1 t2) = termToGrinC t1 `bindVarM` localEvaluatedNoOffset (termToGrinC t2)
+
 
 termToGrinC t = error $ "TODO C scheme: " ++ take 80 (show t)
 
@@ -827,12 +861,16 @@ altToGrin (TACon q arity t) = do
   where
    tag = CTag (prettyShow q) arity
 altToGrin (TALit lit t) = CAltLit lit <$> termToGrinR t
-altToGrin _ = __IMPOSSIBLE__
+altToGrin (TAGuard t1 t2) = liftA2 CAltGuard (termToGrinR t1) (termToGrinR t2)
 
-operandToGrin :: MonadFresh Int mf => TTerm -> GrinGen mf Val
-operandToGrin (TVar n)   = applyEvaluatedOffset n <&> maybe (Var n) Var
-operandToGrin (TLit lit) = pure (Lit lit)
-operandToGrin _          = __IMPOSSIBLE__
+-- Erased parameter return Nothing
+-- FIXME function definition is not modified yer...
+operandToGrin :: MonadFresh Int mf => TTerm -> GrinGen mf (Maybe Val)
+-- ugly!!!
+operandToGrin (TVar n)   = Just <$> (maybe (Var n) Var <$> applyEvaluatedOffset n)
+operandToGrin _ = pure Nothing
+-- Literals should not be operands!!
+--operandToGrin (TLit lit) = pure (Lit lit)
 
 type GrinGen mf a = ReaderT GrinGenCxt mf a
 
@@ -847,8 +885,11 @@ initGrinGenCxt def = GrinGenCxt
   , evaluatedOffsets = replicate def.tl_arity Nothing
   }
 
+-- FIXME 
 applyEvaluatedOffset :: MonadReader GrinGenCxt m => Int -> m (Maybe Int)
-applyEvaluatedOffset n = asks (fmap ($ n) . fromMaybe __IMPOSSIBLE__ . (!!! n) . evaluatedOffsets)
+applyEvaluatedOffset _ = pure Nothing
+-- applyEvaluatedOffset :: MonadReader GrinGenCxt m => Int -> m (Maybe Int)
+-- applyEvaluatedOffset n = asks $ fmap ($ n) . join . (!!! n) . evaluatedOffsets
 
 localEvaluatedOffset :: MonadReader GrinGenCxt m => Int -> m a -> m a
 localEvaluatedOffset n =

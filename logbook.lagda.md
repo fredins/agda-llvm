@@ -20,6 +20,90 @@ css: Agda.css
 
   ```
 
+### W.46
+
+Did the following: 
+
+- I did a complete refactoring of the interpreter, and added a `highest_allocation` 
+  statistic.
+
+- I modified the program from the previous week, which reduces the worst case space  
+  complexity from roughly half of the input size to a constant of five nodes regardless  
+  of the input size. I have tested this with the interpreter for small instances, and  
+  with valgrind using the tool massif on large instances. With an instance of 1 million  
+  the old program uses 60MiB at peak memory usage meanwhile the new one only uses 128B  
+  (not sure why not 8\*4\*5=160).  
+
+  ```agda
+  module DownFromOpt where
+    open import Agda.Builtin.Nat using (suc; zero; _+_) renaming (Nat to ℕ) 
+    open import Agda.Builtin.Strict using (primForce)
+
+    {-# TERMINATING #-}
+    downFrom : ℕ → List ℕ
+    downFrom zero = []
+    downFrom (suc n) = primForce n (λ n → n ∷ downFrom n)
+
+    sum : ℕ → List ℕ → ℕ
+    sum acc [] = acc
+    sum acc (x ∷ xs) = sum (primForce x _+_ acc) xs
+
+    main = sum 0 (downFrom 100) 
+  ```
+
+  The key was making `downFrom` not tail recursive to make the list lazy generated.  
+  Then, I made sure to force the value `n` which otherwise is the thunk `n - 1`  
+  (where `n` is the `suc n`). By doing this, we can drop the two references to `n` in   
+  `downFrom`. Therefore, the `n` in `sum` will have a reference count of 1 which means   
+  it can be freed by `_+_` after evaluating the next accumulator `primForce n _+_ acc`.  
+
+- I think this example nicely shows of the effects of combining precise reference counting   
+  with laziness. Due of the pulling nature of lazy evaluating we never have to create   
+  the entire list, and precise reference counting frees the pulled object as soon as   
+  we are done with it.   
+
+
+
+### W.44 W.45
+
+Read the following: 
+
+- @wadler1988
+- @johnson2017
+
+Did the following:
+
+- Started on a new solver for the heap points-to analysis which uses depth-first ordering [@aho2006]  
+  which was recommened by [@boquist1996]. The new solver should converge for all programs  
+  which is not  the case for the current one. The new solver would also redcuce the number of  
+  fix-point interations. The new algorithm is implemented but something is wrong; it doesn't  
+  even terminate for our test program. I need to look into this once I have more time.  
+
+- Implemented `primForce`{.agda} which enables strictness. Now, we can avoid stack overflows completely by  
+  making the accumlator strict.  
+
+  ```agda
+  module DownFromTail′ where
+
+    open import Agda.Builtin.Nat using (suc; zero; _+_) renaming (Nat to ℕ) 
+    open import Agda.Builtin.Strict using (primForce)
+
+    downFrom : List ℕ → ℕ → List ℕ
+    downFrom acc zero    = acc
+    downFrom acc (suc n) = downFrom (n ∷ acc) n
+
+    sum : ℕ → List ℕ → ℕ
+    sum acc [] = acc
+    sum acc (x ∷ xs) = sum (primForce x _+_ acc) xs
+
+    -- Your computer's memory is the limit!
+    main = sum 0 (downFrom [] 10_000_000)
+  ```
+- I have updated the Github README somewhat.
+
+- I have fixed bunch things in the report based on Patrik's feedback. There is now a section for  
+  related work in the report. I have also started to refactor parts of Sections 1 and 2.  
+
 
 ### W.38 & W.39
 

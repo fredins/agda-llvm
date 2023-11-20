@@ -1,4 +1,3 @@
-{-# LANGUAGE OverloadedLists #-}
 {-# LANGUAGE ViewPatterns    #-}
 
 module Agda.Llvm.Utils
@@ -25,6 +24,9 @@ module Agda.Llvm.Utils
   , forAccumR
   , mapAccumM
   , forAccumM
+  , prettySrcLocShort
+  , prettyCallSiteShort
+  , prettyCallStackShort
   ) where
 
 import           Control.Monad                (filterM, liftM)
@@ -32,7 +34,7 @@ import           Control.Monad.IO.Class       (liftIO)
 import           Data.Coerce                  (Coercible, coerce)
 import           Data.Functor                 (($>))
 import           Data.List                    (deleteBy, mapAccumR, union,
-                                               unzip4)
+                                               unzip4, intercalate)
 import           Data.Map                     (Map)
 import qualified Data.Map                     as Map
 import           Data.Set                     (Set)
@@ -49,6 +51,7 @@ import           Control.Monad.IO.Class       (MonadIO)
 import           Data.List.Extra              (splitOn)
 import           System.IO.Unsafe             (unsafePerformIO)
 import           Unsafe.Coerce                (unsafeCoerce)
+import Agda.Utils.CallStack
 
 pattern Snoc xs x <- (initLast -> Just (xs, x))
   where
@@ -73,14 +76,14 @@ foldMapM f xs = foldr step pure xs mempty
 -- > splitOnDots "foo.bar." == ["foo", "bar", ""]
 -- > splitOnDots "foo..bar" == ["foo", "", "bar"]
 list1splitOnDots :: String -> List1 String
-list1splitOnDots "" = [""]
+list1splitOnDots "" = "" :| []
 list1splitOnDots ('.' : s) = [] <| list1splitOnDots s
 list1splitOnDots (c : s) = (c : p) :| ps
   where
   (p :| ps) = list1splitOnDots s
 
 list1scanr :: (a -> b -> b) -> (a -> b) -> List1 a -> List1 b
-list1scanr _ g (x :| [])      =  [g x]
+list1scanr _ g (x :| [])      =  g x :| []
 list1scanr f g (x1 :| x2 : xs) = f x1 (List1.head ys) <| ys
   where
   ys = list1scanr f g (x2 :| xs)
@@ -139,6 +142,22 @@ logIO s = liftIO $ appendFile "trace.log" (s ++ "\n")
 
 forAccumR :: Traversable t => s -> t a -> (s -> a -> (s, b)) -> (s, t b)
 forAccumR s t f = mapAccumR f s t
+
+prettySrcLocShort :: SrcLoc -> String
+prettySrcLocShort SrcLoc{srcLocFile, srcLocStartLine, srcLocStartCol} = 
+  srcLocFile ++ ":" ++ show srcLocStartLine ++ ":" ++ show srcLocStartCol
+
+prettyCallSiteShort :: CallSite -> String
+prettyCallSiteShort (fun, loc) = fun ++ ", called at " ++ prettySrcLocShort loc
+
+-- | Pretty-print a @CallStack@. This has a few differences from @GHC.Stack.prettyCallStackLines@.
+-- We omit the "CallStack (from GetCallStack)" header line for brevity.
+-- If there is only one entry (which is common, due to the manual nature of the @HasCallStack@ constraint),
+-- shows the entry on one line. If there are multiple, then the following lines are indented.
+prettyCallStackShort :: CallStack -> String
+prettyCallStackShort cs = case map prettyCallSiteShort (getCallStack cs) of
+  []                  -> "(empty CallStack)"
+  firstLoc : restLocs -> intercalate "\n" (firstLoc : map ("  " ++) restLocs)
 
 -----------------------------------------------------------------------
 -- * from base 4.18.0.0

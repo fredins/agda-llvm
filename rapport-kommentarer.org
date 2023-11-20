@@ -1,6 +1,6 @@
-+ p1: preciseness := precision ?
-+ p2: "instead of the stack" := "instead of on the stack" 
-+ p2: "Figure[linebreak]1" - avoid linebreak between Fig and number
+o p1: preciseness := precision ?
+o p2: "instead of the stack" := "instead of on the stack" 
+o p2: "Figure[linebreak]1" - avoid linebreak between Fig and number
   (and similarly with sections).
 + p2: "All syn... are not valid" := "Not all syn... are valid"
 + p2: I fell the paragraph "The syntax ... language" needs some
@@ -8,8 +8,8 @@
   "first-order language" come a bit too indirectly now. I think it
   would be better to start with explaining the language (with Fig. 1 as a
   parenthetic remark).
-+ Fig. 1: "def" has too much spacing before f.
-+ §2.1: "The current implementation of GRIN only compiles a subset of
+o Fig. 1: "def" has too much spacing before f.
+o §2.1: "The current implementation of GRIN only compiles a subset of
   Agda which is lambda lifted, first order, and monomorphic.":
   reformulate. I guess your it is rather your _compiler to GRIN_ that
   only supports a subset of Agda. (Perhaps the interpreter of GRIN and

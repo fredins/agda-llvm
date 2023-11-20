@@ -4,6 +4,7 @@ output.hs
 output
 plan.md
 latex/*
+executables/
 !latex/report.pdf
 test/*.err
 _build
