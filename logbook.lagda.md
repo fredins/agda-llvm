@@ -22,6 +22,15 @@ css: Agda.css
 
 ### W.46
 
+Read the following: 
+
+- @wadler1987
+- @reynolds1972
+- @hausmann2015
+- @pepels1988cyclic
+- @kaser1992
+- @mycroft1980
+
 Did the following: 
 
 - I did a complete refactoring of the interpreter, and added a `highest_allocation` 
@@ -62,6 +71,9 @@ Did the following:
   the entire list, and precise reference counting frees the pulled object as soon as   
   we are done with it.   
 
+- Removed the agda submodule
+
+- Report stuff.
 
 
 ### W.44 W.45

@@ -30,26 +30,26 @@ main = sum (downFrom 10_000)
 Tail recursive and non-leaky variant:
 
 ```agda
-module DownFromTail where
+module DownFromOpt where
 
 open import Agda.Builtin.Nat using (suc; zero; _+_) renaming (Nat to ℕ) 
 open import Agda.Builtin.Strict using (primForce)
 
 infixr 5 _∷_
-data List A : Set where
+data List (A : Set) : Set where
   []  : List A
   _∷_ : (x : A) (xs : List A) → List A
 
-downFrom : List ℕ → ℕ → List ℕ
-downFrom acc zero    = acc
-downFrom acc (suc n) = downFrom (n ∷ acc) n
+{-# TERMINATING #-}
+downFrom : ℕ → List ℕ
+downFrom zero = []
+downFrom (suc n) = primForce n (λ n → n ∷ downFrom n)
 
 sum : ℕ → List ℕ → ℕ
 sum acc [] = acc
 sum acc (x ∷ xs) = sum (primForce x _+_ acc) xs
 
--- Your computer's memory is the limit!
-main = sum 0 (downFrom [] 10_000_000)
+main = sum 0 (downFrom 100) 
 ```
 
 ### Restrictions
@@ -77,20 +77,16 @@ main = sum 0 (downFrom [] 10_000_000)
 - zlib
 
 ### Build from source
-
-The project depends on features from the unreleased Agda 2.6.4, which is why there is an agda submodule. If you already
-have a local installation of Agda you may instead modify the `cabal.project` file, and skip the submodule.  
-
 ```
-git clone --recurse-submodules git@github.com:fredins/agda-llvm.git
+git clone git@github.com:fredins/agda-llvm.git
 ```
 
-Running `make` will build and install the exectuable `agda-llvm` usually to `$HOME/.cabal/bin/`. This will build all dependencies and the agda submodule, which is over 400 modules. 
+Running `make install` will build and install the exectuable `agda-llvm` usually to `$HOME/.cabal/bin/`. This will build all dependencies and an Agda fork [github.com/fredins/agda](https://github.com/fredins/agda), which is over 400 modules. 
 
 To run the compiler use the `--llvm` flag.  
 
 ```
-agda-llvm --llvm agda-programs/DownFrom.agda
+agda-llvm --llvm agda-programs/DownFromOpt.agda
 ```
 
 Many programs use the standard library which needs to be installed and configured separately, see [agda.readthedocs.io/en/latest/getting-started/installation.html](https://agda.readthedocs.io/en/latest/getting-started/installation.html) and [agda.readthedocs.io/en/latest/tools/package-system.html#use-std-lib](https://agda.readthedocs.io/en/latest/tools/package-system.html#use-std-lib).  

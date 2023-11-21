@@ -76,7 +76,9 @@ import Agda.TypeChecking.SizedTypes.Utils (setDebugging, traceM)
 --   - Only use layout types for better code generation.
 --   - Distinguish between linear and omega modalities (all zero modalities are  
 --     hopefully erased).
---
+--   - Will probably have big type inference pass which inserts types, monomorphization, 
+--     and strictness analysis. Would be intresting to guide the strictness analysis with 
+--     a cost model based on Hoffmann et al. [2000, 2022].
 -- • Monomorphization
 --   - Treeless is untyped. So, unfortunetly, the monomorphization may need to be part 
 --     of a treeless-to-GRIN type inference phase. Which means that MAlonzo can not reuse 
@@ -336,7 +338,7 @@ llvmPostCompile _ _ mods = do
     putStrLn $ intercalate "\n\n" $ map prettyShow defs_inlineEval
     putStrLn $ "\nTag Info:\n" ++ prettyShow tagInfo_inlineEval
 
-  -- printInterpretGrin defs_inlineEval
+  printInterpretGrin defs_inlineEval
 
   let defs_normalize = map (updateGrTerm normalise) defs_inlineEval
   liftIO $ do

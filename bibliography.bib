@@ -188,25 +188,6 @@ pages = {125–138},
 numpages = {14}
 }
 
-@article{huang2023,
-author = {Huang, Yulong and Yallop, Jeremy},
-title = {Defunctionalization with Dependent Types},
-year = {2023},
-issue_date = {June 2023},
-publisher = {Association for Computing Machinery},
-address = {New York, NY, USA},
-volume = {7},
-number = {PLDI},
-url = {https://doi.org/10.1145/3591241},
-doi = {10.1145/3591241},
-abstract = {The defunctionalization translation that eliminates higher-order functions from programs forms a key part of many compilers. However, defunctionalization for dependently-typed languages has not been formally studied. We present the first formally-specified defunctionalization translation for a dependently-typed language and establish key metatheoretical properties such as soundness and type preservation. The translation is suitable for incorporation into type-preserving compilers for dependently-typed languages},
-journal = {Proc. ACM Program. Lang.},
-month = {jun},
-articleno = {127},
-numpages = {23},
-keywords = {compilation, type systems, type preservation, dependent types}
-}
-
 @inproceedings{okabe2014,
 author = {Okabe, Kiwamu and Muranushi, Takayuki},
 title = {Systems Demonstration: Writing NetBSD Sound Drivers in Haskell},
@@ -626,3 +607,153 @@ numpages = {6},
 location = {Copenhagen, Denmark},
 series = {FPCA '93}
 }
+
+
+@article{hamilton1998,
+title = {Usage Counting Analysis for Lazy Functional Languages},
+journal = {Information and Computation},
+volume = {146},
+number = {2},
+pages = {100-137},
+year = {1998},
+issn = {0890-5401},
+doi = {https://doi.org/10.1006/inco.1998.2735},
+url = {https://www.sciencedirect.com/science/article/pii/S0890540198927353},
+author = {G.W. Hamilton},
+abstract = {If it can be determined at compile-time how many times values will be used within lazy functional programs, a number of useful optimisations can be performed. For example, call-by-need parameter passing can be converted to call-by-name, and in-place updating and compile-time garbage collection can be performed. In this paper, it is shown how this usage counting information can be obtained by static analysis. This analysis is not itself a major contribution of this paper; similar analyses have been defined before. The major contributions of this paper are that it provides a framework against which this analysis can be proved correct for a lazy functional language, and the analysis is proved to be correct with respect to this framework. The framework for proving the correctness of the analysis is provided by defining a store semantics which counts the number of times values are used.}
+}
+
+@article{park1991,
+author = {Park, Young Gil and Goldberg, Benjamin},
+title = {Reference Escape Analysis: Optimizing Reference Counting Based on the Lifetime of References},
+year = {1991},
+issue_date = {Sept. 1991},
+publisher = {Association for Computing Machinery},
+address = {New York, NY, USA},
+volume = {26},
+number = {9},
+issn = {0362-1340},
+url = {https://doi.org/10.1145/115866.115883},
+doi = {10.1145/115866.115883},
+journal = {SIGPLAN Not.},
+month = {may},
+pages = {178–189},
+numpages = {12}
+}
+
+@inproceedings{mycroft1980,
+author = {Mycroft, Alan},
+title = {The Theory and Practice of Transforming Call-by-Need into Call-by-Value},
+year = {1980},
+isbn = {3540099816},
+publisher = {Springer-Verlag},
+address = {Berlin, Heidelberg},
+booktitle = {Proceedings of the Fourth 'Colloque International Sur La Programmation' on International Symposium on Programming},
+pages = {269–281},
+numpages = {13}
+}
+
+@inproceedings{hudak1986,
+author = {Hudak, Paul},
+title = {A Semantic Model of Reference Counting and Its Abstraction (Detailed Summary)},
+year = {1986},
+isbn = {0897912004},
+publisher = {Association for Computing Machinery},
+address = {New York, NY, USA},
+url = {https://doi.org/10.1145/319838.319876},
+doi = {10.1145/319838.319876},
+booktitle = {Proceedings of the 1986 ACM Conference on LISP and Functional Programming},
+pages = {351–363},
+numpages = {13},
+location = {Cambridge, Massachusetts, USA},
+series = {LFP '86}
+}
+
+@article{kaser1992,
+author = {Kaser, O. and Pawagi, S. and Ramakrishnan, C. R. and Ramakrishnan, I. V. and Sekar, R. C.},
+title = {Fast Parallel Implementation of Lazy Languages—the EQUALS Experience},
+year = {1992},
+issue_date = {Jan. 1992},
+publisher = {Association for Computing Machinery},
+address = {New York, NY, USA},
+volume = {V},
+number = {1},
+issn = {1045-3563},
+url = {https://doi.org/10.1145/141478.141570},
+doi = {10.1145/141478.141570},
+abstract = {This paper describes EQUALS, a fast parallel implementation of a lazy functional language on a commercially available shared-memory parallel machine, the Sequent Symmetry.  In contrast to previous implementations, we detect parallelism automatically by propagating exhaustive (normal form) demand.  Another important difference between EQUALS and previous implementations is the use of reference counting for memory management instead of garbage collection.  Our implementation shows that reference counting leads to very good scalability, low memory requirements and improved locality.  We compare our results with sequntial SML/NJ as well as parallel (v, G-machine and GAML implementations.},
+journal = {SIGPLAN Lisp Pointers},
+month = {jan},
+pages = {335–344},
+numpages = {10}
+}
+
+@article{goldberg1989,
+  title={Multiprocessor execution of functional programs},
+  author={Benjamin Goldberg},
+  journal={International Journal of Parallel Programming},
+  year={1989},
+  volume={17},
+  pages={425-473},
+  url={https://api.semanticscholar.org/CorpusID:27235482}
+}
+
+@article{barendsen1996,
+  title={Uniqueness typing for functional languages with graph rewriting semantics},
+  volume={6},
+  DOI={10.1017/S0960129500070109},
+  number={6},
+  journal={Mathematical Structures in Computer Science},
+  publisher={Cambridge University Press},
+  author={Barendsen, Erik and Smetsers, Sjaak},
+  year={1996},
+  pages={579–612}
+}
+
+@book{pepels1988cyclic,
+  title={A cyclic reference counting algorithm and its proof},
+  author={Pepels, EJH and van Eekelen, MCJD and Plasmeijer, Marinus Jacobus},
+  year={1988},
+  publisher={Department of Theoretical Computer Science and Computational Models, Faculty~…}
+}
+
+@inproceedings{hausmann2015,
+  title={The Agda UHC Backend},
+  author={Philipp Hausmann},
+  year={2015},
+  url={https://api.semanticscholar.org/CorpusID:61450588}
+}
+
+@inproceedings{reynolds1972,
+author = {Reynolds, John C.},
+title = {Definitional Interpreters for Higher-Order Programming Languages},
+year = {1972},
+isbn = {9781450374927},
+publisher = {Association for Computing Machinery},
+address = {New York, NY, USA},
+url = {https://doi.org/10.1145/800194.805852},
+doi = {10.1145/800194.805852},
+abstract = {Higher-order programming languages (i.e., languages in which procedures or labels can occur as values) are usually defined by interpreters which are themselves written in a programming language based on the lambda calculus (i.e., an applicative language such as pure LISP). Examples include McCarthy's definition of LISP, Landin's SECD machine, the Vienna definition of PL/I, Reynolds' definitions of GEDANKEN, and recent unpublished work by L. Morris and C. Wadsworth. Such definitions can be classified according to whether the interpreter contains higher-order functions, and whether the order of application (i.e., call-by-value versus call-by-name) in the defined language depends upon the order of application in the defining language. As an example, we consider the definition of a simple applicative programming language by means of an interpreter written in a similar language. Definitions in each of the above classifications are derived from one another by informal but constructive methods. The treatment of imperative features such as jumps and assignment is also discussed.},
+booktitle = {Proceedings of the ACM Annual Conference - Volume 2},
+pages = {717–740},
+numpages = {24},
+keywords = {Reference, J-operator, Continuation, SECD machine, Lambda calculus, Closure, Programming language, PAL, Interpreter, Applicative language, LISP, Order of application, GEDANKEN, Language definition, Higher-order function},
+location = {Boston, Massachusetts, USA},
+series = {ACM '72}
+}
+
+@article{wadler1987,
+author = {Wadler, Philip},
+title = {Fixing some space leaks with a garbage collector},
+journal = {Software: Practice and Experience},
+volume = {17},
+number = {9},
+pages = {595-608},
+keywords = {Space leak, Garbage collection, Functional languages, Lazy evaluation},
+doi = {https://doi.org/10.1002/spe.4380170904},
+url = {https://onlinelibrary.wiley.com/doi/abs/10.1002/spe.4380170904},
+eprint = {https://onlinelibrary.wiley.com/doi/pdf/10.1002/spe.4380170904},
+abstract = {Abstract Some functional programs may use more space than would be expected. A modification to the garbage collector is suggested which solves this problem in some cases. Related work is discussed.},
+year = {1987}
+}
+

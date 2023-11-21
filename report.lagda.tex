@@ -72,7 +72,7 @@ linewidth=0.5pt,
 
 
 \usepackage{listings}
-\lstdefinelanguage{treeless}{
+\lstdefinelanguage{Treeless}{
 keywords={case, of, let, in}
 }
 \lstdefinelanguage{grin}{
@@ -235,22 +235,23 @@ As a first step, we transform Agda into an intermediate language called GRIN \ci
 %  \end{itemize}
 %\end{itemize}
 
-
-\section{Graph Reduction \\ Intermediate Notation}
-In \citeyear{johnsson1991}, \citeauthor{johnsson1991} presented the Graph Reduction Intermediate Notation (GRIN) as an imperative version of the G-machine \citep{johnsson1984}, where lexically scoped variables are stored in registers instead of on the stack. 
-Later, GRIN was reformulated with a more "functional flavor" \citep{boquist1995}.
-In this project, we introduce an additional variant of GRIN adapted for the internal representation of Agda and precise reference counting. 
-
+% \subsection{Syntax}
 % TODO
 % • We choosed GRIN because of powerful optimizations and simple. But, we belive that, precise reference counting could also be applied 
 %   to languages like GHC's Core (PJ 96) and STG (92).
-GRIN is strict, untyped, first-order language. All values in GRIN are in weak head normal form
 
-The syntax of our variant are shown in \mbox{Figure \ref{fig:grin-syntax}}.
-There are 4 kinds of constructs; terms, values, lambda patterns, and case patterns.
-All syntactically correct expressions are not valid. For example, the value at the function position of an application must be either a top-level function (\emph{def}) or a primitive (\emph{prim}). It cannot be a variable because
-there are no indirect function calls in GRIN. Likewise, top-level functions cannot be passed 
-as arguments because GRIN is a first-order language.
+\section{Graph Reduction \\ Intermediate Notation}
+In \citeyear{johnsson1991}, \citeauthor{johnsson1991} presented the Graph Reduction Intermediate Notation (GRIN) as an imperative version of the G-machine \citep{johnsson1984}, where lexically scoped variables are stored in registers instead of on the stack. 
+Later, GRIN was reformulated with a more functional flavor \citep{boquist1995}.
+In this project, we introduce an additional variant of GRIN adapted for the internal representation of Agda and precise reference counting. 
+The syntax of our variant is shown in \mbox{Figure \ref{fig:grin-syntax}}.
+
+A defining feature of GRIN is that suspended computations (thunks) and higher-order functions are defunctionalized \citep{reynolds1972}, by 
+an interprocedural analysis called the heap points-to analysis.
+As a result, all function calls through opaque pointers are eleminated. 
+This also means that all GRIN values are in weak head normal form. 
+However, in order to destinquish between complex values (thunks and closures) and simple values (literals and data types), 
+future mentions of \emph{suspended computation} and \emph{weak head normal form} refers to the representation in the Agda program.
 
 
 \begingroup
@@ -320,12 +321,11 @@ main = sum (downFrom 100)
 %\label{fig:agda-program}
 %\end{figure}
 
-Our back-end starts by converting the program into the treeless syntax.
-The treeless syntax has explicit case expressions which use A-normal-form, meaning 
-that the scrutinee is always a variable, and the alternatives cannot be nested or overlap.
-Following is the treeless representation of \AgdaFunction{downFrom}.
+Our back-end starts by converting the program into an untyped lambda calculus with let and case expressions called Treeless \citep{hausmann2015}.
+The Treeless language uses administrative normal form, which means that the case scrutinee is always a variable, and the patterns cannot be nested or overlap.
+Following is the Treeless representation of \AgdaFunction{downFrom}.
 
-\begin{lstlisting}[language=treeless, xleftmargin=24pt]
+\begin{lstlisting}[language=Treeless, xleftmargin=24pt]
 downFrom x7 = case x7 of
   0 → []
   _ → let x5 = 1
@@ -335,13 +335,16 @@ downFrom x7 = case x7 of
 \end{lstlisting}
 % cite De Bruijn 72
 The implementation uses de Bruijn indices to represent variables, but this paper uses variable names to make it more readable. 
-During this phase, we also transform the program so applications only take variables as operands.
+% uneccessary?
+% During this phase, we also transform the program so applications only take variables as operands.
 
-% FIXME don't use very
-GRIN is very similar to the treeless syntax, but instead of let-expressions we use the builtin state monad to bind variables and sequence operations.
+% TODO write that GRIN is low level comparatively.
+% FIXME monadic operations instead of let expressions???
+% TODO Be specific! Don't write "is simliar". Instead write "Translating Treeless to GRIN is straight forward..."
+GRIN is similar to the Treeless syntax, but instead of let expressions we use the builtin state monad to bind variables and sequence operations.
 The monadic operations are \lstinline{unit}, \lstinline{store}, \lstinline{fetch}, and \lstinline{update}. 
 The bind operator ";" is infix and right-associative.
-We can translate "\lstinline[language=treeless]{let x = $\emph{val}$ in foo x}" lazily
+We can translate "\lstinline[language=Treeless]{let x = $\emph{val}$ in foo x}" lazily
 by allocating the value and passing the pointer as an argument to the function: "\lstinline[]{store $\emph{val}$ ; λ x$_{ptr}$ → foo x$_{ptr}$}".
 Here, \emph{val} must be a constant node value. 
 A constant node is a tag followed by a sequence of arguments. 
@@ -349,6 +352,7 @@ We can pattern match on a tag with the case expression to determine the kind.
 Tags are prefixed with either a "C" if it is a constructor value or an "F" for suspended function applications.
 The node arguments are usually pointers to other heap-allocated nodes, but they can also be unboxed values.
 For example, the boxed integer tag \lstinline{Cnat} accepts one unboxed integer.
+Following is the corresponding GRIN representation of \AgdaFunction{downFrom}.
 
 \begin{lstlisting}[xleftmargin=24pt]
 downFrom x7 =
@@ -362,14 +366,41 @@ downFrom x7 =
       unit (C_$∷$_ x4 x3)
 \end{lstlisting}
 
-\subsection{Semantics}
-The GRIN interpreter is convenient because it can evaluate all programs after the eval inlining transformation. 
-Meanwhile, the code generator only works for programs after the simplifying transformations (see Section \ref{sec:analysis-and-transformations}).
-It is also easier to collect information on the program evaluation.
-For instance, the final version of our example program allocates the following nodes: 101 \lstinline{Cnat}, 101 \lstinline{FdownFrom}, 100 \lstinline{F_-_},  and 100 \lstinline{Fsum}.
-A total of 402 allocations for our tiny example program is excessive. 
-The main culprit is too much laziness. 
-Another contributing factor is that we always allocate new memory instead of reusing previous allocations
+\subsection{Interpreter}
+
+The semantics of our language are presented in \mbox{Figure \ref{fig:grin-semantics}}.
+% TODO check so I didn't accidently plagiarise Boquist.
+We use two semantic functions, $\mathcal{E}$ and $\mathcal{V}$, to assign semantic values to terms and syntactic values.
+The semantics values are are a subset of syntactic values with an extra value representing undefined behaviour ($\bot$).
+Additional, we have a new construct for heap allocated nodes. 
+A heap allocated node consist of a reference count, a tag, and a sequence of values.
+
+We have implemented the semantics as an interpreter, check that new transformations do not change the semantics.
+Due to the lower level of GRIN, we can collect information about resource usage.
+For instance, our example allocates the following nodes: 101 \lstinline{Cnat}, 101 \lstinline{FdownFrom}, 100 \lstinline{F_-_},  and 100 \lstinline{Fsum}.
+And the worst-case bound for heap consumption is 202 nodes.
+With this information we can estimate the performance characteristics of the program and identify optimization opportunities.
+
+\begingroup
+\setlength{\fboxsep}{1em} % padding for border
+\begin{figure}[htbp]
+\centering
+\begin{empheq}[box=\fbox]{align*}
+\begin{array}{l}
+\mathcal{E} : \emph{Stack} \rightarrow \emph{Heap} \rightarrow \emph{Term} \rightarrow \emph{Value} \times \emph{Heap} \\
+\mathcal{V} : \emph{Stack} \rightarrow Val \rightarrow \emph{Value} \times \emph{Heap} \\
+\\
+\emph{Value} = \emph{tag} \; \{\emph{val}\,\}* \mid \emph{tag} \mid \emph{loc} \mid \emph{()} \mid \emph{lit} \mid \bot \\
+\emph{HeapNode} = \emph{ref-count} \; \emph{tag} \; \{\emph{val}\,\}* \\
+\emph{Stack} = \emph{Var} \rightarrow  \emph{Loc} \\
+\emph{Heap} = \emph{Loc} \rightarrow  \emph{HeapNode} \\
+\end{array}
+\end{empheq}
+\caption{GRIN semantics. }
+\label{fig:grin-semantics}
+\end{figure}
+\endgroup
+
 
 \label{sec:analysis-and-transformations}
 \subsection{Analysis and transformations}
@@ -430,6 +461,8 @@ transformations \citep{boquist1999}.
 The simplifying transformations are necessary for the code generator and are all implemented, except \emph{inlining calls to apply}
 which is used for partially applied functions. 
 The optimizing transformations significantly alter the program and achieve similar effects to deforestation \citep{wadler1988} and listlessness \citep{wadler1984}.
+% FIXME deforestation is the algorithm for getting listlessness/Treelessness
+% TODO Instead, mention that it eliminates allocations and unboxing
 We have only implemented \emph{copy propagation}.
 This project aims to combine lazy functional programming with precise reference counting. 
 Producing the most optimized code is out of the scope of this project. 
@@ -618,6 +651,9 @@ sum′ acc (x ∷ xs) =
 main′ = sum′ 0 (downFrom′ 100) 
 \end{code}
 
+This is common space leak problem amongs lazy functional programs \citep{wadler1987}
+
+
 
 % \begin{itemize}
 % \item Short text about tailcalls
@@ -637,12 +673,25 @@ main′ = sum′ 0 (downFrom′ 100)
 
 \section{Related work}
 
-To our knowledge, Perceus is the main memory management technique in the Koka \citep{reinking2021}, Lean \citep{TODO}, and Roc \citep{teeuwissen2023}.
-There is also an experimental implementation in OCaml \citep{pinto2023}.
-All of these, are eager functional languages and mostly immutable.
-Our back-end uses lazy evaluation.
+Reference counting implementations are uncommon in the litterature of lazy functional languages.
+\citet{kaser1992} uses a reference counting for the lazy parallel language EQUALS.
+They observe that reference counting minimizes memory contention\footnote{i.e. Multiple processes trying to access the same memory at once.} because memory operations are interleaved througout the computation.
+Additionaly, they note that their reference counting implementation achieved greatly reduced heap usage and good memory locality.
+
+To our knowledge, precise reference counting which utilizes ownership to free objects as soon as possible have not yet been implemented in any lazy functional language.
+The Perceus algorithm have been implemented for multiple eager languages \citep{reinking2021, ullrich2021, teeuwissen2023, pinto2023}.
 
 
+% 1. Reference counting in lazy languages. EQUAL.
+% 2. Precise reference counting. Perceus. Lean, Koka, Roc.
+%    FBIP. Based on Hofmann (2000).
+% 3. GRIN. Interprocedural analysis.
+% 4. Compile-time garbage collection. Linear types. ASAP.
+
+% To our knowledge, Perceus is the main memory management technique in the Koka \citep{reinking2021}, Lean \citep{TODO}, and Roc \citep{teeuwissen2023}.
+% There is also an experimental implementation in OCaml \citep{pinto2023}.
+% All of these, are eager functional languages and mostly immutable.
+% Our back-end uses lazy evaluation.
 
 
 %\begin{itemize}
@@ -670,7 +719,7 @@ Our back-end uses lazy evaluation.
 %      Can we leverage some information for the points-to analysis and sharing analysis?
 %\item Lobster is another intresting reference counted language with support for compile-time reference counting.
 %
-%\item Other Agda Backends. MAlonzo inserts a lot of unsafeCoerce (which kills optimzations) because treeless is untyped citep{hausmann2015}.
+%\item Other Agda Backends. MAlonzo inserts a lot of unsafeCoerce (which kills optimzations) because Treeless is untyped citep{hausmann2015}.
 %
 %\end{itemize}
 
@@ -716,6 +765,11 @@ We are also interested in developing a type system for GRIN and compiling a larg
 %\item It would cool to benchmark our work but we lack many optimization.
 %\item The current implementation of GRIN and Perceus have not yet implementation many optimization transformations. For example, GRIN lacks function inlining, generalized unboxing, and arity raising. Perceus lacks it two most import transformations; drop specialization and reuse analysis.
 %\item Another huge optimization on is a strictness analysis. 
+%      Agda is total language where all programs are productive. 
+%      As such, the evalutation order of side-effect free code does not matter.
+%      There is not risk in accidently making a productive program unproductive, 
+%      which is an major part of strictness analysis (Mycroft 1980). Perhaps,
+%      it would be better to use strictness by default and have a non-strict analysis.
 %\item Add reuse and borrowing
 %\item Utilse GRIN's whole program compilation strategy and the heap points-to analysis to statically determine unshared values during compile time, and thus minimizing the number of reference countinging operations.
 %\item It would also be intresting to utilse 0-modality (erasure) in Agda's type system, and later also 1-modality when Agda gets it.
