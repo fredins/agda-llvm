@@ -13,16 +13,20 @@ data List A : Set where
   []  : List A
   _∷_ : (x : A) (xs : List A) → List A
 
+-- {-# TERMINATING #-}
+-- downFrom : List ℕ → ℕ → List ℕ 
+-- downFrom acc zero    = acc
+-- downFrom acc (suc n) = primForce n (λ n → downFrom (n ∷ acc) n)
 
-downFrom : List ℕ → ℕ → List ℕ 
-downFrom acc zero    = acc
-downFrom acc (suc n) = downFrom (n ∷ acc) n
+downFrom : ℕ → List ℕ
+downFrom zero = []
+downFrom (suc n) = n ∷ downFrom n
 
 sum : ℕ → List ℕ → ℕ
 sum acc [] = acc
 sum acc (x ∷ xs) = sum (primForce x _+_ acc) xs
 
-main = sum 0 (downFrom [] 100)
+main = sum 0 (downFrom 100)
 
 
 

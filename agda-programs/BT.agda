@@ -1,3 +1,4 @@
+{-# OPTIONS --large-indices #-}
 open import Function
 open import Data.Empty
 open import Data.Nat

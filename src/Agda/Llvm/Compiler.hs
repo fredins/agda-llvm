@@ -76,11 +76,43 @@ import Agda.TypeChecking.SizedTypes.Utils (setDebugging, traceM)
 --   - Only use layout types for better code generation.
 --   - Distinguish between linear and omega modalities (all zero modalities are  
 --     hopefully erased).
---   - Will probably have big type inference pass which inserts types, monomorphization, 
+--   - Will probably have big type inference pass which inserts types, specialization, 
 --     and strictness analysis. Would be intresting to guide the strictness analysis with 
 --     a cost model based on Hoffmann et al. [2000, 2022].
--- • Monomorphization
---   - Treeless is untyped. So, unfortunetly, the monomorphization may need to be part 
+--
+-- • Specialization/Monomorphization
+--   - Treat monomorphization, type class dispatch, and specialization the same. Example: 
+--     
+--     -- Defintions
+--     return : {A : Set} → ⦃M : RawMonad⦄ → A → M A
+--     return = ...
+--
+--     map : {A B : Set} → (A → B) → List A → List B
+--     map = ...
+--
+--     -- Usages
+--     return {ℕ} ⦃listMonad⦄ ...
+--     map {ℕ} {ℕ} (2 *_) ...
+--
+--     -- Specialization
+--
+--     returnListNat : ℕ → List ℕ
+--     returnListNat n = n ∷ []
+--
+--     mapDouble : List ℕ → List ℕ 
+--     mapDouble (n ∷ ns) = 2 * n ∷ mapDouble ns 
+--
+--   - Singular usage of a specialization should always be inlined. 
+--     Small specializations should preferably also be inlined 
+--     (or is it better to do this during late inlining?).
+--
+--   - Need to balance code size and branching costs. Instead of specializing mapDouble, we can 
+--     defunctionalize and pattern match on the funciton. Can we extend this to work for 
+--     parametric and adhoc polymorphism?????
+--
+--     FIXME maybe not relevant ↓↓↓↓↓
+--
+--   - Treeless is untyped. So, the monomorphization may need to be part 
 --     of a treeless-to-GRIN type inference phase. Which means that MAlonzo can not reuse 
 --     the optimizations. 
 --   - Big obstacles are higher ranked types and polymorphic recursion. But it 
@@ -120,7 +152,7 @@ import Agda.TypeChecking.SizedTypes.Utils (setDebugging, traceM)
 --                        |
 --                   ELF executable
 --          
--- • Some other GRIN transformations require interprodural analysis e.g. late inlining and arity rasing.
+-- • Some other GRIN transformations require interprodural analysis e.g. late inlining and arity raising.
 --   Look at ThinLTO how they solved it. ThinLTO seems to only be able to do one layer of cross-module 
 --   inlining. And it is unclear how "imports" work when funA inlines a function funB which require an 
 --   new import funC.
@@ -130,7 +162,7 @@ import Agda.TypeChecking.SizedTypes.Utils (setDebugging, traceM)
 --      funA = funB       funB = funC       funC = ...
 --
 -- • Solve integer overflow issues. Maybe use bignum for Nat and an arbirary precision integer 
---   for Fin. Also, look into GHC's approach of premoting to bignum.
+--   for Fin. Also, look into GHC's approach of promoting to bignum.
 --
 -- • Need to prevent stack overflow either by making things more strict by 
 --   a demand analysis or/and by optimizing away laziness with deforestation and listlessness 
@@ -176,7 +208,7 @@ import Agda.TypeChecking.SizedTypes.Utils (setDebugging, traceM)
 --
 -- • Use sized types (BUILTIN) to maybe inline recursive functions, and pack/flatten inductive types.
 --
--- • Add proper interop with C and possibly C++.
+-- • Add proper interop with C.
 
 llvmBackend :: Backend
 llvmBackend = Backend llvmBackend'
@@ -338,7 +370,7 @@ llvmPostCompile _ _ mods = do
     putStrLn $ intercalate "\n\n" $ map prettyShow defs_inlineEval
     putStrLn $ "\nTag Info:\n" ++ prettyShow tagInfo_inlineEval
 
-  printInterpretGrin defs_inlineEval
+  -- printInterpretGrin defs_inlineEval
 
   let defs_normalize = map (updateGrTerm normalise) defs_inlineEval
   liftIO $ do
@@ -432,7 +464,7 @@ llvmPostCompile _ _ mods = do
 
   -- printInterpretGrin defs_rightHoistFetch
   
-  let defs_evaluateCase = map (updateGrTerm evaluateCase) defs_rightHoistFetch
+  let defs_evaluateCase = map (updateGrTerm propagateConstant) defs_rightHoistFetch
   liftIO $ do
     putStrLn "\n------------------------------------------------------------------------"
     putStrLn "-- * Evaluate case"
@@ -447,9 +479,9 @@ llvmPostCompile _ _ mods = do
 
   defs_mem <- do 
     -- drop is only need prior to Perceus optimizations
-    drop <- mkDrop defs_rightHoistFetch
+    -- drop <- mkDrop defs_rightHoistFetch
     dup <- mkDup 
-    pure [drop, dup]
+    pure [{- drop, -} dup]
 
   liftIO $ do
     putStrLn "\n------------------------------------------------------------------------"
@@ -538,9 +570,13 @@ llvmPostCompile _ _ mods = do
     writeFile file program
     let file_opt = "llvm" </> "program_opt.ll"
     let cmd = unwords 
+          -- Emit optimized LLVM IR (llvm/program_opt.ll)
           [ "clang -o", file_opt, "-S -O3 -emit-llvm", file, "&&"
-          , "clang -o llvm/program_asm.s -S -O3 -masm=intel", file_opt , "&&"
-          , "clang -o program", file_opt ]
+          -- Emit Assembly (llvm/program_asm.s)
+          , "clang -o llvm/program_asm.s -O3 -fuse-ld=lld -flto -Wl,--lto-emit-asm", file_opt, "&&" 
+          -- Emit the executable (program)
+          , "clang -o program -O3 -fuse-ld=lld -flto", file_opt
+          ]
     void $ readCreateProcess (shell cmd) ""
     putStrLn "Linking program"
 

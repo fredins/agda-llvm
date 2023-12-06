@@ -492,6 +492,7 @@ vectorize absCxt (Case v t alts) = do
 vectorize _ t = pure t
 
 
+-- Should this be part of propagateConstant?
 constantNodeUpdate :: Term -> Term
 constantNodeUpdate (Update (Just tag) n (VariableNode _ vs)) = 
     Update (Just tag) n $ ConstantNode tag (take (tagArity tag) vs)
@@ -671,16 +672,16 @@ hoistFetch n x1 x2 t offset =
 
         isX2 xs n = caseMaybe (toList xs !!! n) False (== x2)
 
-evaluateCase :: Term -> Term
-evaluateCase (Case (Tag tag1) _ alts) = evaluateCase $ headWithDefault __IMPOSSIBLE__ (mapMaybe step alts)
+propagateConstant :: Term -> Term
+propagateConstant (Case (Tag tag1) _ alts) = propagateConstant $ headWithDefault __IMPOSSIBLE__ (mapMaybe step alts)
   where
   step (CAltTag tag2 t) = boolToMaybe (tag2 == tag1) t
   step _ = Nothing
-evaluateCase (Case v t alts) = Case v (evaluateCase t) (map step alts)
+propagateConstant (Case v t alts) = Case v (propagateConstant t) (map step alts)
   where
-  step (splitCalt -> (mkAlt, t)) = mkAlt (evaluateCase t)
-evaluateCase (t1 `Bind` (splitLalt -> (mkAlt, t2))) = evaluateCase t1 `Bind` mkAlt (evaluateCase t2)
-evaluateCase t = t
+  step (splitCalt -> (mkAlt, t)) = mkAlt (propagateConstant t)
+propagateConstant (t1 `Bind` (splitLalt -> (mkAlt, t2))) = propagateConstant t1 `Bind` mkAlt (propagateConstant t2)
+propagateConstant t = t
 
 -- | Introduce registers for all operands. A precondition
 --   the (unimplemented) common sub-expression elimination.
@@ -771,14 +772,4 @@ evaluateCase t = t
 --     let mkT vs' = Unit (VariableNode n rc vs') `Bind` alt
 --     useRegisters vs mkT
 --   v -> error $ "REG: " ++ prettyShow v
-
-
-
-calculate = (sum . filter even) .: enumFromTo
-
-
-
-
-
-
 

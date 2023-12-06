@@ -1,12 +1,12 @@
 % !TEX program = lualatex
-\documentclass[10pt, twocolumn]{article}
+\documentclass[9pt, twocolumn]{article}
+
 % \usepackage{a4wide}
 
 %\usepackage[a4paper, total={8.5in, 11in}]{geometry}
 % \usepackage[a4paper]{geometry}
 \usepackage[a4paper, margin=2.5cm]{geometry}
 %\setlength{\textheight}{1.1\textheight}
-
 % Support for Agda code.
 \usepackage{agda}
 
@@ -33,9 +33,11 @@
 \usepackage{amssymb} % math symbols
 \usepackage[]{lmodern} % Latin modern font
 \usepackage[labelfont=bf, textfont=it, justification=centering, singlelinecheck=false]{caption} 
-\usepackage{caption}
 \usepackage{subcaption}
-\usepackage[skip=8pt plus1pt, indent=10pt]{parskip}
+\usepackage{enumitem} % compact itemize
+\usepackage{color}
+\newcommand{\hl}[2][lightgray]{\colorbox{#1}{#2}}
+% \usepackage[skip=4pt plus1pt, indent=10pt]{parskip}
 
 \usepackage[framemethod=tikz]{mdframed}
 \mdfsetup{%
@@ -46,15 +48,14 @@ innerrightmargin=1em,
 linewidth=0.5pt,
 }
 
-\usepackage{color}
-\newcommand{\hl}[2][lightgray]{\colorbox{#1}{#2}}
-
 % Cosmetics
-\linespread{1.25}
+\linespread{1.2}
 
 \usepackage{newunicodechar}
 \usepackage{colonequals}
 \newunicodechar{λ}{\ensuremath{\mathnormal{\lambda}}}
+\newunicodechar{Γ}{\ensuremath{\mathnormal{\Gamma}}}
+\newunicodechar{Δ}{\ensuremath{\mathnormal{\Delta}}}
 \newunicodechar{∀}{\ensuremath{\mathnormal{\forall}}}
 \newunicodechar{∷}{\ensuremath{\mathnormal{\coloncolon}}}
 \newunicodechar{ω}{\ensuremath{\mathnormal{\omega}}}
@@ -70,42 +71,44 @@ linewidth=0.5pt,
 \newunicodechar{₈}{\ensuremath{{}_8}}
 \newunicodechar{₉}{\ensuremath{{}_9}}
 
-
 \usepackage{listings}
-\lstdefinelanguage{Treeless}{
-keywords={case, of, let, in}
-}
-\lstdefinelanguage{grin}{
-keywords={case, of, store, update, unit, fetch}
-}
-
+\lstdefinelanguage{Treeless}{keywords={case, of, let, in}}
+\lstdefinelanguage{GRIN}{keywords={case, of, store, update, unit, fetch}}
 \lstset{
 frame=none,
 framexleftmargin=0pt,
 framesep=10pt,
 stepnumber=1,
-numbers=left,
+numbers=none, 
 numbersep=7pt,
 numberstyle=\ttfamily\scriptsize\color[gray]{0.4},
 basicstyle=\linespread{1}\ttfamily\fontseries{l}\selectfont,
 keywordstyle=\linespread{1}\ttfamily\fontseries{b}\selectfont,
 captionpos=b,
-language=grin,
+language=GRIN,
 commentstyle=\it,
 columns=flexible,
 keepspaces=true,
 mathescape=true,
 escapechar=!,
+escapeinside={!}{!},
 }
+
+\newcommand{\refp}[1]{(\ref{#1})}
+
+% Custom type writer listing with equation numbers
+\lstnewenvironment{typewriter}[3][none]%
+  {\lstset{language=#2, numbers=#1}\minipage{\linewidth-2em}}
+  {\refstepcounter{AgdaCodeNumber}\label{#3}%
+   \endminipage%
+   \AgdaFormatCodeNumber{\theAgdaCodeNumber}}%
 
 \title{Precise reference counting for lazy functional languages with interprocedural points-to analysis}
 \author{Martin Fredin \\ \texttt{fredinm@chalmers.se}}
 \date{2023}
 
 \begin{document}
-
 \maketitle
-
 
 \begin{code}[hide]
 open import Agda.Builtin.Nat using (suc; zero; _+_) renaming (Nat to ℕ) 
@@ -131,7 +134,7 @@ data List A : Set where
 % - In this paper, we address indirect function calls and automatic memory management.
 %
 % - We belive it is neccessary to utilse whole program compilation and interprocedural analysis to compile away abstractions. Hence GRIN.
-%   TODO perhaps only focus on memory management and reference counting and mention that we chose GRIN address other concerns such as indirect 
+%   Perhaps only focus on memory management and reference counting and mention that we chose GRIN address other concerns such as indirect 
 %   function calls.
 %
 % - Precise reference counting is promising technique to enable in-place mutations for pure function languages (pure or immutable), 
@@ -161,14 +164,11 @@ data List A : Set where
 % - Maybe use non-strict/strict instead of lazy/eager 
 % - Agda have normal order evaluation (This is maybe only true in compile-time normalization). Compiler writers can decide the most 
 %   efficient evaluation order.
-% - Remove result and create a separate section for code generator and interpreter.
 % - Write in maybe abstract and introduction that we "cheat" by transforming non-strictness into a 
 %   strict language 
 % - Also write that we implement Perceus for a much more lower-level language (GRIN)
-% - Need to make the section "Precise reference counting" more detailed
 % - Fix bad writing
 % - Think about which is the best de Brujin representation
-% - Maybe make Perceus @fetch@ borrowing and then use dup/drop fusion
 
 % - Section: introduction
 %   • Write a motivation for the work. Why is this important for "outsiders"? 
@@ -183,12 +183,14 @@ data List A : Set where
 
 \begin{abstract}
 Precise reference counting is a technique by \citeauthor{reinking2021} that uses ownership to deallocate objects as soon as possible. 
-The algorithm is called Perceus, and as of this writing, it has only been implemented for eager functional languages.
-This paper describes the implementation of a new lazy compiler back-end for the Agda programming language with 
-precise reference counting. 
-The compiler uses \citeauthor{boquist1999} and \citeauthor{johnsson1991}'s intermediate language GRIN to compile lazy programs. 
-GRIN uses interprocedural points-to analysis to inline the evaluation of suspended computations.
-We extend GRIN with a variant of Perceus, and demonstrate the applicability of combining lazy functional programming with precise reference counting by developing a GRIN interpreter and an LLVM code generator. 
+The algorithm is called Perceus, and as of this writing, it has only been impl\-emented for eager functional languages.
+This paper describes the implementation of a new lazy compiler backend for the Agda programming lang\-uage with precise reference counting.
+The compiler uses \citeauthor{johnsson1991} and \citeauthor{boquist1999}'s intermediate language GRIN to compile lazy programs. 
+GRIN uses an inter\-procedural \mbox{points-to} analysis to inline the evaluation of suspended computations.
+We extend GRIN with a variant of Perceus, and demonstrate the applic\-ability of combining lazy functional programming with precise reference counting by developing a GRIN interpreter and an LLVM IR code generator. 
+  Due to GRIN and reference counting, our compiler does not require an external runtime system%
+\footnote{Besides initialization code (crt0) and the C standard library, libc.}%
+ , which is uncommon for lazy functional languages.%
 % Our results suggest that strictness analysis is vital for mitigating space leaks.
 % We conclude that...
 
@@ -200,20 +202,67 @@ Reference counting \citep{collins1960} is a memory management technique which ca
 Common reference counting algorithms are easy to implement; each allocation contains an extra field which tracks the number of references to an object. 
 When the reference count reaches zero, the heap space occupied by the object is reclaimed.
 The number of references to a object is updated by interleaved reference counting operations (\texttt{dup} and \texttt{drop}), which increments and decrements the reference count at runtime. 
-As a result of the interleaved collection strategy, memory usage remain low and the throughput is continuous throughout the computation\footnote{Reference counted programs may introduce pauses similar to tracing garbage collectors. For example, when decrementing a long linked list all at once.} \citep{jones1996}.
+As a result of the interleaved collection strategy, memory usage remain low and the throughput is continuous throughout the computation\footnote{Reference counted programs may introduce pauses similar to tracing garbage collectors. For example, when dropping a long linked list all at once.} \citep{jones1996}.
 Still, tracing garbage collectors are usually favored over reference counting implementations due to cheaper allocations, higher throughput, and the ability to collect cyclic data structures.
 
-\citet{reinking2021} reexamine reference counting with a new approach, utilizing static guarantees to make the algorithm precise so objects can be deallocated as soon as possible.
+\citet{reinking2021} reexamine reference counting with a new approach, utilizing static guarantees to make the algorithm \emph{precise} so objects can be deallocated as soon as possible.
 They present a formalized algorithm called Perceus, which ensures precision. 
 Perceus is implemented in the functional language Koka, along with optimizations for reducing reference counting operations and reusing memory.
 This, builds upon previous work by \citet{ullrich2021} in the Lean programming language and theorem prover. 
 
-Both Koka and Lean are, however, eagerly evaluated. 
-Lazy languages pose an extra challenge for compiler writers because of their unintuitive control flow. 
-In this paper, we adapt the Perceus algorithm to a new lazy compiler back-end for the Agda programming language and proof assistant.
-As a first step, we transform Agda into an intermediate language called GRIN \citep{johnsson1991}.
-% FIXME "their unintuitive control" looks like it refererce to "compiler writers"
+% No external runtime library
+% TODO write: implementation of lazy language have historically required a heavy runtime system. 
+%             Turners combinatory interpreter, GHC runtime system for evaluation for suspended computations.
+%             GRIN is "middle way" language which is able to describe evaluation of suspended computations within 
+%             the language. Therefore, the only runtime system is the need for a garbage collector. In our work, 
+%             we remove this restriction by also moving memory management into the language.
 
+Both Koka and Lean are, however, eagerly evaluated. 
+Lazy languages pose an extra challenge for compiler writers because of the unintuitive control flow. 
+Additionally, previous implementations of lazy languages require an external runtime system to manage evaluation of suspended compuation and garbage collection \citep{johnsson1984, augustsson1984, jones1992, turner1979}.
+\citet{johnsson1991}, presents a method for evaluating suspended computations without an external runtime system.
+This is accomplished in the intermediate language GRIN which can express evaluation of suspended computations as a regular procedure.
+In this paper, we extend GRIN with a variant of the Perceus algorithm.
+This allivates the requirement of an external runtime system because memory is automatically managed by interleaved reference counting operations --- similarly  to how GRIN can express evaluation suspended compuations within the language. 
+We implement these ideas in a new compiler backend for the Agda programming language and proof assistant. 
+
+% In this paper, we develop a new lazy compiler backend for the Agda programming language and proof assistant, which uses GRIN extended with a variant of the Perceus algorithm.
+
+% In this paper, we adapt the Perceus algorithm to a new lazy compiler backend for the Agda programming language and proof assistant.
+% We use an intermediate languages called GRIN \citep{johnsson1991}, which can express the evaluation of suspended compuations within the language instead of a runtime system. 
+% As a first step, we transform Agda into an intermediate language called GRIN \citep{johnsson1991}.
+% We make the following contributions:
+% \begin{itemize}[nosep,topsep=0pt,parsep=0pt,partopsep=0pt]
+% \item We adapt the Perceus algorithm to language with explicit memory operations.
+% \item We demonstrate the applicability of combining lazy functional programming with precise reference counting by developing a GRIN interpreter and an LLVM code generator. 
+
+
+% Boquist (1999) mentioned the need for default alternatives in section 10.2.1
+
+% "It would be an interesting experiment to be able to write the garbage collector in GRIN just as we can express other parts of the runtime 
+%  system in GRIN, for example EVAL (see section 4.1)." (Boquist, 1995, p.280) 
+%\item We have extended the syntax of GRIN language with \emph{default alternatives} for case expressions, and an indexed update operation. 
+%\item We have extended GRIN case expressions with \emph{default alternatives} which mentioned in future work in \citet{boquist1999}
+%\item We give the syntax and semantics of a variant of GRIN. We can describe memory management in our variant of GRIN, 
+      %an thereby free our implementation for any runtime system similar to how evaluation of suspended computations are done 
+      %at a language level in GRIN.
+%\item We adapt the Perceus algorithm for our variant of GRIN. (lower level, first-order)
+%\item We demonstrate the applicability of combining lazy functional programming with precise reference counting.
+% \end{itemize}
+
+
+% Contribution: 
+%   • We demonstrate the applicability of combining non-strict languages with precise reference counting.
+%   • We implement a a compiler backend which compiles Agda to GRIN. Then, we perform transformations on the GRIN code to 
+%     remove indirect function calls by an interprocedural analysis.  
+%   • We implement a Perceus-like algorithm for the GRIN syntax which is much more low-level then previous implementations.
+%   • We implement a GRIN interpreter and a LLVM code generator.
+
+% Contributions:
+%   • We describe a rare reference counting implementation for a lazy functional programming language.
+%   • We adapt the Perceus algorithm for a lower level language with explict memory operations.
+%   • We demonstrate the applicability of combining lazy functional programming wth precise reference counting.
+%   • We extend GRIN to enable memory management within the language.
 %\begingroup
 %\large{TODO SKRIV RENT}
 %\endgroup
@@ -223,7 +272,7 @@ As a first step, we transform Agda into an intermediate language called GRIN \ci
 %\item Lazy languages are hard optimize. For example, common implementations of laziness are implemented we indirect functional calls to 
 %   evaluated suspended computations (johnsson1984, Peyton Jones 1992). Indirect function calls prevent optimization such as 
 %   inlining and is proven to cache misses. 
-%\item In this paper, we develop a new lazy compiler back-end for the Agda programming language and proof assistant.
+%\item In this paper, we develop a new lazy compiler backend for the Agda programming language and proof assistant.
 %      Our implementation uses the intermediate language GRIN to compile lazy programs. GRIN uses an interprocedural points-to analysis
 %      to eliminate all indirect function calls.
 %\item We extend GRIN with variant of the Perceus algorithm for precise reference counting.
@@ -241,17 +290,18 @@ As a first step, we transform Agda into an intermediate language called GRIN \ci
 %   to languages like GHC's Core (PJ 96) and STG (92).
 
 \section{Graph Reduction \\ Intermediate Notation}
-In \citeyear{johnsson1991}, \citeauthor{johnsson1991} presented the Graph Reduction Intermediate Notation (GRIN) as an imperative version of the G-machine \citep{johnsson1984}, where lexically scoped variables are stored in registers instead of on the stack. 
+\label{sec:grin}
+In \citeyear{johnsson1991}, \citeauthor{johnsson1991} presented the Graph Reduction Intermediate Notation (GRIN) as an imperative version of the G-machine \citep{johnsson1984}, where lexically scoped variables are stored in registers instead of the stack. 
 Later, GRIN was reformulated with a more functional flavor \citep{boquist1995}.
 In this project, we introduce an additional variant of GRIN adapted for the internal representation of Agda and precise reference counting. 
 The syntax of our variant is shown in \mbox{Figure \ref{fig:grin-syntax}}.
 
-A defining feature of GRIN is that suspended computations (thunks) and higher-order functions are defunctionalized \citep{reynolds1972}, by 
+A defining feature of GRIN is that suspended computations (closures) and higher-order functions are defunctionalized \citep{reynolds1972}, by 
 an interprocedural analysis called the heap points-to analysis.
-As a result, all function calls through opaque pointers are eleminated. 
-This also means that all GRIN values are in weak head normal form. 
-However, in order to destinquish between complex values (thunks and closures) and simple values (literals and data types), 
-future mentions of \emph{suspended computation} and \emph{weak head normal form} refers to the representation in the Agda program.
+As a result, all unknown function calls are eliminated. 
+Due to defunctionalization, all GRIN values are weak head normal forms.
+However, in order to destinquish between complex values (closures) and simple values (literals and data types), 
+future mentions of \emph{suspended computation} and \emph{weak head normal form} refer to the representation in the corresponding Agda program.
 
 
 \begingroup
@@ -261,35 +311,35 @@ future mentions of \emph{suspended computation} and \emph{weak head normal form}
 \begin{empheq}[box=\fbox]{align*}
 % TODO fix rest of emph
 &\begin{array}{l l l l}
-term & ::=    & \emph{term} \; ; \; \lambda \emph{lpat} \rightarrow \emph{term}                        & \; \text{binding} \\
-     & \; \mid  & \texttt{case} \; \emph{val} \; \texttt{of} \; \emph{term} \; \{\emph{calt}\,\}*  & \; \text{case} \\
-     & \; \mid  & val \; \{val\}*                                           & \; \text{application} \\
-     & \; \mid  & \texttt{unit} \; val                                      & \; \text{return value} \\
-     & \; \mid  & \texttt{store} \; val                                     & \; \text{allocate new heap node} \\
-     & \; \mid  & \texttt{fetch} \; \{tag\} \; n \;  \{i\}                  & \; \text{load heap node} \\
-     & \; \mid  & \texttt{update} \; \{tag\} \; n \; \{i\} \; val           & \; \text{overwrite heap node} \\
-     & \; \mid  & \texttt{unreachable}                                      & \; \text{unreachable} \\
+term & ::=    & \emph{term} \; ; \; \lambda \; \emph{lpat} \rightarrow \emph{term}                        & \; \text{binding} \\
+     & \;\; \mid  & \texttt{case} \; \emph{val} \; \texttt{of} \; \emph{term} \; \{\emph{calt}\,\}*  & \; \text{case} \\
+     & \;\; \mid  & val \; \{val\}*                                           & \; \text{application} \\
+     & \;\; \mid  & \texttt{unit} \; val                                      & \; \text{return value} \\
+     & \;\; \mid  & \texttt{store} \; val                                     & \; \text{allocate new heap node} \\
+     & \;\; \mid  & \texttt{fetch} \; \{tag\} \; n \;  \{i\}                  & \; \text{load heap node} \\
+     & \;\; \mid  & \texttt{update} \; \{tag\} \; n \; \{i\} \; val           & \; \text{overwrite heap node} \\
+     & \;\; \mid  & \texttt{unreachable}                                      & \; \text{unreachable} \\
 \end{array} \\ \\
 &\begin{array}{l l l l}
 val & ::=     & \emph{tag} \; \{\emph{val}\,\}* & \; \text{constant node} \\
-    & \; \mid & \emph{n} \; \{\emph{val}\,\}*   & \; \text{variable node} \\
-    & \; \mid & \emph{tag}      & \; \text{single tag} \\
-    & \; \mid & \emph{()}       & \; \text{empty} \\
-    & \; \mid & \emph{lit}      & \; \text{literal} \\
-    & \; \mid & \emph{n}        & \; \text{variable (de Bruijn index)} \\
-    & \; \mid & \emph{def}      & \; \text{function definition} \\
-    & \; \mid & \emph{prim}     & \; \text{primitive definition} \\
+    & \;\; \mid & \emph{n} \; \{\emph{val}\,\}*   & \; \text{variable node} \\
+    & \;\; \mid & \emph{tag}      & \; \text{single tag} \\
+    & \;\; \mid & ()              & \; \text{empty} \\
+    & \;\; \mid & \emph{lit}      & \; \text{literal} \\
+    & \;\; \mid & \emph{n}        & \; \text{variable (de Bruijn index)} \\
+    & \;\; \mid & \emph{def}      & \; \text{function definition} \\
+    & \;\; \mid & \emph{prim}     & \; \text{primitive definition} \\
 \end{array} \\ \\
 &\begin{array}{l l l l}
-lpat & ::=     & tag \; \{x\}* & \; \text{constant node pattern} \\
-     & \; \mid & x \; \{x\}*   & \; \text{variable node pattern} \\
-     & \; \mid & ()            & \; \text{empty pattern} \\
-     & \; \mid & x             & \; \text{variable pattern} \\
+lpat & ::=       & tag \; \{x\}* & \; \text{constant node pattern} \\
+     & \;\; \mid & x \; \{x\}*   & \; \text{variable node pattern} \\
+     & \;\; \mid & ()            & \; \text{empty pattern} \\
+     & \;\; \mid & x             & \; \text{variable pattern} \\
 \end{array} \\ \\
 &\begin{array}{l l l l}
-cpat & ::=     & tag \; \{x\}* & \; \text{constant node pattern} \\
-     & \; \mid & tag             & \; \text{single tag pattern} \\
-     & \; \mid & lit             & \; \text{literal pattern} \\
+cpat & ::=       & tag \; \{x\}*   & \; \text{constant node pattern} \\
+     & \;\; \mid & tag             & \; \text{single tag pattern} \\
+     & \;\; \mid & lit             & \; \text{literal pattern} \\
 \end{array} \\ \\
 &\begin{array}{l l}
 \{...\}  & \text{means 0 or 1 times}    \\
@@ -303,10 +353,12 @@ cpat & ::=     & tag \; \{x\}* & \; \text{constant node pattern} \\
 
 
 \subsection{Code generation}
-Currently, our compiler only accepts a subset of Agda which is lambda lifted, first-order, and monomorphic.
-Following is Agda program which computes the sum of the first 100 numbers. 
+Currently, our compiler only accepts a subset of Agda which is lambda lifted, first-order, and monomorphic.\footnote{
+Some lambda expressions and higher-order functions compile successfully because they are reduced to another representation during optimzation. 
+See Section \ref{sec:discussion-and-future-work} for an example.}
+Following is an Agda program that computes the sum of the first 100 numbers in descending order. 
 %\begin{figure}[hb!]
-\begin{code}[]
+\begin{code}[number=agda:program]
 downFrom : ℕ → List ℕ
 downFrom zero = []
 downFrom (suc n) = n ∷ downFrom n 
@@ -321,40 +373,48 @@ main = sum (downFrom 100)
 %\label{fig:agda-program}
 %\end{figure}
 
-Our back-end starts by converting the program into an untyped lambda calculus with let and case expressions called Treeless \citep{hausmann2015}.
-The Treeless language uses administrative normal form, which means that the case scrutinee is always a variable, and the patterns cannot be nested or overlap.
-Following is the Treeless representation of \AgdaFunction{downFrom}.
+Before generating GRIN code, the program is tranformed into an untyped lambda calculus with let and case expressions called Treeless \citep{hausmann2015}.
+The Treeless intermediate language uses administrative normal form, which means that the case scrutinee is always a variable, and the patterns cannot be nested or overlap.
+Following is the Treeless representation of \AgdaFunction{downFrom} \refp{agda:program}.
+The implementation uses de Bruijn indices to represent variables, but this paper uses variable names to make it \mbox{human} readable. 
 
-\begin{lstlisting}[language=Treeless, xleftmargin=24pt]
+\begin{typewriter}{Treeless}{treeless:downFrom}
 downFrom x7 = case x7 of
   0 → []
   _ → let x5 = 1
           x4 = _-_ x7 x5
           x3 = downFrom x4 in 
       _$∷$_ x4 x3
-\end{lstlisting}
+\end{typewriter}
 % cite De Bruijn 72
-The implementation uses de Bruijn indices to represent variables, but this paper uses variable names to make it more readable. 
 % uneccessary?
 % During this phase, we also transform the program so applications only take variables as operands.
 
 % TODO write that GRIN is low level comparatively.
 % FIXME monadic operations instead of let expressions???
 % TODO Be specific! Don't write "is simliar". Instead write "Translating Treeless to GRIN is straight forward..."
-GRIN is similar to the Treeless syntax, but instead of let expressions we use the builtin state monad to bind variables and sequence operations.
-The monadic operations are \lstinline{unit}, \lstinline{store}, \lstinline{fetch}, and \lstinline{update}. 
-The bind operator ";" is infix and right-associative.
-We can translate "\lstinline[language=Treeless]{let x = $\emph{val}$ in foo x}" lazily
-by allocating the value and passing the pointer as an argument to the function: "\lstinline[]{store $\emph{val}$ ; λ x$_{ptr}$ → foo x$_{ptr}$}".
-Here, \emph{val} must be a constant node value. 
-A constant node is a tag followed by a sequence of arguments. 
+
+% GRIN is closer to the machine compared to Treeless:  
+When compiling Treeless to GRIN we need to be explicit about evaluation of suspended compuations and memory operations.
+GRIN uses a builtin state monad to sequence compuations. 
+The monadic operations are \lstinline{unit}, bind (written "\lstinline{;}"), \lstinline{store}, \lstinline{fetch}, and \lstinline{update}. 
+For example, to compile the Treeless expression
+\begin{lstlisting}[language=Treeless, xleftmargin=1em]
+let x = $\emph{val}$ in foo x
+\end{lstlisting}
+lazily, we allocate the value and pass the pointer as an argument to the function
+\begin{lstlisting}[language=GRIN, xleftmargin=1em]
+store $\emph{val}$ ; λ x$_{ptr}$ → foo x$_{ptr}$
+\end{lstlisting}
+Here, \emph{val} must be a constant node value, which is a tag followed by a sequence of arguments (see \mbox{Figure \ref{fig:grin-syntax}}). 
 We can pattern match on a tag with the case expression to determine the kind.
-Tags are prefixed with either a "C" if it is a constructor value or an "F" for suspended function applications.
+Tags are prefixed with either a C if it is a constructor value or an F for suspended function applications.
 The node arguments are usually pointers to other heap-allocated nodes, but they can also be unboxed values.
 For example, the boxed integer tag \lstinline{Cnat} accepts one unboxed integer.
-Following is the corresponding GRIN representation of \AgdaFunction{downFrom}.
+Following is the corresponding GRIN representation of \lstinline{downFrom} \refp{treeless:downFrom}.
+Note the explicit call to \lstinline{eval} prior to the case expression which forces weak head normal form.
 
-\begin{lstlisting}[xleftmargin=24pt]
+\begin{typewriter}{GRIN}{grin:downFrom}
 downFrom x7 =
   eval x7 ; λ Cnat x6 →
   case x6 of
@@ -364,22 +424,22 @@ downFrom x7 =
       store (F_-_ x7 x5) ; λ x4 →
       store (FdownFrom x4) ; λ x3 →
       unit (C_$∷$_ x4 x3)
-\end{lstlisting}
+\end{typewriter}%
 
+\label{sec:grin-interpreter}
 \subsection{Interpreter}
-
 The semantics of our language are presented in \mbox{Figure \ref{fig:grin-semantics}}.
-% TODO check so I didn't accidently plagiarise Boquist.
-We use two semantic functions, $\mathcal{E}$ and $\mathcal{V}$, to assign semantic values to terms and syntactic values.
-The semantics values are are a subset of syntactic values with an extra value representing undefined behaviour ($\bot$).
-Additional, we have a new construct for heap allocated nodes. 
+We use two semantic functions, $\mathcal{E}$ and $\mathcal{V}$, to assign semantic values to terms and syntactic values, respectively.
+The semantics values are are a subset of the syntactic values with an additional construct representing undefined behaviour ($\bot$).
+Moreover, we have a new construct for heap allocated nodes. 
 A heap allocated node consist of a reference count, a tag, and a sequence of values.
 
-We have implemented the semantics as an interpreter, check that new transformations do not change the semantics.
-Due to the lower level of GRIN, we can collect information about resource usage.
-For instance, our example allocates the following nodes: 101 \lstinline{Cnat}, 101 \lstinline{FdownFrom}, 100 \lstinline{F_-_},  and 100 \lstinline{Fsum}.
-And the worst-case bound for heap consumption is 202 nodes.
-With this information we can estimate the performance characteristics of the program and identify optimization opportunities.
+We have implemented the semantics as an interpreter, to test that transformations do not change the semantics of the program.
+% FIXME lower level what? nature?
+Due to the lower level of GRIN, we can also collect information about resource usage.
+For instance, our example program \refp{agda:program} allocates the following nodes: 101 \lstinline{Cnat}, 101 \lstinline{FdownFrom}, 100 \lstinline{F_-_},  and 100 \lstinline{Fsum}.
+In total, our program allocates 402 nodes and the worst-case bound for heap consumption is 202 nodes.
+With this information we can estimate the performance characteristics of the program and identify optimization opportunities (more on this in Section \ref{sec:discussion-and-future-work}).
 
 \begingroup
 \setlength{\fboxsep}{1em} % padding for border
@@ -387,13 +447,13 @@ With this information we can estimate the performance characteristics of the pro
 \centering
 \begin{empheq}[box=\fbox]{align*}
 \begin{array}{l}
-\mathcal{E} : \emph{Stack} \rightarrow \emph{Heap} \rightarrow \emph{Term} \rightarrow \emph{Value} \times \emph{Heap} \\
-\mathcal{V} : \emph{Stack} \rightarrow Val \rightarrow \emph{Value} \times \emph{Heap} \\
-\\
-\emph{Value} = \emph{tag} \; \{\emph{val}\,\}* \mid \emph{tag} \mid \emph{loc} \mid \emph{()} \mid \emph{lit} \mid \bot \\
+\emph{SemVal} = \emph{tag} \; \{\emph{val}\,\}* \mid \emph{tag} \mid \emph{loc} \mid \emph{()} \mid \emph{lit} \mid \bot \\
 \emph{HeapNode} = \emph{ref-count} \; \emph{tag} \; \{\emph{val}\,\}* \\
 \emph{Stack} = \emph{Var} \rightarrow  \emph{Loc} \\
 \emph{Heap} = \emph{Loc} \rightarrow  \emph{HeapNode} \\
+\\
+\mathcal{E} : \emph{Stack} \rightarrow \emph{Heap} \rightarrow \emph{Term} \rightarrow \emph{SemVal} \times \emph{Heap} \\
+\mathcal{V} : \emph{Stack} \rightarrow \emph{Val} \rightarrow \emph{SemVal} \times \emph{Heap} \\
 \end{array}
 \end{empheq}
 \caption{GRIN semantics. }
@@ -402,29 +462,27 @@ With this information we can estimate the performance characteristics of the pro
 \endgroup
 
 
-\label{sec:analysis-and-transformations}
 \subsection{Analysis and transformations}
+\label{sec:analysis-and-transformations}
 The most important GRIN transformation is \emph{eval inlining}. 
-\lstinline{eval} is a normal GRIN function which forces suspended computations to its weak head normal form.
-There are no suspended computations in GRIN and all values are weak head normal form.
-Thus, "suspended computation" and "weak head normal form" should always refer to the corresponding representation in the source program.
-In the above function, "\lstinline{eval x7 ; λ Cnat x6 → ...}" evaluates the value at the pointer (\lstinline{x7}) to a boxed integer \lstinline{Cnat x6}.
-
+\lstinline{eval} is a normal GRIN function which forces a suspended computation to weak head normal form.
+For instance, "\lstinline{eval x7 ; λ Cnat x6 → ...}" \refp{grin:downFrom} evaluates the value at the pointer \lstinline{x7} to a boxed integer \lstinline{Cnat x6}.
 Eval inlining generates a specialized \lstinline{eval} function for each call site.
-To evaluate a suspended computation, we load the node from the heap using \lstinline{fetch}. 
+Following \refp{grin:downFrom-inlined} is the \mbox{eval-inlined} version of \lstinline{downFrom} \refp{grin:downFrom}.
+To evaluate a suspended computation, we load the node from the heap using \lstinline{fetch} (line 2). 
 Then, we pattern match on the possible nodes. 
-Constructor nodes are already in weak head normal form so they are left unchanged.
-Function nodes need to be evaluated by applying the arguments to the corresponding function.
-Finally, the heap is updated with the evaluated value.
+Constructor nodes are already in weak head normal form so they are left unchanged (line 4).
+Function nodes are evaluated by applying the corresponding function to the arguments (line 5).
+Finally, the heap is updated with the evaluated value (line 7).
 
-\begin{lstlisting}[xleftmargin=24pt]
+\begin{typewriter}[left]{GRIN}{grin:downFrom-inlined}
 downFrom x7 =
   (fetch x7 ; λ x34 →
    (case x34 of
       Cnat x36 → unit (Cnat x36)
       F_-_ x37 x38 → _-_ x37 x38
    ) ; λ x35 →
-   update x7 x34 ; λ () →
+   update x7 x35 ; λ () →
    unit x35
   ) ; λ Cnat x6 →
   case x6 of
@@ -434,54 +492,72 @@ downFrom x7 =
       store (F_-_ x7 x5) ; λ x4 →
       store (FdownFrom x4) ; λ x3 →
       unit (C_$∷$_ x4 x3)
-\end{lstlisting}
+\end{typewriter}
 
 % TODO fix ugly
-Eval inlining require a set of possible nodes for each abstract heap location.
-The set needs to be relatively small, or otherwise an excessive amount of code will be generated.
-We use the \emph{heap points-to} analysis \citep{johnsson1991}.
-The analysis is interprocedural, meaning that multiple functions need to be analyzed together.
-We will not go into detail about the algorithm, as it is thoroughly described in \citep{boquist1996}. 
-Instead, this paper will only provide a general intuition of the algorithm.
-Consider the inlined evaluation in \lstinline{downFrom}.
-There are two tags in the case expression: \lstinline{F_-_} and \lstinline{Cnat}. 
-\lstinline{F_-_} comes from the suspended recursive call inside \lstinline{downFrom}, and 
-\lstinline{Cnat} is from the \lstinline{update} operation and the suspended call to \lstinline{downFrom} in the main function.
+% TODO fix subjective statements 'excessive'
+The pattern-matching step (lines 3-5) requires a set of possible nodes for each abstract heap location.
+One option is to pattern match on all the possible nodes, but this does not scale to large programs.
+Instead, we use the \emph{heap points-to} analysis \citep{johnsson1991} to create a conservative approximation.%
+\footnote{%
+The analysis does not consider the context or order (flow) of operations, which means that certain phases of the analysis can be executed in parallell and cached. 
 
-\begin{lstlisting}[xleftmargin=24pt]
+}
+The analysis is interprocedural, meaning that multiple functions need to be analyzed together.
+We will not go into detail about the algorithm, as it is thoroughly described in \citep{boquist1996, johnsson1991}. 
+Instead, this paper will only provide a general intuition of the algorithm.
+Consider the inlined evaluation in \mbox{\lstinline{downFrom} \refp{grin:downFrom-inlined}}.
+There are two tags in the case expression: \lstinline{F_-_} (line 4) and \lstinline{Cnat} (line 5). 
+The former comes from the suspended recursive call inside \lstinline{downFrom} (line 15). 
+The latter is from the \lstinline{update} operation (line 7), and the suspended call to \lstinline{downFrom} (line 3) in the main function:
+
+\begin{typewriter}[left]{GRIN}{grin:main}
 main =
   store (Cnat 100) ; λ x20 →
   store (FdownFrom x20) ; λ x19 →
   sum x19 ; λ Cnat x18 →
   printf x18
-\end{lstlisting}
+\end{typewriter}
 
 \citeauthor{boquist1999}'s thesis presents 24 transformations divided into two groups: simplifying transformations and optimizing 
 transformations \citep{boquist1999}. 
-The simplifying transformations are necessary for the code generator and are all implemented, except \emph{inlining calls to apply}
+The simplifying transformations are necessary for the LLVM IR code generator and are all implemented, except \emph{inlining calls to apply}
 which is used for partially applied functions. 
 The optimizing transformations significantly alter the program and achieve similar effects to deforestation \citep{wadler1988} and listlessness \citep{wadler1984}.
 % FIXME deforestation is the algorithm for getting listlessness/Treelessness
-% TODO Instead, mention that it eliminates allocations and unboxing
-We have only implemented \emph{copy propagation}.
+% TODO Instead, mention that it eliminates allocations and unboxing, or constant folding?
+Of these, we have only implemented \emph{copy propagation}.
 This project aims to combine lazy functional programming with precise reference counting. 
-Producing the most optimized code is out of the scope of this project. 
+Producing the most optimized code is out of scope. 
 However, this is something we would like to explore in future research.
 
 \section{Precise reference counting}
 After the GRIN transformations, we insert reference counting operations to automatically manage memory.
 We use an algorithm based on Perceus \citep{reinking2021}. 
-Perceus is a deterministic syntax-directed algorithm for the linear resource calculus $λ₁$.
-$λ₁$ is an untyped lambda calculus extended with explicit binds and pattern matching.
+Perceus is a deterministic syntax-directed algorithm for the linear resource calculus $λ₁$, which is an untyped lambda calculus extended with explicit binds and pattern matching.
 Our implementation uses GRIN which have explicit memory operations and different calling conventions.
-In this section, we give brief a overview of the algorithm and discuss some challenges when adapting Perceus to GRIN. 
-We also describe two optimizations: \emph{drop specialization} and \emph{dup/drop fusion}.
+In this section, we give a brief overview of the algorithm and describe two optimizations: \emph{drop specialization} and \emph{dup/drop fusion}.
+We also discuss some challenges when adapting Perceus to GRIN in Section \ref{sec:perceus-challanges}. 
 
-The algorithm uses two sets of resource tokens; an owned environment and a borrowed environment. 
+
+The algorithm uses two sets of resource tokens; an owned environment $\Gamma$ and a borrowed environment $\Delta$. 
+% Explain isomorphism of resource tokens and reference
 Elements in the owned environment must be consumed exactly once. 
-We consume a value by calling the function \lstinline{drop}, or by transfer ownership to another consumer.
-An example of this is \lstinline{main} which require no reference counting operations because it transfers ownership of both of its allocations.
-The allocation "\lstinline{store (Cnat 100) ; λ x20 →}" is consumed by the suspended computation "\lstinline{store (FdownFrom x20) ; λ x19 →}", which in turn is consumed by "\lstinline{sum x19}".
+We consume a value by calling the function \lstinline{drop}, or by transferring ownership to another consumer.
+An example of this is \lstinline{main} \refp{grin:main} which requires no reference counting operations because it transfers ownership of both of its allocations.
+% The allocation 
+% \begin{lstlisting}[xleftmargin=1em]
+% store (Cnat 100) ; λ x20 →
+% \end{lstlisting}
+% is consumed by the suspended computation 
+% \begin{lstlisting}[xleftmargin=1em]
+% store (FdownFrom x20) ; λ x19 →
+% \end{lstlisting}
+% which in turn is consumed by 
+% \begin{lstlisting}[xleftmargin=1em]
+% sum x19 
+% \end{lstlisting}
+The allocation "\lstinline{store (Cnat 100) ; λ x20 →}" \mbox{(line 2)} is consumed by the suspended computation "\lstinline{store (FdownFrom x20) ; λ x19 →}" \mbox{(line 3)}, which in turn is consumed by "\lstinline{sum x19}" (line 4).
 Elements in the borrowed environment can only be applied to non-consuming operations, such as pattern matching. 
 We can promote an element from the borrowed environment to the owned environment by calling the function \lstinline{dup}.
 
@@ -491,10 +567,10 @@ We can promote an element from the borrowed environment to the owned environment
 \setlength{\fboxsep}{0pt} % padding for border
 \begin{subfigure}[t]{0.44\textwidth}
 \centering
-\begin{lstlisting}
+\begin{lstlisting}[numbers=left]
 sum x14 =
-  fetch x14 [2] ; λ x40 →
-  downFrom x40 ; λ x59 x60 x61 →
+  fetch x14 [2] ; λ$_\Gamma$ x40 →
+  downFrom x40 ; λ$_\Delta$ x59 x60 x61 →
   case x59 of
     [] →
       update x14 (C[]) ; λ () →
@@ -505,18 +581,18 @@ sum x14 =
       !\hl{dup x60 ; λ () →}!
       update x14 (C_$∷$_ x60 x61) ; λ () →
       !\hl{drop x14 ; λ () →}!
-      store (Fsum x61) ; λ x10 →
-      _+_ x10 x61
+      store (Fsum x61) ; λ$_\Gamma$ x10 →
+      _+_ x10 x60
 \end{lstlisting}
 \caption{dup/drop insertion}
 \label{fig:drop-insert}
 \end{subfigure}\par\medskip
 \begin{subfigure}[b]{0.44\textwidth}
 \centering
-\begin{lstlisting}
+\begin{lstlisting}[numbers=left]
 sum x14 =
-  fetch x14 [2] ; λ x40 →
-  downFrom x40 ; λ x59 x60 x61 →
+  fetch x14 [2] ; λ$_\Gamma$ x40 →
+  downFrom x40 ; λ$_\Delta$ x59 x60 x61 →
   case x59 of
     [] →
       update x14 (C[]) ; λ () →
@@ -542,8 +618,8 @@ sum x14 =
            PSub x501 1 ; λ x500 →
            update x14 [0] x500
       ) ; λ () →
-      store (Fsum x61) ; λ x10 →
-      _+_ x10 x61
+      store (Fsum x61) ; λ$_\Gamma$ x10 →
+      _+_ x10 x60
 \end{lstlisting}
 \caption{drop specialization}
 \label{fig:drop-spec}
@@ -551,8 +627,8 @@ sum x14 =
 \begin{subfigure}[b]{0.44\textwidth}
 \begin{lstlisting}[showlines=true, numbers=none]
 sum x14 =
-  fetch x14 [2] ; λ x40 →
-  downFrom x40 ; λ x59 x60 x61 →
+  fetch x14 [2] ; λ$_\Gamma$ x40 →
+  downFrom x40 ; λ$_\Delta$ x59 x60 x61 →
   case x59 of
     [] →
       update x14 (C[]) ; λ () →
@@ -576,8 +652,8 @@ sum x14 =
            PSub x501 1 ; λ x500 →
            update x14 [0] x500
       ) ; λ () →
-      store (Fsum x61) ; λ x10 →
-      _+_ x10 x61
+      store (Fsum x61) ; λ$_\Gamma$ x10 →
+      _+_ x10 x60
 
 
 \end{lstlisting}
@@ -591,20 +667,26 @@ sum x14 =
 
 Figure \ref{fig:drop-insert} presents the function \lstinline{sum} with reference counting operations inserted and highlighted in gray.
 Many aspects of adapting Perceus to GRIN are present in \lstinline{sum}. 
-For example, we can conclude that the operations \lstinline{fetch} and \lstinline{update} must be borrowing operations. 
-This is evident because both \lstinline{fetch} and \lstinline{update} use \lstinline{x14} prior to it being explicitly dropped.
-We can also conclude that \lstinline{fetch} bind variables that extend the owned environment.
-Meanwhile, the bound variables of function applications extend the borrowed environment.
+On line 2, "\lstinline{fetch x14 [2] ; λ$_\Gamma$ x40 →}" extends the owned environment with a resource token for the variable \lstinline{x40}. 
+The resource token is subsequently consumed by "\lstinline{downFrom x40 ; λ$_\Delta$ x59 x60 x61 →}", which in turn extends the borrowed environment with tokens for \lstinline{x60}  and \lstinline{x61}.
+There is no resource token for \lstinline{x59} because the first argument of a node is always a tag, represented by an unboxed integer stored in registers. 
+Similarly, unannotated bindings, such as "\lstinline{update x14 (C[]) ; λ () →}" \mbox{(line 6)}, do not extend any of the environments.
+Additionally, we can conclude that \lstinline{fetch} and \lstinline{update} must be borrowing operations, because both use \lstinline{x14} prior to it being dropped (line 7).
 
-One of the goals of GRIN is to improve register utilization for lazy functional languages \citep{boquist1999}.
-As such, the result of function applications, \lstinline{fetch}, and \lstinline{unit} are regular values stored in registers.
-There is no point to reference count values in registers, so we need to treat pointer variables and non-pointer variables differently.
-This is in contrast to the calculus which Perceus is defined for, $λ₁$, where all values except variables are heap-allocated \citep{reinking2021}.
-Another difference is that functions in GRIN are not allowed to return unboxed pointers. 
-Moreover, all function calls return explicit nodes rather than node variables. 
-For example: "\lstinline{downFrom x40 ; λ x59 x60 x61 → ...}".
-This i problematic because \lstinline{x60} and \lstinline{x61} are undefined when \lstinline{downFrom} returns the empty list.
-Therefore, we are only allowed to \lstinline{dup} the variables once the tag is known.
+%\mbox{(line 3)}, which extends borrowed environment with resource tokens to \lstlisting{x60} and \lstlisting{x61}.
+% \begin{itemize}[nosep,topsep=0pt,parsep=0pt,partopsep=0pt]
+% \item Owning binds: " 
+% \item Borrowed binds: "\lstinline{downFrom x40 ; λ$_\Delta$ x59 x60 x61 →}" \mbox{(line 3)}
+% \item Local binds:
+% \end{itemize}
+%For example, we can conclude that the operations \lstinline{fetch} and \lstinline{update} must be borrowing operations. 
+%This is evident because both \lstinline{fetch} and \lstinline{update} use \lstinline{x14} prior to it being explicitly dropped.
+% TODO perhaps introduce a new syntax for borrowed and owned lambda $\lambda_{\delta}$
+% There a three types of abstractions: Abstractions which binds to the owned environment, abtractions which binds the borrowed envirionment, and abstractions which doesn't bind at all.
+%
+% Another obeservation is that there are now three kinds of binds. 
+%We can also conclude that \lstinline{fetch} bind variables that extend the owned environment.
+%Meanwhile, the bound variables (as a result) of function applications extend the borrowed environment.
 
 As a result of GRIN's explicit memory operations, we can describe the Perceus primitives \lstinline{dup}, \lstinline{drop}, \lstinline{is-unique}, \lstinline{decref}, and \lstinline{free} with GRIN's existing constructs.
 GRIN lacks a primitive for deallocating memory, so \lstinline{free} is just a foreign function call to libc's \lstinline{free}. 
@@ -613,16 +695,39 @@ Nodes of different tags vary in arity and the arguments can be either boxed or u
 Therefore, we need to pattern match on all possible tags to drop the child references. 
 This is similar to the problem with a general \lstinline{eval} function (Section \ref{sec:analysis-and-transformations}). 
 A crucial difference is that \lstinline{drop} is recursive, so we cannot always eliminate the general function by specialization and inlining.
+Still, we can specialize the initial call to \lstinline{drop} if tag is known. 
+The points-to analysis already require us to keep track of the possible nodes of each variable, so in practice we can almost always specialize \lstinline{drop}.
+
+
+
 In Figure \ref{fig:drop-spec}, we specialize both calls to \lstinline{drop}.
-This eliminates all reference counting operations in the branch for the empty list.
-Then, we push down the \lstinline{dup} operations and eliminate \lstinline{dup}/\lstinline{drop} pairs.
+This eliminates all reference counting operations in the branch for the empty list (lines 5-14).
+Then, we push down the \lstinline{dup} operations (lines 16-17) and eliminate \lstinline{dup}/\lstinline{drop} pairs.
 This optimization is called \emph{dup/drop fusion} and the result is presented in Figure \ref{fig:dup/drop-fusion}.
 We can eliminate the general \lstinline{drop} function completely for our example program, but this is not always the case. 
 \citeauthor{reinking2021} presents an additional optimization called \emph{reuse analysis}, which perfoms destructive updates when possible.
-This transformation is not yet implemented.
+This optimization is not yet implemented in our project. 
+However, we will definitely implement this optimization in the future because it enables in-place updates for pure functional languages.
+In-place updates are desirable because they reduce the number of allocations and deallocations, which is especially important for reference counting implementations because the overhead is proportional to the amount of allocations, deallocations, and reference counting operations \citep{wilson1992}.
 
-\section{LLVM code generator}
-We have implemented a GRIN interpreter and an LLVM code generator to check that our compiler works and that the programs reclaim all the allocated memory. 
+\subsection{Challenges adapting Perceus to GRIN}
+\label{sec:perceus-challanges}
+One of the goals of GRIN is to improve register utilization for lazy functional languages \mbox{\citep{boquist1999}}.
+As such, the result of function applications, \lstinline{fetch}, and \lstinline{unit} are stored in registers.
+Reqisters can either hold regular values such as integers or pointers to heap allocated nodes.
+Only heap allocated values contain a reference count, so the implementation need to keep track and only reference count variables which are pointers. 
+For example, primitive subtraction returns an integer stored in registers "\lstinline{PSub x499 1 ; λ x498 →}" \mbox{(Figure \ref{fig:dup/drop-fusion}, line 11)}, so \lstinline{x498} should not be reference counted.
+This is in contrast to the calculus which Perceus is defined for, $λ₁$, where all variables are pointers to heap-allocated values \citep{reinking2021}.
+Another difference is that functions in GRIN are not allowed to return unboxed pointers. 
+Moreover, all function calls return explicit nodes rather than node variables. 
+For example: "\lstinline{downFrom x40 ; λ$_\Delta$ x59 x60 x61 →}" (\mbox{Figure \ref{fig:dup/drop-fusion}}, line 3).
+This is problematic because \lstinline{x60} and \lstinline{x61} are undefined when \lstinline{downFrom} returns the empty list.
+Therefore, we are only allowed to \lstinline{dup}/\lstinline{drop} the variables once the tag is known.
+
+\section{LLVM IR code generation}
+\label{sec:llvm-codegen}
+% TODO we use the C runtime library for malloc, free, and printf
+We have implemented an LLVM code generator to test that our compiler works and that the programs reclaim all the allocated memory. 
 Our implementation of the code generator is simple. 
 GRIN does not demand a specific memory layout for the node values.
 The only requirements are that tags should be unique and easy to extract \citep{boquist1999}.
@@ -634,26 +739,57 @@ This discrepancy is not an issue because all functions return nodes, and all var
 Hence, we store the pointers as integer values and convert them to the pointer type (\lstinline{ptr}) as required.
 However, we will probably develop a type system for GRIN once we switch to a more sophisticated memory layout and implement the \emph{general unboxing} optimization \citep{boquist1999}.
 
-\section{Result}
 
-\begin{code}
-{-# TERMINATING #-}
+% TODO 
+% • Correctness. The orignal Perceus algorithm by Reinking et al. is formalized and proven \emph{garbage free}. We have not formalized our variant of the algorithm. Still, the algorithm have been remarkably robust and predictable.
+
+\section{Discussion and future work}
+\label{sec:discussion-and-future-work}
+Section \ref{sec:grin-interpreter} presents the resource information about our example program \refp{agda:program}. The program allocates $\mathcal{O}(n)$ nodes with respect to the instance size, and the worst-case heap consumption is also $\mathcal{O}(n)$.
+Ideally, the compiler should produce a program simliar to the following C program which have no allocations.
+\begin{typewriter}{c}{c:program}
+int sum_down_from(int n){
+  int m = 0;
+  for (int i = n - 1; i >= 1; i--) 
+    m += i;
+  return m;
+}
+\end{typewriter}
+
+To address the total amount of allocations, we would like to implement the GRIN optimziations such as \emph{general unboxing} and \emph{late inlining}. 
+These optimzations are sufficient to remove all allocations for this simple program \citep{boquist1999}.
+However, for complex programs, implementing the Perceus reuse-analysis avoids additional allocations by updating nodes \mbox{in-place}. 
+
+The total allocation count impacts performance due to the overhead of the allocations, deallocations, and reference count operations.
+On the other hand, a poorly optimized worst-case heap consumption can lead to out of memory errors and stack overflows. 
+Our example program \refp{agda:program} stack overflows for larger instances.
+We can prevent the stack overflow by making \AgdaFunction{sum} tail recursive and eager in the first argument, by using the primitive \mbox{\AgdaFunction{primForce}}.
+Evaluating (\AgdaBound{n} \AgdaFunction{+} \AgdaBound{m}) prior to the recursive call, achieves several favorable properties.
+Firstly, we prevent the stack overflow by not building and then evaluating a large suspended computation.
+Secondly, forcing \AgdaFunction{\AgdaUnderscore+\AgdaUnderscore} drops the last reference count to \AgdaBound{n}, which means it can be freed directly.
+Which in turn, eliminates all out of memory errors and makes the worst-case heap consumption $\mathcal{O}(1)$.
+Following is the final program.
+
+\begin{code}[number]
 downFrom′ : ℕ → List ℕ
 downFrom′ zero = []
-downFrom′ (suc n) = 
-  primForce n (λ n → n ∷ downFrom′ n)
+downFrom′ (suc n) = n ∷ downFrom′ n 
 
 sum′ : ℕ → List ℕ → ℕ
-sum′ acc [] = acc
-sum′ acc (x ∷ xs) = 
-  sum′ (primForce x _+_ acc) xs
+sum′ m [] = m
+sum′ m (n ∷ ns) = 
+  sum′ (primForce n _+_ m) ns
 
-main′ = sum′ 0 (downFrom′ 100) 
+main′ = sum (downFrom 100) 
 \end{code}
 
-This is common space leak problem amongs lazy functional programs \citep{wadler1987}
+% TODO maybe write that we need as strictnes analysis and the program should not be required to know the intricacies of  
+%      the reference counting algorithm.
 
+% TODO maybe write something about other metrics such as compile times and code size.
 
+% TODO discuss extending the heap points-to analysis to also handle parametric polymorphishm and adhoc polymorphishm. Then we could 
+%      combine this with specialization to achive a good balance of branching and specialization.
 
 % \begin{itemize}
 % \item Short text about tailcalls
@@ -672,11 +808,10 @@ This is common space leak problem amongs lazy functional programs \citep{wadler1
 % \end{itemize}
 
 \section{Related work}
-
-Reference counting implementations are uncommon in the litterature of lazy functional languages.
-\citet{kaser1992} uses a reference counting for the lazy parallel language EQUALS.
-They observe that reference counting minimizes memory contention\footnote{i.e. Multiple processes trying to access the same memory at once.} because memory operations are interleaved througout the computation.
-Additionaly, they note that their reference counting implementation achieved greatly reduced heap usage and good memory locality.
+Reference counting implementations are uncommon in the literature of lazy functional languages.
+\citet{kaser1992} uses a reference counting for the lazy parallel language EQUALS. They observe that reference counting minimizes memory contention\footnote{That is, multiple processes trying to access the same memory at once.} because memory operations are interleaved througout the computation.
+% Jones and lins agrees
+Additionally, they note that their reference counting implementation achieved greatly reduced heap usage and good memory locality, compared to a tracing garbage collector.
 
 To our knowledge, precise reference counting which utilizes ownership to free objects as soon as possible have not yet been implemented in any lazy functional language.
 The Perceus algorithm have been implemented for multiple eager languages \citep{reinking2021, ullrich2021, teeuwissen2023, pinto2023}.
@@ -691,7 +826,7 @@ The Perceus algorithm have been implemented for multiple eager languages \citep{
 % To our knowledge, Perceus is the main memory management technique in the Koka \citep{reinking2021}, Lean \citep{TODO}, and Roc \citep{teeuwissen2023}.
 % There is also an experimental implementation in OCaml \citep{pinto2023}.
 % All of these, are eager functional languages and mostly immutable.
-% Our back-end uses lazy evaluation.
+% Our backend uses lazy evaluation.
 
 
 %\begin{itemize}
@@ -752,7 +887,9 @@ The Perceus algorithm have been implemented for multiple eager languages \citep{
 % Lean and Koka: reference counting and reuse
 % Swift: automatic reference counting (ARC), and plans of borrowing
 % AST \& Rust: safe manual memory management through proofs and the borrow checker, respectively
-\section{Conclusions and future work}
+
+% TODO plural or singular?
+\section{Conclusions}
 In this paper, we combine lazy functional programming with precise reference counting.
 Our implementation compiles Agda to GRIN and extends GRIN with precise reference counting instructions. 
 Then, we compile GRIN to LLVM and show that the program reclaims all the memory.
@@ -783,6 +920,7 @@ We are also interested in developing a type system for GRIN and compiling a larg
 % Using type information (multiplicites: 0, (1), ω)
 
 
+% FIXME no SigPlan Noti.
 \printbibliography
 
 \end{document}

@@ -30,6 +30,7 @@ Read the following:
 - @pepels1988cyclic
 - @kaser1992
 - @mycroft1980
+- more...
 
 Did the following: 
 
@@ -74,7 +75,6 @@ Did the following:
 - Removed the agda submodule
 
 - Report stuff.
-
 
 ### W.44 W.45
 

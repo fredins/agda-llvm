@@ -11,7 +11,7 @@ data List (A : Set) : Set where
 {-# TERMINATING #-}
 downFrom : ℕ → List ℕ
 downFrom zero = []
-downFrom (suc n) = primForce n (λ n → n ∷ downFrom n)
+downFrom (suc n) = primForce n λ n → n ∷ downFrom n
 
 sum : ℕ → List ℕ → ℕ
 sum acc [] = acc
