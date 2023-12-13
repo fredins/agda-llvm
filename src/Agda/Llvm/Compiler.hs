@@ -5,6 +5,7 @@
 {-# LANGUAGE OverloadedStrings        #-}
 {-# LANGUAGE ScopedTypeVariables      #-}
 {-# LANGUAGE ViewPatterns             #-}
+{-# LANGUAGE BlockArguments #-}
 module Agda.Llvm.Compiler (module Agda.Llvm.Compiler) where
 
 import           Control.DeepSeq                (NFData)
@@ -229,32 +230,53 @@ llvmBackend' = Backend'
   , mayEraseType          = const $ pure True
   }
 
-newtype LlvmOptions = LlvmOptions
-  { flagLlvmCompile :: Bool
-  } deriving (Generic, NFData)
+data LlvmOptions = LlvmOptions
+  { flagLlvmCompile   :: Bool
+  -- , flagLlvmOptFlag   :: String
+  , flagLlvmOpt       :: Bool
+  , flagLlvmInterpret :: Bool
+  , flagLLvmOutput    :: FilePath
+  } deriving (Generic)
 
-data LlvmEnv = LlvmEnv {}
+instance NFData LlvmOptions
+
+newtype LlvmEnv = LlvmEnv 
+  { envLlvmOpts :: LlvmOptions
+  } 
 
 data LlvmModuleEnv = LlvmModuleEnv
 newtype LlvmModule = LlvmModule [TreelessDefinition]
 
 defaultLlvmOptions :: LlvmOptions
 defaultLlvmOptions = LlvmOptions
-  { flagLlvmCompile = False
+  { flagLlvmCompile   = False
+  -- , flagLlvmOptFlag   = ""
+  , flagLlvmOpt       = False
+  , flagLlvmInterpret = False
+  , flagLLvmOutput    = "a.out"
   }
 
 llvmCommandLineFlags :: [OptDescr (Flag LlvmOptions)]
 llvmCommandLineFlags =
-    [ Option []  ["llvm"] (NoArg enable)
-      "Compile program using the LLVM backend"
-    , Option []  ["emit-llvm"] (NoArg enable)
-      "Emit LLVM IR"
-    ]
-  where
-    enable o = pure o{flagLlvmCompile = True}
+  [ Option []  ["llvm"] 
+      do NoArg \ o -> pure o{flagLlvmCompile = True}
+      do "compile program using the LLVM backend"
+  -- , Option []  ["opt-flag"] 
+  --     do ReqArg (\ f o -> pure o{flagLlvmOptFlag = o.flagLlvmOptFlag ++ " " ++ f}) "OPT-FLAG"
+  --     do "give the flag OPT-FLAG to LLVM optimizer"
+  , Option ['O'] [] 
+      do NoArg \ o -> pure o{flagLlvmOpt = True}
+      do "enable LLVM optimizations"
+  , Option []  ["interpret"] 
+      do NoArg \ o -> pure o{flagLlvmInterpret = True}
+      do "interprets the final GRIN code"
+  , Option ['o']  [] 
+      do ReqArg (\ f o -> pure o{flagLLvmOutput = f}) "FILE"
+      do "set output filename"
+  ]
 
 llvmPreCompile :: LlvmOptions -> TCM LlvmEnv
-llvmPreCompile _ = pure LlvmEnv
+llvmPreCompile = pure . LlvmEnv
 
 -- TODO need to filter Unreachable functions
 llvmCompileDef :: LlvmEnv
@@ -330,7 +352,7 @@ llvmPostCompile :: LlvmEnv
                 -> IsMain
                 -> Map TopLevelModuleName LlvmModule
                 -> TCM ()
-llvmPostCompile _ _ mods = do
+llvmPostCompile env _ mods = do
 
   let defs_treeless = concatMap (\(LlvmModule xs) -> xs) (Map.elems mods)
   liftIO $ do
@@ -427,8 +449,22 @@ llvmPostCompile _ _ mods = do
     putStrLn $ intercalate "\n\n" $ map prettyShow defs_leftUnitLaw
 
   -- printInterpretGrin defs_leftUnitLaw
+  
+  defs_specializeUpdate <- mapM (specializeUpdate tagInfo_inlineEval) defs_leftUnitLaw
+  liftIO $ do
+    putStrLn "\n------------------------------------------------------------------------"
+    putStrLn "-- * Specialize Update"
+    putStrLn "------------------------------------------------------------------------\n"
+    putStrLn $ intercalate "\n\n" $ map prettyShow defs_specializeUpdate
 
-  let defs_simplifyCase = map (updateGrTerm simplifyCase) defs_leftUnitLaw
+  let defs_normalize = map (updateGrTerm normalise) defs_specializeUpdate
+  liftIO $ do
+    putStrLn "\n------------------------------------------------------------------------"
+    putStrLn "-- * Normalise"
+    putStrLn "------------------------------------------------------------------------\n"
+    putStrLn $ intercalate "\n\n" $ map prettyShow defs_normalize
+
+  let defs_simplifyCase = map (updateGrTerm simplifyCase) defs_normalize
   liftIO $ do
     putStrLn "\n------------------------------------------------------------------------"
     putStrLn "-- * Simplify case"
@@ -479,9 +515,9 @@ llvmPostCompile _ _ mods = do
 
   defs_mem <- do 
     -- drop is only need prior to Perceus optimizations
-    -- drop <- mkDrop defs_rightHoistFetch
+    drop <- mkDrop defs_rightHoistFetch
     dup <- mkDup 
-    pure [{- drop, -} dup]
+    pure [drop, dup]
 
   liftIO $ do
     putStrLn "\n------------------------------------------------------------------------"
@@ -518,7 +554,8 @@ llvmPostCompile _ _ mods = do
     putStrLn "------------------------------------------------------------------------\n"
     putStrLn $ intercalate "\n\n" (map prettyShow defs_fuseDupDrop) ++ "\n"
 
-  printInterpretGrin (defs_fuseDupDrop ++ defs_mem)
+  when env.envLlvmOpts.flagLlvmInterpret $
+    printInterpretGrin (defs_fuseDupDrop ++ defs_mem)
 
 
 
@@ -565,20 +602,35 @@ llvmPostCompile _ _ mods = do
 
   
   liftIO $ do
-    let file = "llvm" </> "program.ll"
-    putStrLn $ "Writing file " ++ file
-    writeFile file program
-    let file_opt = "llvm" </> "program_opt.ll"
-    let cmd = unwords 
+    let file_ll = "llvm" </> env.envLlvmOpts.flagLLvmOutput ++ ".ll"
+    let file_ll_opt = "llvm" </> env.envLlvmOpts.flagLLvmOutput ++ "-opt.ll"
+    let file_asm_s = "llvm" </> env.envLlvmOpts.flagLLvmOutput ++ "-asm.s"
+    putStrLn $ "Writing file " ++ file_ll
+    writeFile file_ll program
+    
+
+    -- -O3 -flto
+    let opt = unwords 
           -- Emit optimized LLVM IR (llvm/program_opt.ll)
-          [ "clang -o", file_opt, "-S -O3 -emit-llvm", file, "&&"
+          [ "clang -o", file_ll_opt, "-S -O3 -emit-llvm", file_ll
           -- Emit Assembly (llvm/program_asm.s)
-          , "clang -o llvm/program_asm.s -O3 -fuse-ld=lld -flto -Wl,--lto-emit-asm", file_opt, "&&" 
-          -- Emit the executable (program)
-          , "clang -o program -O3 -fuse-ld=lld -flto", file_opt
+          , "&&\nclang -o", file_asm_s, "-O3 -fuse-ld=lld -flto -Wl,--lto-emit-asm", file_ll_opt
+          -- Linking with LTO
+          , "&&\nclang -o", env.envLlvmOpts.flagLLvmOutput, "-O3 -fuse-ld=lld -flto", file_ll_opt
           ]
-    void $ readCreateProcess (shell cmd) ""
+
+    -- -O0
+    let no_opt = unwords
+          [ "clang -o", file_asm_s, "-S -masm=intel", file_ll
+          , "&&\nclang -o", env.envLlvmOpts.flagLLvmOutput, "-fuse-ld=lld", file_ll
+          ]
+      
+
+    
+    let cmd = if env.envLlvmOpts.flagLlvmOpt then opt else no_opt
     putStrLn "Linking program"
+    putStrLn cmd
+    void $ readCreateProcess (shell cmd) ""
 
 
 -----------------------------------------------------------------------
@@ -864,7 +916,7 @@ termToGrinC (TCon q) = do
 --      as everything will be normalized again after eval inlining
 -- termToGrinC (TLet t1 t2) = termToGrinC t1 `bindVarM` localEvaluatedNoOffset (termToGrinC t2)
 
-
+termToGrinC (TApp (TVar n) xs) = undefined
 termToGrinC t = error $ "TODO C scheme: " ++ take 80 (show t)
 
 allTVars1 :: List1 TTerm -> Maybe (List1 Val)
@@ -1137,7 +1189,7 @@ termToLlvm (App (Def "printf") [v]) = do
   pure $ is `List1.prependList` (i_call <| L.RetVoid :| [])
 
 termToLlvm (App (Def (L.mkGlobalId -> f)) vs `Bind` alt) = do
-  (argsTy, returnTy) <- fromMaybe __IMPOSSIBLE__ <$> globalLookup f
+  (argsTy, returnTy) <- fromMaybe (error $ "can't find " ++ prettyShow f) <$> globalLookup f
   (instructions, vs') <- first concat <$> mapAndUnzipM valToLlvm vs
   let instruction_call = L.Call Nothing L.Fastcc returnTy f $ zip argsTy vs'
   List1.prependList instructions <$> laltToContinuation alt instruction_call
@@ -1157,7 +1209,7 @@ termToLlvm (App (Def (L.mkGlobalId -> f)) vs) = do
   -- If the tail call contains are passed references to new alllocations made in 
   -- the current function then Clang is unable to tail call optimize. So, currently 
   -- we only uses the tailcall hint `tail` instead of the garantee `musttail`.
-  tail <- asks $ flip boolToMaybe L.Musttail . cg_returning 
+  tail <- asks $ flip boolToMaybe L.Tail . cg_returning 
   let instruction_call = L.Call tail L.Fastcc returnTy f (zip argsTy vs')
   instructions2 <- ($ instruction_call) =<< view continuationLens
   pure (instructions1 `List1.prependList` instructions2)
@@ -1197,7 +1249,7 @@ termToLlvm (UpdateOffset n offset v) = do
     <> instructions2
 
 termToLlvm (Error TUnreachable) = pure $ List1.singleton L.Unreachable
-termToLlvm t = error $ "BAD:\n" ++ render (nest 4 $ pretty t)
+termToLlvm t = error $ "BAD:\n" ++ show t-- render (nest 4 $ pretty t)
 
 fetchToLlvm :: Int -> Int -> LAlt -> LlvmGen (List1 L.Instruction)
 fetchToLlvm n offset alt = do

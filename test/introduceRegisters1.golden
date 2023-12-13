@@ -1,3 +1,0 @@
-unit (Cnat 0) ; λ x0 →
-updateCnat 2 0 ; λ () →
-unit 5

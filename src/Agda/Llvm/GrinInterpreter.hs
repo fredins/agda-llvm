@@ -457,7 +457,7 @@ printResult (val, env) = do
     , text "Highest memory usage: " <+> pretty (length env.highest_memory_usage) <+> text "nodes."
     , text "In use at exit:" <+> pretty (Map.size env.heap) ]
 
-  putStrLn $ render $ text "\nHeap at highest memory usage:\n" <> nest 2 (pretty env.highest_memory_usage)
+  -- putStrLn $ render $ text "\nHeap at highest memory usage:\n" <> nest 2 (pretty env.highest_memory_usage)
 
 printInterpretGrin :: (MonadIO m, MonadFresh Int m) => [GrinDefinition] -> m ()
 printInterpretGrin = liftIO . either (putStrLn . prettyShow) printResult <=< interpretGrin

@@ -1,4 +1,4 @@
-name: agda
+name: agda-prgrams
 include: agda-programs
          .
 depend: standard-library -- -2.0

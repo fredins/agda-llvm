@@ -1,0 +1,19 @@
+DownFromTail (Segmentation Fault):
+  real	0m7.368s
+  user	0m5.363s
+  sys	0m1.998s
+
+DownFromTail-eager-sum (887459712):
+  real	0m10.360s
+  user	0m8.302s
+  sys	0m2.049s
+
+DownFromTail-eager-sum,downFrom (887459712):
+  real	0m10.011s
+  user	0m7.981s
+  sys	0m2.028s
+
+DownFromOpt (887459712):
+real	0m3.909s
+user	0m3.908s
+sys	0m0.002s

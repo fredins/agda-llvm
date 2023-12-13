@@ -406,7 +406,7 @@ specializeUpdate tagInfo def = do
     t' <- go t
     pure (Case n t' alts')
   go (UpdateTag tag n v) = pure (UpdateTag tag n v)
-  -- go (Update Nothing n v) = error $ "UPDATE SPECIALIZATION FAILED: " ++ prettyShow (Update Nothing n v)
+--   go (Update Nothing n v) = error $ "UPDATE SPECIALIZATION FAILED: " ++ prettyShow (Update Nothing n v)
   go t = pure t
 
 

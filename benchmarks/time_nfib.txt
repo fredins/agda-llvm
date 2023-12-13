@@ -1,0 +1,62 @@
+nfib 16M nfib/s
+1402817465
+
+real	1m25.595s
+user	1m25.593s
+sys	0m0.001s
+
+nfibO
+1402817465
+
+real	1m32.827s
+user	1m32.822s
+sys	0m0.003s
+
+nfibO
+1402817465
+
+real	1m33.384s
+user	1m33.276s
+sys	0m0.022s
+
+nfibS
+1402817465
+
+real	0m39.376s
+user	0m39.376s
+sys	0m0.000s
+
+nfibSO 37M nfib/s
+1402817465
+
+real	0m37.808s
+user	0m37.798s
+sys	0m0.000s
+
+NFibGhc 9M nfib/s
+1402817465
+
+real	2m42.752s
+user	2m42.690s
+sys	0m0.101s
+
+NFibGhcO 89M nfib/s
+1402817465
+
+real	0m15.732s
+user	0m15.710s
+sys	0m0.007s
+
+NFibSGhc
+1402817465
+
+real	4m22.171s
+user	4m22.087s
+sys	0m0.160s
+
+NFibSGhcO 
+1402817465
+
+real	0m15.544s
+user	0m15.541s
+sys	0m0.010s
