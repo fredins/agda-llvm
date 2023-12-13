@@ -1,8 +1,5 @@
-An Agda backend which compiles to LLVM via the intermidate representation GRIN [Boquist 1999, Johnsson 1991].  
-
-### Goal of the project
-
-The goal is to compile Agda to GRIN, and to extend GRIN with `dup` and `drop` from Perceus's [Reinking et al. 2021] linear calculus. This will allow precise reference counting and memory reuse.  
+An Agda backend which compiles to LLVM via the intermidate representation GRIN (Boquist 1999, Johnsson 1991).
+It uses Perceus-style reference counting. Our compiler does not require an external runtime system except initialization code (crt0) and libc.
 
 ### Example programs
 
@@ -40,10 +37,9 @@ data List (A : Set) : Set where
   []  : List A
   _∷_ : (x : A) (xs : List A) → List A
 
-{-# TERMINATING #-}
 downFrom : ℕ → List ℕ
 downFrom zero = []
-downFrom (suc n) = primForce n (λ n → n ∷ downFrom n)
+downFrom (suc n) = n ∷ downFrom n
 
 sum : ℕ → List ℕ → ℕ
 sum acc [] = acc
@@ -56,6 +52,7 @@ main = sum 0 (downFrom 100)
 - No lambdas.  
 - No higher-order functions or partial applications.  
 - No parametric polymorphism.  
+- No records
 - Only pure functions.
 
 ### Known issues
@@ -90,8 +87,6 @@ agda-llvm --llvm agda-programs/DownFromOpt.agda
 ```
 
 Many programs use the standard library which needs to be installed and configured separately, see [agda.readthedocs.io/en/latest/getting-started/installation.html](https://agda.readthedocs.io/en/latest/getting-started/installation.html) and [agda.readthedocs.io/en/latest/tools/package-system.html#use-std-lib](https://agda.readthedocs.io/en/latest/tools/package-system.html#use-std-lib).  
-
-
 
 ### Logbook
 See [fredins.github.io](https://fredins.github.io)
