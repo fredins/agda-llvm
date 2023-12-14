@@ -736,9 +736,9 @@ llvmPostCompile env _ mods = do
 -- TODO: remember to raise when ever we create a new abstraction that doesn't exist in treeless
 treelessToGrin :: MonadFresh Int mf => TreelessDefinition -> mf GrinDefinition
 treelessToGrin def = do
-    traceM ("\n" ++ def.tl_name ++ " final treeless:\n" ++ prettyShow def)
+    -- traceM ("\n" ++ def.tl_name ++ " final treeless:\n" ++ prettyShow def)
     gr_term <- runReaderT (termToGrinR def.tl_term) (initGrinGenCxt def)
-    traceM ("\n" ++ def.tl_name ++ " to grin:\n" ++ prettyShow gr_term)
+    -- traceM ("\n" ++ def.tl_name ++ " to grin:\n" ++ prettyShow gr_term)
     gr_args <- replicateM def.tl_arity freshAbs
     gr_return <- boolToMaybe (not def.tl_isMain) <$> freshAbs
 
@@ -822,7 +822,8 @@ termToGrinR (TApp (TPrim prim) ts) = do
 termToGrinR (TApp (TDef q) vs) = do
   let call = App (Def (prettyShow q)) <$> mapMaybeM operandToGrin vs
   shortName <- asks $ List1.last . list1splitOnDots . tl_name . definition
-  applyWhen (shortName == "main") (`bindCnatL` printf 0) call
+  returning <- asks returning
+  applyWhen (shortName == "main" && returning) (`bindCnatL` printf 0) call
 
 
 -- TODO think of a nicer way to handle handle functions that don't return
@@ -849,13 +850,13 @@ termToGrinR (TApp (TCon q) vs) =
 
 -- Forcing and argument via the identity function
 termToGrinR (TLet (TApp (TPrim PSeq) [TVar n, TVar n']) t) | n == n' = 
-  termToGrinR (TVar n) `bindCnatM` 
+  localReturning False (termToGrinR $ TVar n) `bindCnatM` 
   store (cnat $ Var 0) `bindVarM`
   (raiseFrom 1 1 <$> termToGrinR t)
 
 -- TODO generalize
 termToGrinR (TLet (TApp (TPrim PSeq) (_ : TApp f xs : ys)) t) = 
-  termToGrinR (TApp f $ xs ++ ys) `bindCnatM` 
+  localReturning False (termToGrinR $ TApp f $ xs ++ ys) `bindCnatM` 
   store (cnat $ Var 0) `bindVarM`
   (raiseFrom 1 1 <$> termToGrinR t)
   -- app <- termToGrinR $ mkTApp f xs
@@ -967,12 +968,14 @@ type GrinGen mf a = ReaderT GrinGenCxt mf a
 data GrinGenCxt = GrinGenCxt
   { definition       :: TreelessDefinition
   , evaluatedOffsets :: [Maybe (Int -> Int)]
+  , returning        :: Bool
   }
 
 initGrinGenCxt :: TreelessDefinition -> GrinGenCxt
 initGrinGenCxt def = GrinGenCxt
   { definition = def
   , evaluatedOffsets = replicate def.tl_arity Nothing
+  , returning = True
   }
 
 -- FIXME 
@@ -992,6 +995,10 @@ localEvaluatedNoOffset = localEvaluatedNoOffsets 1
 localEvaluatedNoOffsets :: MonadReader GrinGenCxt m => Int -> m a -> m a
 localEvaluatedNoOffsets n =
   local $ \cxt -> cxt{evaluatedOffsets = replicate n Nothing ++ cxt.evaluatedOffsets}
+
+
+localReturning :: MonadReader GrinGenCxt m => Bool -> m a -> m a
+localReturning x = local $ \cxt -> cxt{returning = x}
 
 eval :: Int -> Term
 eval = App (Def "eval") . singleton . Var

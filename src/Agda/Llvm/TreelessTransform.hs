@@ -75,9 +75,9 @@ wrapPrimitives t = pure t
 definitionToTreeless :: IsMain -> Definition -> TCM (Maybe TreelessDefinition)
 definitionToTreeless isMainModule Defn{defName, defType, theDef=theDef@Function{funCompiled = Just cc}} = 
   caseMaybeM (toTreeless LazyEvaluation defName) (pure Nothing) \t ->  do 
-    traceM ("\n" ++ prettyShow defName ++ " theDef:\n" ++ prettyShow theDef)
-    traceM ("\n" ++ prettyShow defName ++ " info:\n\n" ++ show theDef)
-    traceM ("\n" ++ prettyShow defName ++ " to treeless:\n" ++ prettyShow t)
+    -- traceM ("\n" ++ prettyShow defName ++ " theDef:\n" ++ prettyShow theDef)
+    -- traceM ("\n" ++ prettyShow defName ++ " info:\n\n" ++ show theDef)
+    -- traceM ("\n" ++ prettyShow defName ++ " to treeless:\n" ++ prettyShow t)
     -- traceM ("toTreeless: \n" ++ prettyShow t) 
     -- TODO turn back simplify in /agda (And only modify for seq) so it removes let a = b in...
     t' <- wrapPrimitives =<< normalizeNames t

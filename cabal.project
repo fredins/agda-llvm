@@ -4,7 +4,7 @@ packages: .
 source-repository-package
     type: git
     location: https://github.com/fredins/agda.git
-    tag: 0dc052fbff311283d51d7b0b886875c697c08fe0
+    tag: 44214a4c23e33a0b7cc5381d2fadbcd0589bc134
 
 flags: +debug -optimise-heavily
 optimization: 0
