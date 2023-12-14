@@ -10,7 +10,6 @@ executables/
 test/*.err
 _build
 program
-a.out
 *.log
 *.fls
 *.fdb_latexmk

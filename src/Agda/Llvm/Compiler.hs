@@ -253,7 +253,7 @@ defaultLlvmOptions = LlvmOptions
   -- , flagLlvmOptFlag   = ""
   , flagLlvmOpt       = False
   , flagLlvmInterpret = False
-  , flagLLvmOutput    = "a.out"
+  , flagLLvmOutput    = "program"
   }
 
 llvmCommandLineFlags :: [OptDescr (Flag LlvmOptions)]
