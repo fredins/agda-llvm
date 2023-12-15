@@ -571,6 +571,7 @@ llvmPostCompile env _ mods = do
   -- res_introduceRegisters <- interpretGrin defs_introduceRegisters
   -- liftIO $ putStrLn $ "\nResult: " ++ show res_introduceRegisters
 
+  -- FIXME specializeDrop wrong for IdentityPair
   let (llvm_ir, tagsToInt) = grinToLlvm (defs_fuseDupDrop ++ defs_mem)
       header =
         unlines
@@ -847,17 +848,16 @@ termToGrinR (TApp (TCon q) vs) =
   name = prettyShow q
 
 
-
 -- Forcing and argument via the identity function
 termToGrinR (TLet (TApp (TPrim PSeq) [TVar n, TVar n']) t) | n == n' = 
-  localReturning False (termToGrinR $ TVar n) `bindCnatM` 
-  store (cnat $ Var 0) `bindVarM`
+  localReturning False (termToGrinR $ TVar n) `bindVarM` 
+  store (Var 0) `bindVarM`
   (raiseFrom 1 1 <$> termToGrinR t)
 
 -- TODO generalize
 termToGrinR (TLet (TApp (TPrim PSeq) (_ : TApp f xs : ys)) t) = 
-  localReturning False (termToGrinR $ TApp f $ xs ++ ys) `bindCnatM` 
-  store (cnat $ Var 0) `bindVarM`
+  localReturning False (termToGrinR $ TApp f $ xs ++ ys) `bindVarM` 
+  store (Var 0) `bindVarM`
   (raiseFrom 1 1 <$> termToGrinR t)
   -- app <- termToGrinR $ mkTApp f xs
   -- t' <- raiseFrom 1 1 <$> termToGrinR t

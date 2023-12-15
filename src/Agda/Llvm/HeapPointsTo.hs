@@ -98,7 +98,7 @@ applySharingAnalyis shared = over lensUnAbsHeap (map go) where
 
     removeVariables v =
       caseList (List1.filter notVariable $ valueToList v)
-        __IMPOSSIBLE__
+        v
         (\v vs -> listToValue $ v :| vs)
 
     notVariable = \case
@@ -324,6 +324,14 @@ deriveEquations term = case term of
       valToValue (Lit _) = pure Bas
       valToValue  _      = __IMPOSSIBLE__
 
+    Store loc (Var n) `Bind` LAltVar x t -> do
+      v <- Abs . fromMaybe __IMPOSSIBLE__ <$> deBruijnLookup n
+      localLoc loc $
+        localAbs x $
+        localAbsEnv (x, Loc loc) $
+        localAbsHeap (loc, v) $
+        deriveEquations t
+
     Bind (App (Def "eval") [Var n]) (LAltVar x (Case (Var 0) t alts)) -> do
       v <- EVAL . FETCH . Abs . fromMaybe __IMPOSSIBLE__ <$> deBruijnLookup n
       localAbs x $ localAbsEnv (x, v) $ do
@@ -505,7 +513,7 @@ solveEquations defs AbstractContext{fHeap = AbsHeap heapEqs, fEnv = AbsEnv envEq
       | Just _ <- lookup abs (unAbsEnv cxt.fEnv) = Nothing
       | otherwise = Just $ AbstractContext {fHeap=AbsHeap [], fEnv = AbsEnv [(abs, v)]}
       where
-        v = fromMaybe __IMPOSSIBLE__ $ lookup abs envEqs
+        v = fromMaybe (error $ "can't find " ++ prettyShow abs) $ lookup abs envEqs
 
     collectEqs cxt (Loc loc)
       | Just _ <- lookup loc (unAbsHeap cxt.fHeap) = Nothing

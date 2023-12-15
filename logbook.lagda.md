@@ -16,7 +16,7 @@ css: Agda.css
   infixr 5 _∷_
   data List A : Set where
     []  : List A
-    _∷_ : (x : A) (xs : List A) → List A
+    _∷_ : A → List A → List A
 
   ```
 
