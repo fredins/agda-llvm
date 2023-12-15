@@ -511,7 +511,7 @@ llvmPostCompile env _ mods = do
 
 
 
-  defs_perceus <- map (updateGrTerm normalise) <$> mapM perceus defs_evaluateCase
+  let defs_perceus = map (updateGrTerm normalise . perceus) defs_evaluateCase
 
   defs_mem <- do 
     -- drop is only need prior to Perceus optimizations

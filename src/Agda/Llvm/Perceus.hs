@@ -72,31 +72,30 @@ deBruijnOf x = genericElemIndex x . reverse
 isPointer :: Abs -> Perceus Bool
 isPointer x = asks $ Set.member x . pc_pointers
 
-bottomsLocal :: MonadReader PerceusCxt m => Set Abs -> m a -> m a
-bottomsLocal xs = local $ \cxt -> cxt{pc_bottoms = xs <> cxt.pc_bottoms}
+-- bottomsLocal :: MonadReader PerceusCxt m => Set Abs -> m a -> m a
+-- bottomsLocal xs = local $ \cxt -> cxt{pc_bottoms = xs <> cxt.pc_bottoms}
 
--- TODO remove TCM! only used for debugging
-perceus :: GrinDefinition -> TCM GrinDefinition
-perceus def = do
-  t <- term
-  pure def{gr_term = t}
-  where
-  -- ∅ | Γ ⊢ t ⟿  t′   Γ = fv(t)   Γ′ = {x}∗ - Γ
-  -- -------------------------------------------
-  -- ø ⊢ f {x}∗ = t ⟿  f {x}∗ = drop Γ′; t′
-
-  term = flip runReaderT (initPerceusCxt def) $ do
-    xs <- fvTerm def.gr_term
-    -- Γ = fv(t)   Γ′ = {x}∗ - Γ
-    let (gamma, gamma') = both Set.fromList $ partition (`Set.member` xs) def.gr_args
-    varsLocal def.gr_args $ do
-      -- ∅ | Γ ⊢ t ⟿  t′
-      t' <- perceusTerm (Context mempty gamma) def.gr_term
-      -- drop Γ′; t′
-      dropSet gamma' t'
+perceus :: GrinDefinition -> GrinDefinition
+perceus def = setGrTerm t def
+  where t = runReader (perceusDef def.gr_args def.gr_term) (initPerceusCxt def)
 
 
-type Perceus a = ReaderT PerceusCxt TCM a
+type Perceus a = Reader PerceusCxt a
+
+-- ∅ | Γ ⊢ t ⟿  t′   Γ = fv(t)   Γ′ = {x}∗ - Γ
+-- -------------------------------------------
+-- ø ⊢ f {x}∗ = t ⟿  f {x}∗ = drop Γ′; t′
+perceusDef :: [Abs] -> Term -> Perceus Term
+perceusDef xs t = do
+  -- Γ = fv(t)   
+  gamma <- fvTerm t
+  -- Γ′ = {x}∗ - Γ
+  let gamma' = Set.fromList xs Set.\\ gamma
+  varsLocal xs $ do
+    -- ∅ | Γ ⊢ t ⟿  t′
+    t' <- perceusTerm (Context mempty gamma) t
+    -- drop Γ′; t′
+    dropSet gamma' t'
 
 -- Δ | Γ ⊢ t ⟿  t′
 perceusTerm :: Context -> Term -> Perceus Term
@@ -108,7 +107,7 @@ perceusTerm :: Context -> Term -> Perceus Term
 -- Δ,Γᵢ₊₁,‥,Γₙ | Γᵢ ⊢ vᵢ ⟿  dup γᵢ
 -- --------------------------------------
 -- Δ Γ ⊢ f {v}∗ ⟿  dup {γ}∗ ; f {v}∗
-perceusTerm c term@(App (Def f) vs) = do
+perceusTerm c (App (Def f) vs) = do
   let vs' = List1.fromListSafe __IMPOSSIBLE__ vs
   cs <- splitContext c vs'
   -- logIO $ render $ vcat
