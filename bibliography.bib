@@ -37,13 +37,17 @@ publisher = {Addison-Wesley Longman Publishing Co., Inc.},
 address = {USA}
 }
 
-@article{boquist1999,
-author = {Boquist, Urban},
-year = {1999},
-month = {01},
-pages = {},
-title = {Code optimisation techniques for lazy functional languages}
+
+
+@phdthesis{boquist1999,
+  author       = {Urban Boquist},
+  title        = {Code Optimisation Techniques for Lazy Functional Languages},
+  school       = {Chalmers University of Technology, Gothenburg, Sweden},
+  year         = {1999},
+  url          = {http://publications.lib.chalmers.se/publication/890-code-optimisation-techniques-for-lazy-functional-languages},
 }
+
+
 
 
 @inproceedings{ullrich2021,
@@ -296,11 +300,16 @@ address = {USA}
   url={https://api.semanticscholar.org/CorpusID:206841815}
 }
 
-@article{pinto2023,
-  title={Perceus for OCaml},
-  author={Pinto, Elton},
-  year={2023},
-  url={https://www.eltonpinto.me/assets/work/mthesis-perceus-for-ocaml.pdf}
+@unpublished{pinto2023,
+author = {Pinto, Elton and Leijen, Daan},
+title = {Exploring Perceus for OCaml},
+year = {2023},
+month = {September},
+abstract = {The Perceus algorithm is a precise and garbage-free reference counting scheme which shows good performance in practice. However, the algorithm has only been compared against garbage-collection across different systems and languages. There is no direct comparison between Perceus and a garbage collector within the same system.
+
+In this work, we take an initial step towards this goal. We have implemented a prototype of Perceus for OCaml 4.14.0 (which subsumes the standard garbage collector). Now we can directly compare the performance of programs compiled with the exact same compiler, where we only switch the backend: either using the standard generational collector, or using Perceus compilation with a reference counted runtime system. The initial performance results look quite promising, motivating futher exploration.},
+url = {https://www.microsoft.com/en-us/research/publication/exploring-perceus-for-ocaml/},
+note = {Presented at the "Higher order, Typed, Strict: ML Family Workshop 2023" co-located with ICFP'23.},
 }
 
 @article{lorenzen2021,
@@ -448,23 +457,21 @@ year={1997},
 pages={183–217}
 }
 
-@article{johnsson1984,
+@inproceedings{johnsson1984,
 author = {Johnsson, Thomas},
 title = {Efficient Compilation of Lazy Evaluation},
 year = {1984},
-issue_date = {June 1984},
+isbn = {0897911393},
 publisher = {Association for Computing Machinery},
 address = {New York, NY, USA},
-volume = {19},
-number = {6},
-issn = {0362-1340},
-url = {https://doi.org/10.1145/502949.502880},
-doi = {10.1145/502949.502880},
+url = {https://doi.org/10.1145/502874.502880},
+doi = {10.1145/502874.502880},
 abstract = {This paper describes the principles underlying an efficient implementation of a lazy functional language, compiling to code for ordinary computers. It is based on combinator-like graph reduction: the user defined functions are used as rewrite rules in the graph. Each function is compiled into an instruction sequence for an abstract graph reduction machine, called the G-machine, the code reduces a function application graph to its value. The G-machine instructions are then translated into target code. Speed improvements by almost two orders of magnitude over previous lazy evaluators have been measured; we provide some performance figures.},
-journal = {SIGPLAN Not.},
-month = {jun},
+booktitle = {Proceedings of the 1984 SIGPLAN Symposium on Compiler Construction},
 pages = {58–69},
-numpages = {12}
+numpages = {12},
+location = {Montreal, Canada},
+series = {SIGPLAN '84}
 }
 
 @inproceedings{wadler1984,
@@ -495,11 +502,12 @@ numpages = {18},
 location = {Nancy, France}
 }
 
-@article{teeuwissen2023,
+@mastersthesis{teeuwissen2023,
 author = {Teeuwissen, J.},
 year={2023},
 title={Reference Counting with Reuse in Roc},
-url = {https://studenttheses.uu.nl/handle/20.500.12932/44634}
+url = {https://studenttheses.uu.nl/handle/20.500.12932/44634},
+school={Utrecht University}
 }
 
 @article{ho2023,
@@ -931,9 +939,10 @@ location = {Cambridge, Massachusetts, USA},
 series = {LFP '86}
 }
 
-@article{turk2010,
-  title={Perceus for OCaml},
+@mastersthesis{turk2010,
+  title={A modern back-end for a dependently-typed language},
   author={Turk, Remi},
   year={2010},
-  url={https://www.eltonpinto.me/assets/work/mthesis-perceus-for-ocaml.pdf}
+  school={Universiteit van Amsterdam},
+  url={https://eprints.illc.uva.nl/id/document/1982}
 }

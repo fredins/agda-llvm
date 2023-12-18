@@ -1,0 +1,28 @@
++ p1c2l10: what do you do with cyclic datastructrures?
++ p2c1l?: "internal representation of Agda": a subset of Agda, I
+  guess?
++ p2c1l?: Same place: I don't understand this sentence. How is
+  distinguishing between complex and simple values related to
+  "suspended compuation", "weak head normal form", and the
+  corresponding Agda program??
++ p2c2l?: "to the function" := "to the translated function" - also in
+  the code, please show in some way that the resulting "foo" is not
+  the same as the original "foo" (the first expects a value, the
+  second a pointer).
++ p5c1l-4/-1: These environments and the drop / dup operations are a
+  bit hard to grasp.
++ p5c2l?: "”fetch x14 [2] ; λΓ x40 →” extends the owned":
+  + 1: what is the "[2]" doing? This seems to be the first use.
+  + 2: is any of the names (x14, [2], x40) the name of the "resource
+    token"?
++ p5c2l?: "our implementation of drop is unsatisfactory": this comes a
+  bit too suddenly: wait with saying that until you have described the
+  implementation.
++ p7c1l1: "we can almost always specialize drop": now I'm confused:
+  you just said your implementation is unsatisfactory, now it sounds
+  like it is not.
++ p7c2l?: Same place: what if the constructor has more than two arguments?
++ p9c1l?: "Boquist, U. (1999)" - how to get it (lacks venue / link /
+  report number etc.)
+(+ p10c1: How come "Perceus for ocaml" appears twice: once under Pinto
+  and once under Turk? Aha - that was your comment in the mail!)
