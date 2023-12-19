@@ -23,7 +23,7 @@ import           Data.Tuple.Extra             (both, dupe, first)
 
 
 import           Agda.Compiler.Backend        (MonadFresh, TCM,
-                                               TPrim (PAdd, PSub, PSub64))
+                                               TPrim (PAdd, PSub, PSub64), Definition (theDef))
 import           Agda.Llvm.Grin
 import           Agda.Llvm.Utils
 import           Agda.Syntax.Common.Pretty
@@ -35,6 +35,7 @@ import           Agda.Utils.List1             (List1, pattern (:|), (<|))
 import qualified Agda.Utils.List1             as List1
 import           Agda.Utils.Maybe
 import           Agda.Utils.Monad
+import Agda.Utils.Function (applyWhen)
 
 -- Properties:
 -- • Δ ∩ Γ = ∅
@@ -62,6 +63,9 @@ initPerceusCxt def = PerceusCxt
 
 varsLocal :: MonadReader PerceusCxt m => [Abs] -> m a -> m a
 varsLocal xs = local $ \cxt -> cxt{pc_vars = cxt.pc_vars ++ xs}
+
+varLocal :: MonadReader PerceusCxt m => Abs -> m a -> m a
+varLocal x = varsLocal [x]
 
 deBruijnLookup :: Int -> Perceus (Maybe Abs)
 deBruijnLookup n = asks $ (!!! n) . reverse . pc_vars
@@ -150,18 +154,48 @@ perceusTerm c (t1 `Bind` LAltVariableNode x xs (Case (Var n) Unreachable alts))
     context = Context c.delta (gamma2 <> xs_dup)
   step _ _ = __IMPOSSIBLE__
 
+-- fetch will bind the owning environment if it is a suspended 
+-- computation (F-tag), otherwise it will bind the borrowing environment.
+perceusTerm c (FetchOffset tag n i `Bind` LAltVar x t) = do 
+  fv <- varLocal x (fvTerm t)
+  let gamma2 = Set.intersection c.gamma fv
+      gamma2' = c.gamma Set.\\ gamma2
+
+  case tag of
+    PTag{} -> __IMPOSSIBLE__
+
+    -- Owning bind
+    FTag{} | Set.member x fv -> do
+      let cxt = Context c.delta $ Set.insert x (c.gamma <> gamma2)
+      t' <- varLocal x $ dropSet gamma2'  =<< perceusTerm cxt t
+      pure (FetchOffset tag n i `Bind` LAltVar x t')
+    FTag{} -> do 
+      let cxt = Context c.delta (c.gamma <> gamma2)
+      t' <- varLocal x $ dropSet (Set.insert x gamma2') =<< perceusTerm cxt t
+      pure (FetchOffset tag n i `Bind` LAltVar x t')
+
+    -- Borrowing bind
+    CTag{} | Set.member x fv -> do
+      let cxt = Context c.delta $ Set.insert x (c.gamma <> gamma2)
+      t' <- varLocal x $ dropSet gamma2' =<< perceusTerm cxt t
+      pure $ FetchOffset tag n i `Bind` LAltVar x (Dup 0 `BindEmpty` t')
+    CTag{} -> do
+      let cxt = Context c.delta (c.gamma <> gamma2)
+      t' <- varLocal x $ dropSet gamma2' =<< perceusTerm cxt t
+      pure (FetchOffset tag n i `Bind` LAltVar x t')
+
 -- Drops references which are not needed in t₂, both
 -- from the newly bound variables {x}∗ and the owned
 -- environment Γ. It make sure to not drop any
 -- referernces which t₁ is responsible for dropping.
 --
--- Γ₂ = Γ ∩ fv(t₂)
+-- Γ₂  = Γ ∩ fv(t₂)
 -- Γ₂′ = Γ - Γ₂,ov(t₁)
--- Γₓ = fv(t₂) ∩ {x}∗    Δ,Γ₂,Γ₂′ | Γ - Γ₂,Γ₂′ ⊢ t₁ ⟿  t₁′
--- Γₓ′ = fv(t₂) - {x}∗               Δ | Γ₂,Γₓ ⊢ t₂ ⟿  t₂′
+-- Γₓ  = fv(t₂) ∩ {x}∗    Δ,Γ₂,Γ₂′ | Γ - Γ₂,Γ₂′ ⊢ t₁ ⟿  t₁′
+-- Γₓ′ = {x}∗ - fv(t₂)               Δ | Γ₂,Γₓ ⊢ t₂ ⟿  t₂′
 -- -------------------------------------------------------------
 -- Δ | Γ ⊢ t₁ ; λ {x}∗ → t₂ ⟿  t₁′ ; λ {x}∗ → drop Γ₂′,Γₓ′ ; t₂′
-perceusTerm c term@(t1 `Bind` alt) = do
+perceusTerm c (t1 `Bind` alt) = do
   let (mkAlt, t2, xs) = splitLaltWithVars alt
 
   ov1 <- ov t1
@@ -178,9 +212,9 @@ perceusTerm c term@(t1 `Bind` alt) = do
   let (gammax, gammax') = Set.partition (`Set.member` fv2) xs'
 
   -- Δ,Γ₂,Γ₂′ | Γ - Γ₂,Γ₂′ ⊢ t₁ ⟿  t₁′
-  let context = Context (c.delta <> gamma2 <> gamma2') (c.gamma Set.\\ (gamma2 <> gamma2'))
+  let cxt = Context (c.delta <> gamma2 <> gamma2') (c.gamma Set.\\ (gamma2 <> gamma2'))
 
-  t1' <- perceusTerm context t1
+  t1' <- perceusTerm cxt t1
 
   -- Δ | Γ₂ ⊢ t₂ ⟿  t₂′
   t2' <- varsLocal xs $ perceusTerm (Context c.delta $ gamma2 <> gammax) t2
