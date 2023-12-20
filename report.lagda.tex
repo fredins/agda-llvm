@@ -101,6 +101,7 @@ escapeinside={!}{!},
 
 \newcommand{\refp}[1]{(\ref{#1})}
 \newcommand{\jm}[4]{#1 $\mid$ #2 $\vdash$ #3 $\rightsquigarrow$ #4}
+\newcommand{\jmv}[4]{#1 $\mid$ #2 $\vdash$ #3 $\rightsquigarrow_v$ #4}
 
 % Custom type writer listing with equation numbers
 \lstnewenvironment{typewriter}[3][none]%
@@ -614,15 +615,13 @@ We can promote an element from the borrowed environment to the owned environment
 \DisplayProof
 \\
 \vspace{1em}
-% FETCH-FTAG-DROP
-% \AxiomC{x$_0$\;\not\in\;fv(t)}
-% \AxiomC{\Gamma′\;=\;\Gamma\;\cap\;fv(t)}
-% \noLine
-% \UnaryInfC{\Gamma$_d$\;=\{x$_0$\}\;\cup\;\Gamma\;-\;\Gamma′}
-% \AxiomC{\jm{\Delta}{\Gamma′}{t}{t′}}
-% \RightLabel{\textsc{\stackanchor{fetch-}{ftag-drop}}}
-% \TrinaryInfC{{\jm{\Delta}{\Gamma}{\lstinline{fetch} ftag x$_m$ [n] ; λ → t}{\lstinline|fetch| ftag x$_m$ [n] ; λ → drop \Gamma$_d$ ; t′}}}
-% \DisplayProof
+% APP
+\AxiomC{}
+\noLine{}
+\UnaryInfC{\jmv{\Delta,\Gamma$_{i+1}$,...,\Gamma$_n$}{\Gamma$_i$}{v$_i$}{\Gamma$_{d_i}$}}
+\RightLabel{\textsc{App}}
+\UnaryInfC{\jm{\Delta}{\Gamma}{f\;v$_1$...v$_n$}{dup $\bigcup_{i=1}^n\Gamma_{d_i}$\;; f′\;v$_1^\prime$,...,v$_n^\prime$}}
+\DisplayProof
 
 \end{mdframed}
 \caption{Perceus rules}

@@ -63,7 +63,7 @@ getShortName = List1.last . list1splitOnDots . gr_name
 --   - Idea: use De Bruijn indicies as normal but use AbsInfo (type, tagInfo)
 data Term = Bind Term LAlt
           | Case Val Term [CAlt] -- List1?
-          | App Val [Val] 
+          | App Val [Val] -- List1?
           | Unit Val
           | Error TError
           | Store Loc Val

@@ -105,23 +105,29 @@ perceusDef xs t = do
 -- Δ | Γ ⊢ t ⟿  t′
 perceusTerm :: Context -> Term -> Perceus Term
 
+-- Rules: FETCH-CTAG-DUP and FETCH-CTAG
+perceusTerm c (FetchOffset tag@CTag{} n i `Bind` LAltVar x t) = do 
+  fv <- varLocal x (fvTerm t)
+  let gamma' = Set.intersection c.gamma fv
+      gammad = Set.difference c.gamma gamma'
+  t' <- varLocal x $ dropSet gammad =<< perceusTerm (Context c.delta gamma') t
+  let t'' = applyWhen (Set.member x fv) (Dup 0 `BindEmpty`) t'
+  pure $ FetchOffset tag n i `Bind` LAltVar x t''
+  
+-- Rule: FETCH-FTAG
+perceusTerm c (FetchOffset tag@FTag{} n i `Bind` LAltVar x t) = do 
+  fv <- varLocal x (fvTerm t)
+  unless (Set.member x fv) __IMPOSSIBLE__
+  let gamma' = Set.intersection c.gamma fv
+      gammad = Set.difference c.gamma gamma'
+  t' <- varLocal x $ dropSet gammad =<< perceusTerm (Context c.delta gamma') t
+  pure $ FetchOffset tag n i `Bind` LAltVar x t'
 
--- Dup arguments with appropriate contexts.
---
--- γᵢ ⊆ Γᵢ
--- Δ,Γᵢ₊₁,‥,Γₙ | Γᵢ ⊢ vᵢ ⟿  dup γᵢ
--- --------------------------------------
--- Δ Γ ⊢ f {v}∗ ⟿  dup {γ}∗ ; f {v}∗
+-- Rule: App
 perceusTerm c (App (Def f) vs) = do
+  -- FIXME GRIN.hs should use List1
   let vs' = List1.fromListSafe __IMPOSSIBLE__ vs
   cs <- splitContext c vs'
-  -- logIO $ render $ vcat
-  --   [ text "\nAPP" <+> pretty term
-  --   , text "c.delta" <+> pretty c.delta
-  --   , text "c.gamma" <+> pretty c.gamma
-  --   , text "contexts:" <+> vcat (List1.map (\c -> pretty c.delta <+> pretty c.gamma) cs)
-  --   ]
-
   dups <- fold <$> List1.zipWithM perceusVal cs vs'
   pure (foldr BindEmpty (App (Def f) vs) dups)
 
@@ -156,23 +162,6 @@ perceusTerm c (t1 `Bind` LAltVariableNode x xs (Case (Var n) Unreachable alts))
   step _ _ = __IMPOSSIBLE__
 
 
--- Rules: FETCH-CTAG-DUP and FETCH-CTAG
-perceusTerm c (FetchOffset tag@CTag{} n i `Bind` LAltVar x t) = do 
-  fv <- varLocal x (fvTerm t)
-  let gamma' = Set.intersection c.gamma fv
-      gammad = Set.difference c.gamma gamma'
-  t' <- varLocal x $ dropSet gammad =<< perceusTerm (Context c.delta gamma') t
-  let t'' = applyWhen (Set.member x fv) (Dup 0 `BindEmpty`) t'
-  pure $ FetchOffset tag n i `Bind` LAltVar x t''
-  
--- Rule: FETCH-FTAG
-perceusTerm c (FetchOffset tag@FTag{} n i `Bind` LAltVar x t) = do 
-  fv <- varLocal x (fvTerm t)
-  unless (Set.member x fv) __IMPOSSIBLE__
-  let gamma' = Set.intersection c.gamma fv
-      gammad = Set.difference c.gamma gamma'
-  t' <- varLocal x $ dropSet gammad =<< perceusTerm (Context c.delta gamma') t
-  pure $ FetchOffset tag n i `Bind` LAltVar x t'
   
 -- Drops references which are not needed in t₂, both
 -- from the newly bound variables {x}∗ and the owned
