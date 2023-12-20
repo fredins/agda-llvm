@@ -1,5 +1,6 @@
 {-# LANGUAGE OverloadedRecordDot #-}
 {-# LANGUAGE ViewPatterns        #-}
+{-# LANGUAGE BlockArguments #-}
 
 module Agda.Llvm.Perceus (mkDrop, mkDup, perceus, specializeDrop, pushDownDup, fuseDupDrop) where
 
@@ -154,36 +155,25 @@ perceusTerm c (t1 `Bind` LAltVariableNode x xs (Case (Var n) Unreachable alts))
     context = Context c.delta (gamma2 <> xs_dup)
   step _ _ = __IMPOSSIBLE__
 
--- fetch will bind the owning environment if it is a suspended 
--- computation (F-tag), otherwise it will bind the borrowing environment.
-perceusTerm c (FetchOffset tag n i `Bind` LAltVar x t) = do 
+
+-- Rules: FETCH-CTAG-DUP and FETCH-CTAG
+perceusTerm c (FetchOffset tag@CTag{} n i `Bind` LAltVar x t) = do 
   fv <- varLocal x (fvTerm t)
-  let gamma2 = Set.intersection c.gamma fv
-      gamma2' = c.gamma Set.\\ gamma2
-
-  case tag of
-    PTag{} -> __IMPOSSIBLE__
-
-    -- Owning bind
-    FTag{} | Set.member x fv -> do
-      let cxt = Context c.delta $ Set.insert x (c.gamma <> gamma2)
-      t' <- varLocal x $ dropSet gamma2'  =<< perceusTerm cxt t
-      pure (FetchOffset tag n i `Bind` LAltVar x t')
-    FTag{} -> do 
-      let cxt = Context c.delta (c.gamma <> gamma2)
-      t' <- varLocal x $ dropSet (Set.insert x gamma2') =<< perceusTerm cxt t
-      pure (FetchOffset tag n i `Bind` LAltVar x t')
-
-    -- Borrowing bind
-    CTag{} | Set.member x fv -> do
-      let cxt = Context c.delta $ Set.insert x (c.gamma <> gamma2)
-      t' <- varLocal x $ dropSet gamma2' =<< perceusTerm cxt t
-      pure $ FetchOffset tag n i `Bind` LAltVar x (Dup 0 `BindEmpty` t')
-    CTag{} -> do
-      let cxt = Context c.delta (c.gamma <> gamma2)
-      t' <- varLocal x $ dropSet gamma2' =<< perceusTerm cxt t
-      pure (FetchOffset tag n i `Bind` LAltVar x t')
-
+  let gamma' = Set.intersection c.gamma fv
+      gammad = Set.difference c.gamma gamma'
+  t' <- varLocal x $ dropSet gammad =<< perceusTerm (Context c.delta gamma') t
+  let t'' = applyWhen (Set.member x fv) (Dup 0 `BindEmpty`) t'
+  pure $ FetchOffset tag n i `Bind` LAltVar x t''
+  
+-- Rule: FETCH-FTAG
+perceusTerm c (FetchOffset tag@FTag{} n i `Bind` LAltVar x t) = do 
+  fv <- varLocal x (fvTerm t)
+  unless (Set.member x fv) __IMPOSSIBLE__
+  let gamma' = Set.intersection c.gamma fv
+      gammad = Set.difference c.gamma gamma'
+  t' <- varLocal x $ dropSet gammad =<< perceusTerm (Context c.delta gamma') t
+  pure $ FetchOffset tag n i `Bind` LAltVar x t'
+  
 -- Drops references which are not needed in t₂, both
 -- from the newly bound variables {x}∗ and the owned
 -- environment Γ. It make sure to not drop any

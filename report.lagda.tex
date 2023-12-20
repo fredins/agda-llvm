@@ -37,6 +37,8 @@
 \usepackage{enumitem} % compact itemize
 \usepackage{color}
 \newcommand{\hl}[2][lightgray]{\colorbox{#1}{#2}}
+\usepackage{bussproofs}
+\usepackage{stackengine}
 % \usepackage[skip=4pt plus1pt, indent=10pt]{parskip}
 
 \usepackage[framemethod=tikz]{mdframed}
@@ -59,6 +61,9 @@ linewidth=0.5pt,
 \newunicodechar{∀}{\ensuremath{\mathnormal{\forall}}}
 \newunicodechar{∷}{\ensuremath{\mathnormal{\coloncolon}}}
 \newunicodechar{ω}{\ensuremath{\mathnormal{\omega}}}
+\newunicodechar{→}{\ensuremath{\mathnormal{\rightarrow}}}
+\newunicodechar{′}{\ensuremath{\mathnormal{^\prime}}}
+\newunicodechar{⟿}{\ensuremath{\mathnormal{\rightsquigarrow}}}
 \newunicodechar{ℕ}{\ensuremath{\mathbb{N}}}
 
 \newunicodechar{₁}{\ensuremath{{}_1}}
@@ -95,6 +100,7 @@ escapeinside={!}{!},
 }
 
 \newcommand{\refp}[1]{(\ref{#1})}
+\newcommand{\jm}[4]{#1 $\mid$ #2 $\vdash$ #3 $\rightsquigarrow$ #4}
 
 % Custom type writer listing with equation numbers
 \lstnewenvironment{typewriter}[3][none]%
@@ -342,6 +348,11 @@ cpat & ::=       & tag \; \{x\}*   & \; \text{constant node pattern} \\
      & \;\; \mid & tag             & \; \text{single tag pattern} \\
      & \;\; \mid & lit             & \; \text{literal pattern} \\
 \end{array} \\ \\
+&\begin{array}{l l l l}
+tag  & ::=       & ctag & \; \text{constructor tag} \\
+     & \;\; \mid & ftag & \; \text{function tag} \\
+     & \;\; \mid & ptag & \; \text{partial application tag} \\
+\end{array} \\ \\
 &\begin{array}{l l}
 \{...\}  & \text{means 0 or 1 times}    \\
 \{...\}* & \text{means 0 or more times} \\
@@ -565,6 +576,103 @@ An example of this is \lstinline{main} \refp{grin:main} which requires no refere
 The allocation "\lstinline{store (Cnat 100) ; λ x20 →}" \mbox{(line 2)} is consumed by the suspended computation "\lstinline{store (FdownFrom x20) ; λ x19 →}" \mbox{(line 3)}, which in turn is consumed by "\lstinline{sum x19}" (line 4).
 Elements in the borrowed environment can only be applied to non-consuming operations, such as pattern matching. 
 We can promote an element from the borrowed environment to the owned environment by calling the function \lstinline{dup}.
+\ref{fig:perceus-rules}
+
+\begin{figure*}[hptb]
+\begin{mdframed}
+\centering
+% FETCH-CTAG-DUP
+\AxiomC{x$_0$\;\in\;fv(t)}
+\AxiomC{\Gamma′\;=\;\Gamma\;\cap\;fv(t)}
+\noLine
+\UnaryInfC{\Gamma$_d$\;=\;\Gamma\;-\;\Gamma′}
+\AxiomC{\jm{\Delta}{\Gamma′}{t}{t′}}
+\RightLabel{\textsc{\stackanchor{fetch-}{\textsc{ctag-dup}}}}
+\TrinaryInfC{{\jm{\Delta}{\Gamma}{\lstinline{fetch} ctag x$_m$ [n] ; λ → t}{\lstinline|fetch| ctag x$_m$ [n] ; λ → drop \Gamma$_d$ ; dup x$_0$ ; t′}}}
+\DisplayProof
+\\
+\vspace{1em}
+% FETCH-CTAG
+\AxiomC{x$_0$\;\not\in\;fv(t)}
+\AxiomC{\Gamma′\;=\;\Gamma\;\cap\;fv(t)}
+\noLine
+\UnaryInfC{\Gamma$_d$\;=\;\Gamma\;-\;\Gamma′}
+\AxiomC{\jm{\Delta}{\Gamma′}{t}{t′}}
+\RightLabel{\textsc{fetch-ctag}}
+\TrinaryInfC{\jm{\Delta}{\Gamma}{\lstinline{fetch} ctag x$_m$ [n] ; λ → t}{\lstinline|fetch| ctag x$_m$ [n] ; λ → drop \Gamma$_d$ ; t′}}
+\DisplayProof
+\\
+\vspace{1em}
+% FETCH-FTAG
+\AxiomC{x$_0$\;\in\;fv(t)}
+\AxiomC{\Gamma′\;=\;\Gamma\;\cap\;fv(t)}
+\noLine
+\UnaryInfC{\Gamma$_d$\;=\;\Gamma\;-\;\Gamma′}
+\AxiomC{\jm{\Delta}{\Gamma′}{t}{t′}}
+\RightLabel{\textsc{fetch-ftag}}
+\TrinaryInfC{{\jm{\Delta}{\Gamma}{\lstinline{fetch} ftag x$_m$ [n] ; λ → t}{\lstinline|fetch| ftag x$_m$ [n] ; λ → drop \Gamma$_d$ ; t′}}}
+\DisplayProof
+\\
+\vspace{1em}
+% FETCH-FTAG-DROP
+% \AxiomC{x$_0$\;\not\in\;fv(t)}
+% \AxiomC{\Gamma′\;=\;\Gamma\;\cap\;fv(t)}
+% \noLine
+% \UnaryInfC{\Gamma$_d$\;=\{x$_0$\}\;\cup\;\Gamma\;-\;\Gamma′}
+% \AxiomC{\jm{\Delta}{\Gamma′}{t}{t′}}
+% \RightLabel{\textsc{\stackanchor{fetch-}{ftag-drop}}}
+% \TrinaryInfC{{\jm{\Delta}{\Gamma}{\lstinline{fetch} ftag x$_m$ [n] ; λ → t}{\lstinline|fetch| ftag x$_m$ [n] ; λ → drop \Gamma$_d$ ; t′}}}
+% \DisplayProof
+
+\end{mdframed}
+\caption{Perceus rules}
+\label{fig:perceus-rules}
+\end{figure*}
+
+
+Figure \ref{fig:drop-insert} presents the function \lstinline{sum} with reference counting operations inserted and highlighted in gray.
+Many aspects of adapting Perceus to GRIN are present in \lstinline{sum}. 
+On line 2, "\lstinline{fetch x14 [2] ; λ$_\Gamma$ x40 →}" extends the owned environment with a resource token for the variable \lstinline{x40}. 
+The resource token is subsequently consumed by "\lstinline{downFrom x40 ; λ$_\Delta$ x59 x60 x61 →}", which in turn extends the borrowed environment with tokens for \lstinline{x60}  and \lstinline{x61}.
+There is no resource token for \lstinline{x59} because the first argument of a node is always a tag, represented by an unboxed integer stored in registers. 
+Similarly, unannotated bindings, such as "\lstinline{update x14 (C[]) ; λ () →}" \mbox{(line 6)}, do not extend any of the environments.
+Additionally, we can conclude that \lstinline{fetch} and \lstinline{update} must be borrowing operations, because both use \lstinline{x14} prior to it being dropped (line 7).
+
+%\mbox{(line 3)}, which extends borrowed environment with resource tokens to \lstlisting{x60} and \lstlisting{x61}.
+% \begin{itemize}[nosep,topsep=0pt,parsep=0pt,partopsep=0pt]
+% \item Owning binds: " 
+% \item Borrowed binds: "\lstinline{downFrom x40 ; λ$_\Delta$ x59 x60 x61 →}" \mbox{(line 3)}
+% \item Local binds:
+% \end{itemize}
+%For example, we can conclude that the operations \lstinline{fetch} and \lstinline{update} must be borrowing operations. 
+%This is evident because both \lstinline{fetch} and \lstinline{update} use \lstinline{x14} prior to it being explicitly dropped.
+% TODO perhaps introduce a new syntax for borrowed and owned lambda $\lambda_{\delta}$
+% There a three types of abstractions: Abstractions which binds to the owned environment, abtractions which binds the borrowed envirionment, and abstractions which doesn't bind at all.
+%
+% Another obeservation is that there are now three kinds of binds. 
+%We can also conclude that \lstinline{fetch} bind variables that extend the owned environment.
+%Meanwhile, the bound variables (as a result) of function applications extend the borrowed environment.
+
+As a result of GRIN's explicit memory operations, we can describe the Perceus primitives \lstinline{dup}, \lstinline{drop}, \lstinline{is-unique}, \lstinline{decref}, and \lstinline{free} with GRIN's existing constructs --- similarly to how GRIN can express evaluation of suspended compuations within the language.
+GRIN lacks a primitive for deallocating memory, so \lstinline{free} is just a foreign function call to libc's \lstinline{free}. 
+However, our implementation of \lstinline{drop} is unsatisfactory. 
+Nodes of different tags vary in arity and the arguments can be either boxed or unboxed.
+Therefore, we need to pattern match on all the possible tags to drop the child references. 
+This is similar to the problem with a general \lstinline{eval} function (Section \ref{sec:analysis-and-transformations}). 
+A crucial difference is that \lstinline{drop} is recursive, so we cannot always eliminate the general function by specialization and inlining.
+Still, we can specialize the \emph{initial} call to \lstinline{drop} if the tag is known. 
+The points-to analysis already require us to keep track of the possible nodes of each variable, so in practice we can almost always specialize \lstinline{drop}.
+
+In Figure \ref{fig:drop-spec}, we specialize both calls to \lstinline{drop}.
+This eliminates all reference counting operations in the branch for the empty list (lines 5-14).
+Then, we push down the \lstinline{dup} operations (lines 16-17) and eliminate \lstinline{dup}/\lstinline{drop} pairs.
+This optimization is called \emph{dup/drop fusion} and the result is presented in Figure \ref{fig:dup/drop-fusion}.
+For our example program we eliminate the general \lstinline{drop} function completely, but this is not always the case. 
+
+\citeauthor{reinking2021} presents an additional optimization called \emph{reuse analysis}, which perfoms destructive updates when possible.
+This optimization is not yet implemented in our project. 
+However, we will definitely implement this optimization in the future because it enables in-place updates for pure functional languages.
+This, in turn, reduces the number allocations and deallocations, which is especially important for reference counting implementations as the overhead is proportional to the number of allocations, deallocations, and reference counting operations \citep{wilson1992}.
 
 \begin{figure*}[hp]
 \begin{mdframed}
@@ -670,49 +778,6 @@ sum x14 =
 \label{fig:perceus}
 \end{figure*}
 
-Figure \ref{fig:drop-insert} presents the function \lstinline{sum} with reference counting operations inserted and highlighted in gray.
-Many aspects of adapting Perceus to GRIN are present in \lstinline{sum}. 
-On line 2, "\lstinline{fetch x14 [2] ; λ$_\Gamma$ x40 →}" extends the owned environment with a resource token for the variable \lstinline{x40}. 
-The resource token is subsequently consumed by "\lstinline{downFrom x40 ; λ$_\Delta$ x59 x60 x61 →}", which in turn extends the borrowed environment with tokens for \lstinline{x60}  and \lstinline{x61}.
-There is no resource token for \lstinline{x59} because the first argument of a node is always a tag, represented by an unboxed integer stored in registers. 
-Similarly, unannotated bindings, such as "\lstinline{update x14 (C[]) ; λ () →}" \mbox{(line 6)}, do not extend any of the environments.
-Additionally, we can conclude that \lstinline{fetch} and \lstinline{update} must be borrowing operations, because both use \lstinline{x14} prior to it being dropped (line 7).
-
-%\mbox{(line 3)}, which extends borrowed environment with resource tokens to \lstlisting{x60} and \lstlisting{x61}.
-% \begin{itemize}[nosep,topsep=0pt,parsep=0pt,partopsep=0pt]
-% \item Owning binds: " 
-% \item Borrowed binds: "\lstinline{downFrom x40 ; λ$_\Delta$ x59 x60 x61 →}" \mbox{(line 3)}
-% \item Local binds:
-% \end{itemize}
-%For example, we can conclude that the operations \lstinline{fetch} and \lstinline{update} must be borrowing operations. 
-%This is evident because both \lstinline{fetch} and \lstinline{update} use \lstinline{x14} prior to it being explicitly dropped.
-% TODO perhaps introduce a new syntax for borrowed and owned lambda $\lambda_{\delta}$
-% There a three types of abstractions: Abstractions which binds to the owned environment, abtractions which binds the borrowed envirionment, and abstractions which doesn't bind at all.
-%
-% Another obeservation is that there are now three kinds of binds. 
-%We can also conclude that \lstinline{fetch} bind variables that extend the owned environment.
-%Meanwhile, the bound variables (as a result) of function applications extend the borrowed environment.
-
-As a result of GRIN's explicit memory operations, we can describe the Perceus primitives \lstinline{dup}, \lstinline{drop}, \lstinline{is-unique}, \lstinline{decref}, and \lstinline{free} with GRIN's existing constructs --- similarly to how GRIN can express evaluation of suspended compuations within the language.
-GRIN lacks a primitive for deallocating memory, so \lstinline{free} is just a foreign function call to libc's \lstinline{free}. 
-However, our implementation of \lstinline{drop} is unsatisfactory. 
-Nodes of different tags vary in arity and the arguments can be either boxed or unboxed.
-Therefore, we need to pattern match on all the possible tags to drop the child references. 
-This is similar to the problem with a general \lstinline{eval} function (Section \ref{sec:analysis-and-transformations}). 
-A crucial difference is that \lstinline{drop} is recursive, so we cannot always eliminate the general function by specialization and inlining.
-Still, we can specialize the \emph{initial} call to \lstinline{drop} if the tag is known. 
-The points-to analysis already require us to keep track of the possible nodes of each variable, so in practice we can almost always specialize \lstinline{drop}.
-
-In Figure \ref{fig:drop-spec}, we specialize both calls to \lstinline{drop}.
-This eliminates all reference counting operations in the branch for the empty list (lines 5-14).
-Then, we push down the \lstinline{dup} operations (lines 16-17) and eliminate \lstinline{dup}/\lstinline{drop} pairs.
-This optimization is called \emph{dup/drop fusion} and the result is presented in Figure \ref{fig:dup/drop-fusion}.
-For our example program we eliminate the general \lstinline{drop} function completely, but this is not always the case. 
-
-\citeauthor{reinking2021} presents an additional optimization called \emph{reuse analysis}, which perfoms destructive updates when possible.
-This optimization is not yet implemented in our project. 
-However, we will definitely implement this optimization in the future because it enables in-place updates for pure functional languages.
-This, in turn, reduces the number allocations and deallocations, which is especially important for reference counting implementations as the overhead is proportional to the number of allocations, deallocations, and reference counting operations \citep{wilson1992}.
 
 \subsection{Challenges adapting Perceus to GRIN}
 \label{sec:perceus-challanges}
