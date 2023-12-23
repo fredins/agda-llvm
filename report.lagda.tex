@@ -62,7 +62,6 @@ linewidth=0.5pt,
 \newunicodechar{∷}{\ensuremath{\mathnormal{\coloncolon}}}
 \newunicodechar{ω}{\ensuremath{\mathnormal{\omega}}}
 \newunicodechar{→}{\ensuremath{\mathnormal{\rightarrow}}}
-\newunicodechar{′}{\ensuremath{\mathnormal{^\prime}}}
 \newunicodechar{⟿}{\ensuremath{\mathnormal{\rightsquigarrow}}}
 \newunicodechar{ℕ}{\ensuremath{\mathbb{N}}}
 
@@ -369,7 +368,7 @@ tag  & ::=       & ctag & \; \text{constructor tag} \\
 % FIXME beskriv lambda lifting istället.
 Currently, our compiler only accepts a subset of Agda which is lambda lifted, first-order, and monomorphic.% 
 \footnote{%
-Some lambda expressions and higher-order functions compile successfully because they are reduced to another representation during optimzation. 
+Some lambda expressions and higher-order functions compile successfully because they are reduced to another representation during optimization. 
 See Section \ref{sec:discussion-and-future-work} for an example.
 }
 Following is an Agda program that computes the sum of the first 100 numbers in descending order. 
@@ -584,34 +583,34 @@ We can promote an element from the borrowed environment to the owned environment
 \centering
 % FETCH-CTAG-DUP
 \AxiomC{x$_0$\;\in\;fv(t)}
-\AxiomC{\Gamma′\;=\;\Gamma\;\cap\;fv(t)}
+\AxiomC{\Gamma$^\prime$\;=\;\Gamma\;\cap\;fv(t)}
 \noLine
-\UnaryInfC{\Gamma$_d$\;=\;\Gamma\;-\;\Gamma′}
-\AxiomC{\jm{\Delta}{\Gamma′}{t}{t′}}
-\RightLabel{\textsc{\stackanchor{fetch-}{\textsc{ctag-dup}}}}
-\TrinaryInfC{{\jm{\Delta}{\Gamma}{\lstinline{fetch} ctag x$_m$ [n] ; λ → t}{\lstinline|fetch| ctag x$_m$ [n] ; λ → drop \Gamma$_d$ ; dup x$_0$ ; t′}}}
+\UnaryInfC{\Gamma$_d$\;=\;\Gamma\;-\;\Gamma$^\prime$}
+\AxiomC{\jm{\Delta}{\Gamma$^\prime$}{t}{t$^\prime$}}
+\RightLabel{\textsc{\stackanchor{\textsc{fetch-}}{\textsc{ctag-dup}}}}
+\TrinaryInfC{{\jm{\Delta}{\Gamma}{\lstinline{fetch} ctag x$_m$ [n] ; λ → t}{\lstinline|fetch| ctag x$_m$ [n] ; λ → drop \Gamma$_d$ ; dup x$_0$ ; t$^\prime$}}}
 \DisplayProof
 \\
 \vspace{1em}
 % FETCH-CTAG
 \AxiomC{x$_0$\;\not\in\;fv(t)}
-\AxiomC{\Gamma′\;=\;\Gamma\;\cap\;fv(t)}
+\AxiomC{\Gamma$^\prime$\;=\;\Gamma\;\cap\;fv(t)}
 \noLine
-\UnaryInfC{\Gamma$_d$\;=\;\Gamma\;-\;\Gamma′}
-\AxiomC{\jm{\Delta}{\Gamma′}{t}{t′}}
+\UnaryInfC{\Gamma$_d$\;=\;\Gamma\;-\;\Gamma$^\prime$}
+\AxiomC{\jm{\Delta}{\Gamma$^\prime$}{t}{t$^\prime$}}
 \RightLabel{\textsc{fetch-ctag}}
-\TrinaryInfC{\jm{\Delta}{\Gamma}{\lstinline{fetch} ctag x$_m$ [n] ; λ → t}{\lstinline|fetch| ctag x$_m$ [n] ; λ → drop \Gamma$_d$ ; t′}}
+\TrinaryInfC{\jm{\Delta}{\Gamma}{\lstinline{fetch} ctag x$_m$ [n] ; λ → t}{\lstinline|fetch| ctag x$_m$ [n] ; λ → drop \Gamma$_d$ ; t$^\prime$}}
 \DisplayProof
 \\
 \vspace{1em}
 % FETCH-FTAG
 \AxiomC{x$_0$\;\in\;fv(t)}
-\AxiomC{\Gamma′\;=\;\Gamma\;\cap\;fv(t)}
+\AxiomC{\Gamma$^\prime$\;=\;\Gamma\;\cap\;fv(t)}
 \noLine
-\UnaryInfC{\Gamma$_d$\;=\;\Gamma\;-\;\Gamma′}
-\AxiomC{\jm{\Delta}{\Gamma′}{t}{t′}}
+\UnaryInfC{\Gamma$_d$\;=\;\Gamma\;-\;\Gamma$^\prime$}
+\AxiomC{\jm{\Delta}{\Gamma$^\prime$}{t}{t$^\prime$}}
 \RightLabel{\textsc{fetch-ftag}}
-\TrinaryInfC{{\jm{\Delta}{\Gamma}{\lstinline{fetch} ftag x$_m$ [n] ; λ → t}{\lstinline|fetch| ftag x$_m$ [n] ; λ → drop \Gamma$_d$ ; t′}}}
+\TrinaryInfC{{\jm{\Delta}{\Gamma}{\lstinline{fetch} ftag x$_m$ [n] ; λ → t}{\lstinline|fetch| ftag x$_m$ [n] ; λ → drop \Gamma$_d$ ; t$^\prime$}}}
 \DisplayProof
 \\
 \vspace{1em}
@@ -619,8 +618,16 @@ We can promote an element from the borrowed environment to the owned environment
 \AxiomC{}
 \noLine{}
 \UnaryInfC{\jmv{\Delta,\Gamma$_{i+1}$,...,\Gamma$_n$}{\Gamma$_i$}{v$_i$}{\Gamma$_{d_i}$}}
-\RightLabel{\textsc{App}}
-\UnaryInfC{\jm{\Delta}{\Gamma}{f\;v$_1$...v$_n$}{dup $\bigcup_{i=1}^n\Gamma_{d_i}$\;; f′\;v$_1^\prime$,...,v$_n^\prime$}}
+\RightLabel{\textsc{app}}
+\UnaryInfC{\jm{\Delta}{\Gamma}{f\;v$_1$...v$_n$}{dup $\bigcup_{i=1}^n\Gamma_{d_i}$\;; f$^\prime$\;v$_1^\prime$,...,v$_n^\prime$}}
+\DisplayProof
+\\
+\vspace{1em}
+\AxiomC{}
+\noLine{}
+\UnaryInfC{t}
+\RightLabel{\textsc{store}}
+\UnaryInfC{\jm{\Delta}{\Gamma}{\lstinline|store| v}{\lstinline|store| v$^\prime$}}
 \DisplayProof
 
 \end{mdframed}
@@ -819,7 +826,7 @@ For the same reason, we have no realiable metrics for the performance of the com
 
 As we mentioned in Section \ref{sec:precise}, the overhead of reference counting is closely related to the number of allocations, deallocations, and reference counting operations.
 Laziness tend to encourage more allocations because function arguments are boxed.
-To make lazy functional programming with reference counting viable, we belive it is necessary to reduce the number of allocations via aggressive compiler optimzations.
+To make lazy functional programming with reference counting viable, we belive it is necessary to reduce the number of allocations via aggressive compiler optimization.
 Section \ref{sec:grin-interpreter} presents the resource information about our example program \refp{agda:program}. 
 The program allocates $\mathcal{O}(n)$ nodes with respect to the instance size, and the peak heap size is also $\mathcal{O}(n)$.
 Ideally, the compiler should produce a program simliar to the following C program which have no allocations.
@@ -833,7 +840,7 @@ int sum_down_from(int n){
 }
 \end{typewriter}
 To address the total amount of allocations, we would like to implement GRIN optimziations such as \emph{general unboxing} and \emph{late inlining}. 
-These optimzations are sufficient to remove all allocations for a tail recursive variant our example program \refp{agda:program} \citep{boquist1999}.
+These optimization are sufficient to remove all allocations for a tail recursive variant our example program \refp{agda:program} \citep{boquist1999}.
 However, for complex programs, implementing the Perceus reuse-analysis avoids additional allocations by updating nodes \mbox{in-place}. 
 
 Space leaks is another issue for lazy functional languages that can degrade performance and cause memory overflows \citep{jones1987}.
@@ -857,7 +864,7 @@ First, we prevent the stack overflow by not building and then evaluating a large
 Second, forcing \AgdaFunction{\AgdaUnderscore+\AgdaUnderscore} drops the last reference count to \AgdaBound{n}, and thus the object is deallocated. 
 Which in turn, eliminates all out of memory errors and makes the peak heap size $\mathcal{O}(1)$.
 As this example demonstrates, selectively applying eager evaluation can drastically change the performance characteristics of our programs.
-However, this require a comprehensive understanding of the evaluation model and how it interacts with various compiler optimzations.
+However, this require a comprehensive understanding of the evaluation model and how it interacts with various compiler optimization.
 Instead, we would like to develop a \emph{strictness analysis} \citep{mycroft1980} that can automatically decide when to use eager evaluation.
 This is an intresting research opportunity because Agda is a total language so evaluation order does not matter.
 Therefore, the analyis can freely mix lazy and eager evaluation without accidentally making a productive program unproductive.
@@ -882,7 +889,7 @@ Compared to using branching, this gives better performance at the cost of larger
 
 The most recent implementation of GRIN is presented by \citet{podlovics2021}.
 Among other contributions, they implement an analyis by \citet{turk2010} that creates a bipartite graph of node producers and consumers.
-They use this analyis to perform a \emph{dead data eliminatation} optimzation. 
+They use this analyis to perform a \emph{dead data eliminatation} optimization. 
 Finally, \citet{podlovics2021} presents overview of other attempts at using GRIN since \citeauthor{boquist1999}'s thes\-is.
 
 
@@ -935,7 +942,7 @@ Finally, \citet{podlovics2021} presents overview of other attempts at using GRIN
 %      Can we leverage some information for the points-to analysis and sharing analysis?
 %\item Lobster is another intresting reference counted language with support for compile-time reference counting.
 %
-%\item Other Agda Backends. MAlonzo inserts a lot of unsafeCoerce (which kills optimzations) because Treeless is untyped citep{hausmann2015}.
+%\item Other Agda Backends. MAlonzo inserts a lot of unsafeCoerce (which kills optimization) because Treeless is untyped citep{hausmann2015}.
 %
 %\end{itemize}
 
@@ -975,7 +982,7 @@ In this paper, we combine lazy functional programming with precise reference cou
 Our implementation compiles a subset of Agda to GRIN and extends GRIN with precise reference counting instructions. 
 Then, we compile GRIN to LLVM and show that the program reclaims all the memory.
 Currently, our implementation allocates a lot of nodes. 
-In future research, we would like to minimize allocations by implementing the rest of the GRIN optimzations and the Perceus reuse analysis.
+In future research, we would like to minimize allocations by implementing the rest of the GRIN optimization and the Perceus reuse analysis.
 We are also interested in compiling a larger set of Agda programs, create a type system for GRIN, and develop a strictness analyis.
 
 % \begin{itemize} 
