@@ -36,7 +36,7 @@ import           Agda.Utils.List1             (List1, pattern (:|), (<|))
 import qualified Agda.Utils.List1             as List1
 import           Agda.Utils.Maybe
 import           Agda.Utils.Monad
-import Agda.Utils.Function (applyWhen)
+import Agda.Utils.Function (applyWhen, applyUnless)
 
 -- Properties:
 -- • Δ ∩ Γ = ∅
@@ -108,20 +108,20 @@ perceusTerm :: Context -> Term -> Perceus Term
 -- Rules: FETCH-CTAG-DUP and FETCH-CTAG
 perceusTerm c (FetchOffset tag@CTag{} n i `Bind` LAltVar x t) = do 
   fv <- varLocal x (fvTerm t)
-  let gamma' = Set.intersection c.gamma fv
+  let gamma' = applyWhen (Set.member x fv) (Set.insert x) (Set.intersection c.gamma fv)
       gammad = Set.difference c.gamma gamma'
   t' <- varLocal x $ dropSet gammad =<< perceusTerm (Context c.delta gamma') t
   let t'' = applyWhen (Set.member x fv) (Dup 0 `BindEmpty`) t'
   pure $ FetchOffset tag n i `Bind` LAltVar x t''
-  
+
 -- Rule: FETCH-FTAG
 perceusTerm c (FetchOffset tag@FTag{} n i `Bind` LAltVar x t) = do 
   fv <- varLocal x (fvTerm t)
-  unless (Set.member x fv) __IMPOSSIBLE__
-  let gamma' = Set.intersection c.gamma fv
-      gammad = Set.difference c.gamma gamma'
-  t' <- varLocal x $ dropSet gammad =<< perceusTerm (Context c.delta gamma') t
-  pure $ FetchOffset tag n i `Bind` LAltVar x t'
+  let gamma' = applyWhen (Set.member x fv) (Set.insert x) (Set.intersection c.gamma fv)
+      gammad = applyUnless (Set.member x fv) (Set.insert x) (c.gamma Set.\\ gamma')
+  t' <- varLocal x $ dropSet gammad  =<< perceusTerm (Context c.delta gamma') t
+  pure (FetchOffset tag n i `Bind` LAltVar x t')
+
 
 -- Rule: App
 perceusTerm c (App (Def f) vs) = do
