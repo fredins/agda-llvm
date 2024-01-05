@@ -329,11 +329,11 @@ term & ::=    & \emph{term} \; ; \; \lambda \; \emph{lpat} \rightarrow \emph{ter
 \end{array} \\ \\
 &\begin{array}{l l l l}
 val & ::=     & \emph{tag} \; \{\emph{val}\,\}* & \; \text{constant node} \\
-    & \;\; \mid & \emph{n} \; \{\emph{val}\,\}*   & \; \text{variable node} \\
+    & \;\; \mid & \emph{x$_n$} \; \{\emph{val}\,\}*   & \; \text{variable node} \\
     & \;\; \mid & \emph{tag}      & \; \text{single tag} \\
     & \;\; \mid & ()              & \; \text{empty} \\
     & \;\; \mid & \emph{lit}      & \; \text{literal} \\
-    & \;\; \mid & \emph{n}        & \; \text{variable (de Bruijn index)} \\
+    & \;\; \mid & \emph{x$_n$}        & \; \text{variable (de Bruijn index)} \\
     & \;\; \mid & \emph{def}      & \; \text{function definition} \\
     & \;\; \mid & \emph{prim}     & \; \text{primitive definition} \\
 \end{array} \\ \\
@@ -581,9 +581,31 @@ We can promote an element from the borrowed environment to the owned environment
 \begin{figure*}[hptb]
 \begin{mdframed}
 \centering
+% APP
+\AxiomC{}
+\noLine{}
+\UnaryInfC{\jmv{\Delta,\Gamma$_{i+1}$,...,\Gamma$_n$}{\Gamma$_i$}{v$_i$}{\Gamma$_{d_i}$}}
+\RightLabel{\textsc{app}}
+\UnaryInfC{\jm{\Delta}{\Gamma}{f\;v$_1$...v$_n$}{dup $\bigcup_{i=1}^n\Gamma_{d_i}$\;; f$^\prime$\;v$_1^\prime$,...,v$_n^\prime$}}
+\DisplayProof
+\\
+\vspace{1em}
+% STORE
+\AxiomC{\jmv{\Delta}{\Gamma}{v}{\Gamma$_d$}}
+\RightLabel{\textsc{store}}
+  \UnaryInfC{\jm{\Delta}{\Gamma}{\lstinline|store|\;v}{dup\;\Gamma$_d$\;;\;\lstinline|store|\;v$^\prime$}}
+\DisplayProof
+\hspace{1em}
+% UNIT
+\AxiomC{\jmv{\Delta}{\Gamma}{v}{\Gamma$_d$}}
+\RightLabel{\textsc{unit}}
+\UnaryInfC{\jm{\Delta}{\Gamma}{\lstinline|unit|\;v}{dup\;\Gamma$_d$\;;\;\lstinline|unit|\;v$^\prime$}}
+\DisplayProof
+\\
+\vspace{1em}
 % FETCH-CTAG-DUP
 \AxiomC{x$_0$\;\in\;fv(t)}
-\AxiomC{\Gamma$^\prime$\;=\;\Gamma\;\cap\;fv(t)}
+\AxiomC{\Gamma$^\prime$\;=\;\Gamma\;\cap\;fv(t)\;\cup\;\{x$_0$\}}
 \noLine
 \UnaryInfC{\Gamma$_d$\;=\;\Gamma\;-\;\Gamma$^\prime$}
 \AxiomC{\jm{\Delta}{\Gamma$^\prime$}{t}{t$^\prime$}}
@@ -605,7 +627,7 @@ We can promote an element from the borrowed environment to the owned environment
 \vspace{1em}
 % FETCH-FTAG
 \AxiomC{x$_0$\;\in\;fv(t)}
-\AxiomC{\Gamma$^\prime$\;=\;\Gamma\;\cap\;fv(t)}
+\AxiomC{\Gamma$^\prime$\;=\;\Gamma\;\cap\;fv(t)\;\cup\;\{x$_0$\}}
 \noLine
 \UnaryInfC{\Gamma$_d$\;=\;\Gamma\;-\;\Gamma$^\prime$}
 \AxiomC{\jm{\Delta}{\Gamma$^\prime$}{t}{t$^\prime$}}
@@ -614,22 +636,15 @@ We can promote an element from the borrowed environment to the owned environment
 \DisplayProof
 \\
 \vspace{1em}
-% APP
-\AxiomC{}
-\noLine{}
-\UnaryInfC{\jmv{\Delta,\Gamma$_{i+1}$,...,\Gamma$_n$}{\Gamma$_i$}{v$_i$}{\Gamma$_{d_i}$}}
-\RightLabel{\textsc{app}}
-\UnaryInfC{\jm{\Delta}{\Gamma}{f\;v$_1$...v$_n$}{dup $\bigcup_{i=1}^n\Gamma_{d_i}$\;; f$^\prime$\;v$_1^\prime$,...,v$_n^\prime$}}
+% FETCH-FTAG-DROP
+\AxiomC{x$_0$\;\in\;fv(t)}
+\AxiomC{\Gamma$^\prime$\;=\;\Gamma\;\cap\;fv(t)}
+\noLine
+\UnaryInfC{\Gamma$_d$\;=\;(\Gamma\;-\;\Gamma$^\prime$)\;\cup\;\{x$_0$\}}
+\AxiomC{\jm{\Delta}{\Gamma$^\prime$}{t}{t$^\prime$}}
+\RightLabel{\textsc{fetch-ftag-drop}}
+\TrinaryInfC{{\jm{\Delta}{\Gamma}{\lstinline{fetch} ftag x$_m$ [n] ; λ → t}{\lstinline|fetch| ftag x$_m$ [n] ; λ → drop \Gamma$_d$ ; t$^\prime$}}}
 \DisplayProof
-\\
-\vspace{1em}
-\AxiomC{}
-\noLine{}
-\UnaryInfC{t}
-\RightLabel{\textsc{store}}
-\UnaryInfC{\jm{\Delta}{\Gamma}{\lstinline|store| v}{\lstinline|store| v$^\prime$}}
-\DisplayProof
-
 \end{mdframed}
 \caption{Perceus rules}
 \label{fig:perceus-rules}

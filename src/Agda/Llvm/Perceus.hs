@@ -105,6 +105,20 @@ perceusDef xs t = do
 -- Δ | Γ ⊢ t ⟿  t′
 perceusTerm :: Context -> Term -> Perceus Term
 
+-- Rule: App
+perceusTerm c (App (Def f) vs) = do
+  -- FIXME GRIN.hs should use List1
+  let vs' = List1.fromListSafe __IMPOSSIBLE__ vs
+  cs <- splitContext c vs'
+  dups <- fold <$> List1.zipWithM perceusVal cs vs'
+  pure (foldr BindEmpty (App (Def f) vs) dups)
+
+-- Rule: Store
+perceusTerm c (Store loc v) = foldr BindEmpty (Store loc v) <$> perceusVal c v
+
+-- Rule: Unit
+perceusTerm c (Unit v) = foldr BindEmpty (Unit v) <$> perceusVal c v
+
 -- Rules: FETCH-CTAG-DUP and FETCH-CTAG
 perceusTerm c (FetchOffset tag@CTag{} n i `Bind` LAltVar x t) = do 
   fv <- varLocal x (fvTerm t)
@@ -114,7 +128,7 @@ perceusTerm c (FetchOffset tag@CTag{} n i `Bind` LAltVar x t) = do
   let t'' = applyWhen (Set.member x fv) (Dup 0 `BindEmpty`) t'
   pure $ FetchOffset tag n i `Bind` LAltVar x t''
 
--- Rule: FETCH-FTAG
+-- Rules: FETCH-FTAG and FETCH-FTAG-DROP
 perceusTerm c (FetchOffset tag@FTag{} n i `Bind` LAltVar x t) = do 
   fv <- varLocal x (fvTerm t)
   let gamma' = applyWhen (Set.member x fv) (Set.insert x) (Set.intersection c.gamma fv)
@@ -122,17 +136,23 @@ perceusTerm c (FetchOffset tag@FTag{} n i `Bind` LAltVar x t) = do
   t' <- varLocal x $ dropSet gammad  =<< perceusTerm (Context c.delta gamma') t
   pure (FetchOffset tag n i `Bind` LAltVar x t')
 
+perceusTerm c (Case (Var n) t alts) = do
+  t' <- step t
+  alts' <- mapM (\(splitCalt -> (mkAlt, t)) -> mkAlt <$> step t) alts
+  pure (Case (Var n) t' alts')
+  where
+  -- Δ | Γᵢ ⊢ tᵢ ⟿  drop Γᵢ′ ; tᵢ′
+  step t = do
+      gammai <- Set.intersection c.gamma <$> fvTerm t
 
--- Rule: App
-perceusTerm c (App (Def f) vs) = do
-  -- FIXME GRIN.hs should use List1
-  let vs' = List1.fromListSafe __IMPOSSIBLE__ vs
-  cs <- splitContext c vs'
-  dups <- fold <$> List1.zipWithM perceusVal cs vs'
-  pure (foldr BindEmpty (App (Def f) vs) dups)
+      -- Δ | Γᵢ ⊢ tᵢ ⟿  tᵢ′
+      t' <- perceusTerm (Context c.delta gammai) t
 
-perceusTerm c (Unit v) = foldr BindEmpty (Unit v) <$> perceusVal c v
-perceusTerm c (Store loc v) = foldr BindEmpty (Store loc v) <$> perceusVal c v
+      -- Γᵢ′ = Γ - {⊥} - Γᵢ ∗
+      let gammai' = c.gamma Set.\\ gammai
+
+      -- drop Γᵢ′ ; tᵢ′
+      dropSet gammai' t'
 
 
 -- function calls and evaluations
@@ -203,23 +223,6 @@ perceusTerm c (t1 `Bind` alt) = do
   pure (t1' `Bind` mkAlt t2'_drop)
 
 
-perceusTerm c (Case (Var n) t alts) = do
-  t' <- step t
-  alts' <- mapM (\(splitCalt -> (mkAlt, t)) -> mkAlt <$> step t) alts
-  pure (Case (Var n) t' alts')
-  where
-  -- Δ | Γᵢ ⊢ tᵢ ⟿  drop Γᵢ′ ; tᵢ′
-  step t = do
-      gammai <- Set.intersection c.gamma <$> fvTerm t
-
-      -- Δ | Γᵢ ⊢ tᵢ ⟿  tᵢ′
-      t' <- perceusTerm (Context c.delta gammai) t
-
-      -- Γᵢ′ = Γ - {⊥} - Γᵢ ∗
-      let gammai' = c.gamma Set.\\ gammai
-
-      -- drop Γᵢ′ ; tᵢ′
-      dropSet gammai' t'
 
 
 -- These only borrows values, and thereby don't create any dups.
