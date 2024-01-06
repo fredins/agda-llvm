@@ -1,4 +1,5 @@
 name: agda-prgrams
 include: agda-programs
+         agda-programs-not-working
          .
 depend: standard-library -- -2.0
