@@ -58,18 +58,20 @@ common warnings
 library 
   import: warnings
   exposed-modules:
-    Agda.Llvm.Compiler
-    Agda.Llvm.Grin
-    Agda.Llvm.GrinTypes
-    Agda.Llvm.GrinInterpreter
-    Agda.Llvm.GrinTransformations
-    Agda.Llvm.HeapPointsTo
-    Agda.Llvm.HeapPointsToType
-    Agda.Llvm.Llvm
-    Agda.Llvm.Perceus
-    Agda.Llvm.SolveEquations
-    Agda.Llvm.TreelessTransform
-    Agda.Llvm.Utils
+    Compiler.Grin.Grin
+    Compiler.Grin.GrinInterpreter
+    Compiler.Grin.GrinTransformations
+    Compiler.Grin.HeapPointsTo
+    Compiler.Grin.HeapPointsToType
+    Compiler.Grin.Perceus
+    Compiler.Grin.SolveEquations
+    Compiler.Llvm.Compiler
+    Compiler.Llvm.Llvm
+    Compiler.Treeless.TreelessTransform
+    Utils.List1
+    Utils.Monad
+    Utils.Set
+    Utils.Utils
        
   default-extensions:
     LambdaCase

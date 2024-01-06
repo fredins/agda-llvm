@@ -2,7 +2,7 @@
 {-# LANGUAGE OverloadedRecordDot #-}
 {-# LANGUAGE BlockArguments #-}
 
-module Agda.Llvm.TreelessTransform
+module Compiler.Treeless.TreelessTransform
   ( definitionToTreeless
   , TreelessDefinition(..)
   ) where
@@ -15,8 +15,6 @@ import           Agda.Compiler.Backend                 hiding (Prim, initEnv)
 import           Agda.Compiler.MAlonzo.HaskellTypes    (hsTelApproximation)
 import           Agda.Compiler.Treeless.Builtin        (translateBuiltins)
 import           Agda.Compiler.Treeless.NormalizeNames (normalizeNames)
-import           Agda.Llvm.Grin                        (getShortName)
-import           Agda.Llvm.Utils
 import           Agda.Syntax.Common.Pretty
 import           Agda.Syntax.Internal                  (Type, arity)
 import qualified Agda.Syntax.Internal                  as I
@@ -36,8 +34,10 @@ import           Data.Tuple.Extra                      (first, firstM, second)
 import Agda.Compiler.ToTreeless (closedTermToTreeless)
 import Control.Applicative (Applicative(liftA2))
 import Debug.Trace
-import Agda.Llvm.Utils 
 import Agda.Utils.Function (applyWhen)
+
+import           Compiler.Grin.Grin                        (getShortName)
+import           Utils.Utils
 
 data TreelessDefinition = TreelessDefinition
   { tl_name      :: String

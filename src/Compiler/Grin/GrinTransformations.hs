@@ -2,36 +2,37 @@
 {-# LANGUAGE OverloadedRecordDot #-}
 {-# LANGUAGE ViewPatterns        #-}
 
-module Agda.Llvm.GrinTransformations (module Agda.Llvm.GrinTransformations) where
+module Compiler.Grin.GrinTransformations
+  (module Compiler.Grin.GrinTransformations) where
 
+import           Control.Applicative            (liftA2)
+import           Control.Monad                  (forM, (<=<))
+import           Control.Monad.Reader           (MonadReader (local),
+                                                 ReaderT (runReaderT), asks)
+import           Control.Monad.State            (StateT (runStateT), modify)
+import           Control.Monad.Trans.Maybe      (MaybeT (..), hoistMaybe)
+import           Data.Foldable                  (find, fold, toList)
+import           Data.Function                  (on)
+import           Data.Map                       (Map)
+import qualified Data.Map                       as Map
+import           Data.Set                       (Set)
+import qualified Data.Set                       as Set
+import           Prelude                        hiding (drop, (!!))
 
-import           Control.Applicative          (liftA2)
-import           Control.Monad                (forM, (<=<))
-import           Control.Monad.Reader         (MonadReader (local),
-                                               ReaderT (runReaderT), asks)
-import           Control.Monad.State          (StateT (runStateT), modify)
-import           Control.Monad.Trans.Maybe    (MaybeT (..), hoistMaybe)
-import           Data.Foldable                (find, toList, fold)
-import Data.Function (on)
-import           Data.Map                     (Map)
-import qualified Data.Map                     as Map
-import           Data.Set                     (Set)
-import qualified Data.Set                     as Set
-import           Prelude                      hiding (drop, (!!))
-
-import           Agda.Compiler.Backend        hiding (Prim)
-import           Agda.Llvm.Grin as G
-import           Agda.Llvm.HeapPointsToType
-import           Agda.Llvm.Utils
+import           Agda.Compiler.Backend          hiding (Prim)
 import           Agda.Syntax.Common.Pretty
 import           Agda.TypeChecking.Substitute
 import           Agda.Utils.Functor
-import           Agda.Utils.Impossible (impossible, __IMPOSSIBLE__)
+import           Agda.Utils.Impossible          (__IMPOSSIBLE__, impossible)
 import           Agda.Utils.Lens
 import           Agda.Utils.List
-import           Agda.Utils.List1             (List1, pattern (:|), (<|))
-import qualified Agda.Utils.List1             as List1
+import           Agda.Utils.List1               (List1, pattern (:|), (<|))
+import qualified Agda.Utils.List1               as List1
 import           Agda.Utils.Maybe
+
+import           Compiler.Grin.Grin             as G
+import           Compiler.Grin.HeapPointsToType
+import           Utils.Utils
 
 newtype TagInfo = TagInfo{unTagInfo :: Map Abs (Set Tag)}
 
@@ -275,7 +276,7 @@ leftUnitLaw (Unit (ConstantNode tag1 vs) `Bind` LAltConstantNode tag2 xs t)
   vs' = raise numSubst $ reverse (take numSubst vs)
   -- Substitute away pattern variable usage
   t' = foldr applySubst (leftUnitLaw t) (zipWith inplaceS [0 ..] vs')
-  -- Remove pattern variables by strengthening 
+  -- Remove pattern variables by strengthening
   t'' = applySubst (strengthenS impossible numSubst) t'
 -- -- unit (tag v₁ v₂) ; λ x →
 -- -- 〈t 〉
@@ -304,7 +305,7 @@ normalise t = t
 
 data UpdateCxt = UpdateCxt
   { tagInfo :: TagInfo
-  , vars   :: [Abs]
+  , vars    :: [Abs]
   }
 
 initUpdateCxt :: TagInfo -> GrinDefinition -> UpdateCxt
@@ -360,8 +361,8 @@ specializeUpdate tagInfo def = do
 
   -- Returning eval/update [Boquist 1999, p. 95]
   -- FIXME ugly
-  go (Fetch' mtag n1 moffset     `Bind` LAltVar x1 
-     (Case v1 t alts             `Bind` LAltVar x2 
+  go (Fetch' mtag n1 moffset     `Bind` LAltVar x1
+     (Case v1 t alts             `Bind` LAltVar x2
      (Update Nothing n2 (Var n3) `BindEmpty`
      (Unit (Var n3')))))
     | n3' == n3 = do
@@ -369,8 +370,8 @@ specializeUpdate tagInfo def = do
     let tags = maybe (error $ "CANNOT FIND " ++ show x) Set.toList $ Map.lookup x (unTagInfo tagInfo)
     alts' <- mapM (caltConstantNode <*> genBody) tags
     -- Rerun the transformation so it matches the case pattern
-    go (Fetch' mtag n1 moffset     `Bind` LAltVar x1 
-       (Case v1 t alts             `Bind` LAltVar x2 
+    go (Fetch' mtag n1 moffset     `Bind` LAltVar x1
+       (Case v1 t alts             `Bind` LAltVar x2
        (Update Nothing n2 (Var n3) `BindEmpty`
         Case (Var n3') Unreachable alts')))
     where
@@ -425,7 +426,7 @@ specializeUpdate tagInfo def = do
 -- Returns: (update n₁' n₂', 〈m 〉, case n₂ of alts)
 -- TODO use splitLaltWithVars
 caseUpdateView :: Term -> Maybe (Tag -> Term, Term -> Term, Term)
-caseUpdateView (Update Nothing n v1 `BindEmpty` t) = go IdS id t 
+caseUpdateView (Update Nothing n v1 `BindEmpty` t) = go IdS id t
   where
   go :: Substitution' Val
      -> (Term -> Term)
@@ -494,9 +495,9 @@ vectorize _ t = pure t
 
 -- Should this be part of propagateConstant?
 constantNodeUpdate :: Term -> Term
-constantNodeUpdate (Update (Just tag) n (VariableNode _ vs)) = 
+constantNodeUpdate (Update (Just tag) n (VariableNode _ vs)) =
     Update (Just tag) n $ ConstantNode tag (take (tagArity tag) vs)
-constantNodeUpdate (t1 `Bind` (splitLalt -> (mkAlt, t2))) = 
+constantNodeUpdate (t1 `Bind` (splitLalt -> (mkAlt, t2))) =
   constantNodeUpdate t1 `Bind` mkAlt (constantNodeUpdate t2)
 constantNodeUpdate(Case v t alts) = Case v (constantNodeUpdate t) (map step alts)
   where step (splitCalt -> (mkAlt, t)) = mkAlt (constantNodeUpdate t)
@@ -514,17 +515,17 @@ constantNodeUpdate t = t
 --   Cnil  → <t2>
 --   Ccons → <t3> [x₁ / x₃, x₂ / x₄]
 simplifyCase :: Term -> Term
-simplifyCase (Case (ConstantNode tag vs) t alts) = 
+simplifyCase (Case (ConstantNode tag vs) t alts) =
   Case (Tag tag) (simplifyCase t) (map step alts)
   where
   step (splitCalt -> (mkAlt, t)) = substPatternBinds vs (mkAlt (simplifyCase t))
-simplifyCase (Case (VariableNode n vs) t alts) = 
+simplifyCase (Case (VariableNode n vs) t alts) =
   Case (Var n) (simplifyCase t) (map step alts)
   where
   step (splitCalt -> (mkAlt, t)) = substPatternBinds vs (mkAlt (simplifyCase t))
 simplifyCase (Case v t alts) = Case v (simplifyCase t) $ map step alts
   where
-  step (splitCalt -> (mkAlt, t)) = mkAlt $ simplifyCase t 
+  step (splitCalt -> (mkAlt, t)) = mkAlt $ simplifyCase t
 simplifyCase (t1 `Bind` (splitLalt -> (mkAlt, t2))) = simplifyCase t1 `Bind` mkAlt (simplifyCase t2)
 simplifyCase term = term
 
@@ -535,7 +536,7 @@ substPatternBinds vs (CAltConstantNode tag xs t) = CAltTag tag t''
   vs' = raise numSubst $ reverse (take numSubst vs)
   -- Substitute away pattern variable usage
   t' = foldr applySubst t (zipWith inplaceS [0 ..] vs')
-  -- Remove pattern variables by strengthening 
+  -- Remove pattern variables by strengthening
   t'' = applySubst (strengthenS impossible numSubst) t'
 substPatternBinds _ alt = alt
 
@@ -547,13 +548,13 @@ substPatternBinds _ alt = alt
 -- >>>
 -- <t1>
 -- fetch n [1]; λ x₂ →
--- fetch n [2]; λ x₃ → 
+-- fetch n [2]; λ x₃ →
 -- fetch n [3]; λ x₄ →
 -- <t2>
 -- TODO returning fetch [Boquist 1999, p. 105]
 splitFetch :: Term -> Term
 splitFetch (Fetch' mtag n Nothing `Bind` LAltConstantNode _ xs t) = fetchRest mtag n xs (splitFetch t)
-splitFetch (Fetch' mtag n Nothing `Bind` LAltVariableNode x xs t) = 
+splitFetch (Fetch' mtag n Nothing `Bind` LAltVariableNode x xs t) =
   Fetch' mtag n (Just 1) `Bind` LAltVar x (fetchRest mtag (n + 1) xs (splitFetch t))
 splitFetch (t1 `Bind` (splitLalt -> (mkAlt, t2))) = splitFetch t1 `Bind` mkAlt (splitFetch t2)
 splitFetch (Case v t alts) = Case v (splitFetch t) $ map step alts
@@ -565,7 +566,7 @@ fetchRest :: Maybe Tag -> Int -> [Abs] -> Term -> Term
 fetchRest mtag n xs t = foldr (uncurry fetch) t (zip [2 ..] xs)
   where
   fetch offset x t = Fetch' mtag (n + offset - 2) (Just offset) `Bind` LAltVar x t
- 
+
 
 
 -- TODO
@@ -622,7 +623,7 @@ hoistFetch n x1 x2 t offset =
     updateAlts  :: List1 Abs -> [CAlt] -> mf [CAlt]
     updateAlts xs = mapM step
       where
-      step (CAltTag tag t) = 
+      step (CAltTag tag t) =
         CAltTag tag <$> caseMaybe (prependFetchOnUse tag xs t)
           -- Strengthen alternatives which didn't prepend fetch
           (pure $ strengthen (error $ "DIDN'T PREPEND FETCH:\n" ++ prettyShow t) t)
@@ -676,7 +677,7 @@ propagateConstant :: Term -> Term
 propagateConstant (Case (Tag tag1) _ alts) = propagateConstant $ headWithDefault __IMPOSSIBLE__ (mapMaybe step alts)
   where
   step (CAltTag tag2 t) = boolToMaybe (tag2 == tag1) t
-  step _ = Nothing
+  step _                = Nothing
 propagateConstant (Case v t alts) = Case v (propagateConstant t) (map step alts)
   where
   step (splitCalt -> (mkAlt, t)) = mkAlt (propagateConstant t)

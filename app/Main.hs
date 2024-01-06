@@ -1,7 +1,7 @@
 module Main where
 
-import           Agda.Llvm.Compiler
-import           Agda.Main
+import           Agda.Main (runAgda)
+import           Compiler.Llvm.Compiler (llvmBackend)
 
 main :: IO ()
 main = runAgda [llvmBackend]

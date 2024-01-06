@@ -1,51 +1,57 @@
+{-# LANGUAGE BlockArguments      #-}
+{-# LANGUAGE LambdaCase          #-}
 {-# LANGUAGE OverloadedRecordDot #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE ViewPatterns        #-}
-{-# LANGUAGE LambdaCase #-}
-{-# LANGUAGE BlockArguments #-}
 
-module Agda.Llvm.GrinInterpreter 
+module Compiler.Grin.GrinInterpreter
   ( interpretGrin
   , printInterpretGrin ) where
 
-import Prelude hiding ((!!))
-import Control.Monad.Except (MonadError (throwError), tryError, ExceptT, Except, runExceptT, liftEither)
-import           Control.Monad             (ap, (>=>), when, (<=<))
-import           Control.Monad.Reader      (MonadIO (liftIO), MonadReader, asks, ask,
-                                            ReaderT (runReaderT), local)
-import           Control.Monad.State       (StateT (runStateT), evalStateT, get,
-                                            gets, MonadState)
+import           Control.Monad             (ap, when, (<=<), (>=>))
+import           Control.Monad.Except      (Except, ExceptT,
+                                            MonadError (throwError), liftEither,
+                                            runExceptT, tryError)
+import           Control.Monad.Reader      (MonadIO (liftIO), MonadReader,
+                                            ReaderT (runReaderT), ask, asks,
+                                            local)
+import           Control.Monad.State       (MonadState, StateT (runStateT),
+                                            evalStateT, get, gets)
 import           Control.Monad.Trans.Maybe (MaybeT (..), hoistMaybe, runMaybeT)
 import           Data.Bifunctor            (Bifunctor (bimap))
-import           Data.Foldable             (find, toList, foldlM, maximumBy)
+import           Data.Foldable             (find, foldlM, maximumBy, toList)
 import           Data.Function             (on)
 import           Data.List                 (intercalate, intersperse, singleton,
                                             sortBy, sortOn)
+import           Data.List.Extra           (cons)
 import           Data.Map                  (Map)
 import qualified Data.Map                  as Map
+import           Data.Ord                  (Down (Down), comparing)
 import           Data.Tuple.Extra          (dupe, second)
+import           GHC.Stack.Types           (CallStack, HasCallStack)
+import           Prelude                   hiding ((!!))
 
 import           Agda.Compiler.Backend     hiding (Prim, initEnv)
-import           Agda.Llvm.Grin
-import           Agda.Llvm.Utils
 import           Agda.Syntax.Common.Pretty
 import           Agda.Syntax.Literal       (Literal (LitNat))
+import           Agda.Utils.CallStack      (withCallerCallStack)
+import           Agda.Utils.Either         (maybeToEither)
 import           Agda.Utils.Functor
-import           Agda.Utils.Impossible (__IMPOSSIBLE__)
+import           Agda.Utils.Impossible     (__IMPOSSIBLE__)
 import           Agda.Utils.Lens
 import           Agda.Utils.List
 import           Agda.Utils.Maybe
-import           Data.Ord                  (Down (Down), comparing)
-import Agda.Utils.Either (maybeToEither)
-import Data.List.Extra (cons)
-import GHC.Stack.Types (CallStack, HasCallStack)
-import Agda.Utils.CallStack (withCallerCallStack)
+
+
+import           Compiler.Grin.Grin
+import           Utils.Utils
+
 
 ------------------------------------------------------------------------
 -- * Data types and auxiliary functions
 ------------------------------------------------------------------------
 
-data Value 
+data Value
   = BasNat Integer
   | VTag Tag
   | VNode Tag [Value]
@@ -63,7 +69,7 @@ instance Pretty Value where
   pretty Undefined = text "⊥"
   pretty (Loc loc) = pretty loc
 
-data Error 
+data Error
   = NoStackFrame
   | DanglingStackPointer Abs
   | DanglingHeapPointer Loc
@@ -76,10 +82,10 @@ data Error
   | TagMismatch Tag Tag
   | DefinitionNotInScope
   | MainNotInScope
-  deriving Show 
+  deriving Show
 
 errorString :: Error -> String
-errorString = \case 
+errorString = \case
   NoStackFrame                 -> "NoStackFrame"
   DanglingStackPointer{}       -> "DanglingStackPointer"
   DanglingHeapPointer{}        -> "DanglingHeapPointer"
@@ -97,13 +103,13 @@ mkErrorDoc :: Error -> String -> Doc
 mkErrorDoc e s = text (errorString e) <> text ":" <> space <> text s
 
 -- TODO
-instance Pretty Error where 
+instance Pretty Error where
   pretty e = case e of
     NoStackFrame -> mkErrorDoc e "Stack is empty!"
-    _ -> mkErrorDoc e ""
+    _            -> mkErrorDoc e ""
 
 data InterpreterError = InterpreterError
-  { err      :: Error 
+  { err      :: Error
   , location :: CallStack}
   deriving Show
 
@@ -114,7 +120,7 @@ instance Pretty InterpreterError where
   pretty (InterpreterError err loc) = text (prettyCallStackShort loc) <> text "\n" <> pretty err
 
 throw :: (HasCallStack, MonadError InterpreterError m) => Error -> m a
-throw e = withCallerCallStack $ throwError . InterpreterError e  
+throw e = withCallerCallStack $ throwError . InterpreterError e
 
 data HeapNode = HeapNode Integer Tag [Value]
 
@@ -138,12 +144,12 @@ prettyStackFrame stackFrame = vcat $ map step stackFrame
   where
   step (x, v) = pretty x <+> text "→" <+> pretty v
 
-data Ctx = Ctx 
+data Ctx = Ctx
   { stack :: Stack
   , defs  :: [GrinDefinition] }
 
 initCtx :: [GrinDefinition] -> Ctx
-initCtx defs = Ctx 
+initCtx defs = Ctx
   { stack = [mempty]
   , defs = defs }
 
@@ -158,21 +164,21 @@ stackFrameLookup n =  do
   stack <- view lensStack
   liftEither do
     stackFrame <- caseList stack (Left $ interpreterError NoStackFrame) (const . Right)
-    maybeToEither 
+    maybeToEither
       do interpreterError $ StackFrameIndexOutOfBounds n stackFrame
       do snd <$> stackFrame !!! n
 
 stackFrameLocal :: (HasCallStack, MonadError InterpreterError m, MonadReader Ctx m) => Abs -> Value -> m a -> m a
 stackFrameLocal x v f = do
   stack <- view lensStack
-  g <- liftEither $ caseList stack (Left $ interpreterError NoStackFrame) 
+  g <- liftEither $ caseList stack (Left $ interpreterError NoStackFrame)
                   $ Right .: const . cons . cons (x, v)
   locally lensStack g f
 
 stackFrameLocals :: (HasCallStack, MonadReader Ctx m, MonadError InterpreterError m) => [Abs] -> [Value] -> m a -> m a
 stackFrameLocals [] [] = id
 stackFrameLocals xs vs = foldl do \f (x, v) -> f . stackFrameLocal x v
-                               do id 
+                               do id
                                do zip xs (vs ++ repeat Undefined)
 
 data Env = Env
@@ -183,7 +189,7 @@ data Env = Env
 initEnv :: Env
 initEnv = Env
   { heap = mempty
-  , allocation_info = mempty 
+  , allocation_info = mempty
   , highest_memory_usage = mempty }
 
 lensHeap :: Lens' Env Heap
@@ -203,7 +209,7 @@ allocate (VNode tag vs) = do
   lensHeap .= heap'
   lensAllocationInfo %= adjustWithDefault tag succ 1
   highest_memory_usage <- use lensHighestMemoryUsage
-  when do on (>) length heap' highest_memory_usage 
+  when do on (>) length heap' highest_memory_usage
        do lensHighestMemoryUsage .= heap'
   pure loc
 allocate v = throw (UnboxedAllocation v)
@@ -211,8 +217,8 @@ allocate v = throw (UnboxedAllocation v)
 heapLookup :: (HasCallStack, MonadError InterpreterError m, MonadState Env m) => Loc -> m HeapNode
 heapLookup loc = do
   heap <- gets heap
-  liftEither $ maybeToEither 
-    do interpreterError (DanglingHeapPointer loc) 
+  liftEither $ maybeToEither
+    do interpreterError (DanglingHeapPointer loc)
     do Map.lookup loc heap
 
 update :: (HasCallStack, MonadError InterpreterError m, MonadState Env m) => Loc -> Tag -> [Value] -> m ()
@@ -238,17 +244,17 @@ fromHeapNode (HeapNode _ tag vs) = VNode tag vs
 
 fetch :: (HasCallStack, MonadError InterpreterError m, MonadState Env m, MonadReader Ctx m) => Int -> m HeapNode
 fetch n = do
-  v <- stackFrameLookup n 
+  v <- stackFrameLookup n
   case v of
     Loc loc -> heapLookup loc
-    v -> throw (ExpectedHeapPointer v)
+    v       -> throw (ExpectedHeapPointer v)
 
 ------------------------------------------------------------------------
 -- * The evaluator
 ------------------------------------------------------------------------
 
 eval :: ( HasCallStack, MonadState Env m, MonadReader Ctx m
-        , MonadError InterpreterError m, MonadFresh Int m ) 
+        , MonadError InterpreterError m, MonadFresh Int m )
      => Term
      -> m Value
 eval (App (Def "printf") [v]) = evalVal v
@@ -266,30 +272,30 @@ eval (Store _ v `Bind` LAltVar x t2) = do
 eval (FetchOpaque n) = fromHeapNode <$> fetch n
 
 eval (Fetch tag n) = do
-  HeapNode _ tag' vs <- fetch n 
-  if tag' == tag 
-    then pure (VNode tag vs) 
+  HeapNode _ tag' vs <- fetch n
+  if tag' == tag
+    then pure (VNode tag vs)
     else throw (TagMismatch tag tag')
 
 eval (FetchOpaqueOffset n i) = sel i <$> fetch n
 
 eval (FetchOffset tag n i) = do
-  HeapNode m tag' vs <- fetch n 
-  if tag' == tag 
-    then pure $ sel i (HeapNode m tag vs) 
+  HeapNode m tag' vs <- fetch n
+  if tag' == tag
+    then pure $ sel i (HeapNode m tag vs)
     else throw (TagMismatch tag tag')
 
-eval (Update mtag n v) 
+eval (Update mtag n v)
   | Nothing <- mtag = go
-  | Just tag <- mtag 
-  , ConstantNode tag' _ <- v 
+  | Just tag <- mtag
+  , ConstantNode tag' _ <- v
   , tag' == tag = go
-  where 
+  where
   go = do
     v' <- stackFrameLookup n
     loc <- case v' of
       Loc loc -> pure loc
-      v'       -> throw (ExpectedHeapPointer v')
+      v'      -> throw (ExpectedHeapPointer v')
 
     v' <- evalVal v
     case v' of
@@ -302,12 +308,12 @@ eval (UpdateOffset n 0 v) = do
   v' <- evalVal v
   i <- case v' of
     BasNat i -> pure i
-    v'        -> throw (ExpectedNat v')
-  
+    v'       -> throw (ExpectedNat v')
+
   v' <- stackFrameLookup n
   case v' of
     Loc loc -> updateReferenceCount loc i
-    v'       -> throw (ExpectedHeapPointer v')
+    v'      -> throw (ExpectedHeapPointer v')
   pure VEmpty
 
 eval (t1 `Bind` LAltVar x t2) = do
@@ -317,7 +323,7 @@ eval (t1 `Bind` LAltVar x t2) = do
 eval (t1 `Bind` LAltConstantNode tag1 xs t2) = do
   v <- eval t1
   case v of
-    VNode tag2 vs 
+    VNode tag2 vs
       | tag2 == tag1 -> stackFrameLocals xs vs (eval t2)
       | otherwise    -> throw (TagMismatch tag1 tag2)
     v                -> throw (ExpectedNode v)
@@ -391,9 +397,9 @@ eval (Case v def alts) = do
   selAlt (BasNat n1) alts t =
     case matching of
       [] | t == Unreachable -> error $ "Couln't match lit " ++ prettyShow n1
-      [] -> ([], t)
-      [t] -> ([], t)
-      _   -> __IMPOSSIBLE__ -- TODO
+      []                    -> ([], t)
+      [t]                   -> ([], t)
+      _                     -> __IMPOSSIBLE__ -- TODO
     where
     matching = forMaybe alts $ \case
       CAltLit (LitNat n2) t -> boolToMaybe (n2 == n1) t
@@ -417,7 +423,7 @@ evalVal (ConstantNode tag vs) = VNode tag . toList <$> mapM evalVal vs
 evalVal (VariableNode n vs) = do
   v <- stackFrameLookup n
   case v of
-    VTag tag -> VNode tag <$> mapM evalVal vs 
+    VTag tag -> VNode tag <$> mapM evalVal vs
     v        -> throw (ExpectedTag v)
 evalVal (Tag tag) = pure (VTag tag)
 evalVal Empty   = pure VEmpty
@@ -431,16 +437,16 @@ evalVal _ = __IMPOSSIBLE__
 -- Orphaned instance
 instance MonadFresh i m => MonadFresh i (ExceptT e m)
 
-interpretGrin :: (MonadIO m, MonadFresh Int m) 
-              => [GrinDefinition] 
+interpretGrin :: (MonadIO m, MonadFresh Int m)
+              => [GrinDefinition]
               -> m (Either InterpreterError (Value, Env))
-interpretGrin defs 
-  | Just main <- find gr_isMain defs = 
+interpretGrin defs
+  | Just main <- find gr_isMain defs =
     runExceptT $ flip runReaderT (initCtx defs)
-               $ flip runStateT initEnv 
+               $ flip runStateT initEnv
                $ eval main.gr_term
   | otherwise = pure $ Left (interpreterError MainNotInScope)
-  
+
 printResult :: (Value, Env) -> IO ()
 printResult (val, env) = do
   let allocation_counts =

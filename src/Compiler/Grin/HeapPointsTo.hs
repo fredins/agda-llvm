@@ -3,7 +3,7 @@
 {-# LANGUAGE OverloadedRecordDot      #-}
 {-# LANGUAGE OverloadedStrings        #-}
 {-# OPTIONS_GHC -Wno-name-shadowing #-}
-{-# LANGUAGE ViewPatterns #-}
+{-# LANGUAGE ViewPatterns             #-}
 
 -----------------------------------------------------------------------
 -- | * GRIN heap points-to analysis
@@ -29,44 +29,45 @@
 --   evident if the location is a possible value of a variable which is used
 --   more than once.
 
-module Agda.Llvm.HeapPointsTo
+module Compiler.Grin.HeapPointsTo
   ( heapPointsTo
   ) where
 
-import           Control.Monad.Reader      (MonadReader (ask, local), Reader,
-                                            asks, runReader, ReaderT)
-import           Control.Monad.State       (State, evalState, gets, modify)
-import Control.Monad (join)
-import           Data.Foldable             (foldrM, toList, fold)
-import Data.Tuple.Extra (both)
-import           Data.Function             (on)
-import           Data.List                 (find, insert, intercalate,
-                                            intersectBy, nub, partition, sortOn,
-                                            (\\))
-import           Data.List.Extra           (firstJust)
-import           Data.Map                  (Map)
-import qualified Data.Map                  as Map
-import           Data.Set                  (Set)
-import qualified Data.Set                  as Set
-import           Prelude                   hiding ((!!))
+import           Control.Monad                  (join)
+import           Control.Monad.Reader           (MonadReader (ask, local),
+                                                 Reader, ReaderT, asks,
+                                                 runReader)
+import           Control.Monad.State            (State, evalState, gets, modify)
+import           Data.Bifunctor                 (Bifunctor (bimap))
+import           Data.Foldable                  (fold, foldrM, toList)
+import           Data.Function                  (on)
+import           Data.List                      (find, insert, intercalate,
+                                                 intersectBy, nub, partition,
+                                                 sortOn, (\\))
+import           Data.List.Extra                (firstJust)
+import           Data.Map                       (Map)
+import qualified Data.Map                       as Map
+import           Data.Set                       (Set)
+import qualified Data.Set                       as Set
+import           Data.Tuple.Extra               (both)
+import           GHC.IO                         (unsafePerformIO)
+import           Prelude                        hiding ((!!))
 
-import           Agda.Llvm.Grin            hiding (cnat)
-import           Agda.Llvm.Utils
 import           Agda.Syntax.Common.Pretty
-import           Agda.Utils.Function       (applyWhen)
+import           Agda.Utils.Function            (applyWhen)
 import           Agda.Utils.Functor
 import           Agda.Utils.Impossible
 import           Agda.Utils.Lens
 import           Agda.Utils.List
-import           Agda.Utils.List1             (List1, pattern (:|), (<|))
-import qualified Agda.Utils.List1          as List1
+import           Agda.Utils.List1               (List1, pattern (:|), (<|))
+import qualified Agda.Utils.List1               as List1
 import           Agda.Utils.Maybe
-import Agda.TypeChecking.SizedTypes.Utils (trace)
-import GHC.IO (unsafePerformIO)
-import Data.Bifunctor (Bifunctor(bimap))
-import qualified Agda.Llvm.Utils as Map
-import Agda.Llvm.HeapPointsToType
-import qualified Agda.Llvm.SolveEquations as Solve -- New heap points-to equation solver which uses depth-first ordering
+
+
+import           Compiler.Grin.Grin             hiding (cnat)
+import           Compiler.Grin.HeapPointsToType
+import qualified Compiler.Grin.SolveEquations   as Solve
+import           Utils.Utils
 
 
 -- TODO
@@ -137,14 +138,14 @@ countMultiplicities def = evalState (go def.gr_term) def.gr_args where
   go (Error _) = pure mempty
 
   goLalt :: LAlt -> State [Abs] Multiplicities
-  goLalt (LAltVar abs t)             = modify (abs:) *> go t
+  goLalt (LAltVar abs t)           = modify (abs:) *> go t
   goLalt (LAltConstantNode _ xs t) = modify (reverse xs ++) *> go t
-  goLalt (LAltEmpty t)               = go t
+  goLalt (LAltEmpty t)             = go t
 
 
   goCalt :: CAlt -> State [Abs] Multiplicities
   goCalt (CAltConstantNode _ xs t) = modify (reverse xs ++) *> go t
-  goCalt (CAltLit _ t)               = go t
+  goCalt (CAltLit _ t)             = go t
 
 
 
@@ -368,8 +369,8 @@ deriveEquations term = case term of
         h <- deriveEquations t
         pure $ foldl (<>) h hs
       where
-        deriveEquationsAlt (CAltLit _ t)  = deriveEquations t
-        deriveEquationsAlt _ = __IMPOSSIBLE__
+        deriveEquationsAlt (CAltLit _ t) = deriveEquations t
+        deriveEquationsAlt _             = __IMPOSSIBLE__
 
     Bind (App (Def "eval") [Var _]) (LAltConstantNode tag [x] t) | tag == natTag ->
       localAbs x $
@@ -390,7 +391,7 @@ deriveEquations term = case term of
         valToValue  _      = __IMPOSSIBLE__
 
     App (Def defName) vs -> do
-        name <- asks $ gr_name. currentDef 
+        name <- asks $ gr_name. currentDef
         caller_return <- asks (fromMaybe (error $ "no return: " ++ name) . gr_return . currentDef)
         callee <- asks $ fromMaybe (error $ "can't find " ++ defName) . find ((defName==) . gr_name) . defs
         let callee_return = fromMaybe __IMPOSSIBLE__ callee.gr_return
@@ -528,7 +529,7 @@ solveEquations defs AbstractContext{fHeap = AbsHeap heapEqs, fEnv = AbsEnv envEq
     collectEqs _ Bas = Nothing
 
 simplify :: [GrinDefinition] -> AbstractContext -> Value -> Value
-simplify defs cxt@AbstractContext{fHeap, fEnv} = go 
+simplify defs cxt@AbstractContext{fHeap, fEnv} = go
   where
   envLookup :: Abs -> Maybe Value
   envLookup abs = lookup abs $ unAbsEnv fEnv
@@ -573,7 +574,7 @@ simplify defs cxt@AbstractContext{fHeap, fEnv} = go
       -- isSelfReference (EVAL v) = isSelfReference v
       -- isSelfReference (FETCH v) = isSelfReference v
       isSelfReference (Abs (envLookup -> Just v)) = v == Union v1 v2
-      isSelfReference _ = False
+      isSelfReference _                           = False
 
   go (Pick v1 tag1 i)
     | VNode tag2 vs <- v1

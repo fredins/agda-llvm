@@ -1,7 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ViewPatterns      #-}
 
-module Agda.Llvm.Llvm (module Agda.Llvm.Llvm) where
+module Compiler.Llvm.Llvm (module Compiler.Llvm.Llvm) where
 
 import           Data.List                 (intercalate, intersperse)
 import           Data.String               (IsString)
@@ -18,7 +18,7 @@ import           Control.Arrow             (Arrow (first))
 import           Control.Monad             (forM)
 import           Data.Foldable             (toList)
 import           Data.Semigroup            (sconcat)
-import Agda.Llvm.Utils (list1splitOnDots)
+import qualified Utils.List1               as List1
 
 data Instruction =
     Define CallingConvention Type GlobalId [(Type, LocalId)] (List1 Instruction)
@@ -82,7 +82,7 @@ mkGlobalId (prettyShow -> s) =
     "malloc" -> "@malloc"
     _        -> '@' : '"' : s `snoc` '"'
   where
-  shortName = List1.last (list1splitOnDots s)
+  shortName = List1.last (List1.splitOnDots s)
 
 
 mkLit :: Int -> Val
@@ -137,7 +137,7 @@ insertvalue :: Val -> Val -> Int -> Instruction
 insertvalue v  = Insertvalue nodeTySyn v I64
 
 getelementptr :: LocalId -> Int -> Instruction
-getelementptr ptr offset = 
+getelementptr ptr offset =
   Getelementptr nodeTySyn $ (Ptr, LocalId ptr) :| [(I32, mkLit 0), (I64, mkLit offset)]
 
 switch :: LocalId -> LocalId -> [Alt] -> Instruction
@@ -173,9 +173,9 @@ alloca = Alloca nodeTySyn
 phi :: Type -> List1 (LocalId, LocalId) -> Instruction
 phi t = Phi t . List1.map (first LocalId)
 
-data CallingConvention = Tailcc 
-                       | Fastcc 
-                       | Cc10 
+data CallingConvention = Tailcc
+                       | Fastcc
+                       | Cc10
                          deriving Show
 
 -----------------------------------------------------------------------
@@ -231,7 +231,7 @@ instance Pretty Instruction where
 
 instance Pretty Tail where
   pretty Musttail = "musttail"
-  pretty Tail = "tail"
+  pretty Tail     = "tail"
 
 instance Pretty Alt where
   pretty (Alt t v x) =
@@ -254,8 +254,8 @@ instance Pretty Val where
 instance Pretty CallingConvention where
   pretty = \case
     Tailcc -> text "tailcc"
-    Fastcc -> text "fastcc" 
-    Cc10   -> text "cc 10" 
+    Fastcc -> text "fastcc"
+    Cc10   -> text "cc 10"
 
 instance Pretty Type where
   pretty = \case

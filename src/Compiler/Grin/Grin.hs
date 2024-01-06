@@ -1,20 +1,19 @@
-{-# LANGUAGE ViewPatterns #-}
 {-# LANGUAGE LambdaCase          #-}
 {-# LANGUAGE OverloadedRecordDot #-}
 {-# LANGUAGE RecordWildCards     #-}
 {-# LANGUAGE TypeFamilies        #-}
+{-# LANGUAGE ViewPatterns        #-}
 
 
-module Agda.Llvm.Grin (module Agda.Llvm.Grin) where
+module Compiler.Grin.Grin (module Compiler.Grin.Grin) where
 
 import           Control.Monad                (replicateM)
-import Data.List (singleton)
-import Data.Function (on)
-import           Data.Set               (Set)
-import qualified Data.Set               as Set
+import           Data.Function                (on)
+import           Data.List                    (singleton)
+import           Data.Set                     (Set)
+import qualified Data.Set                     as Set
 
 import           Agda.Compiler.Backend        hiding (Prim)
-import           Agda.Llvm.Utils
 import           Agda.Syntax.Common.Pretty
 import           Agda.Syntax.Internal         (Type)
 import           Agda.Syntax.Literal
@@ -22,9 +21,12 @@ import           Agda.TypeChecking.Substitute hiding (applySubstTerm)
 import           Agda.Utils.Function
 import           Agda.Utils.Impossible
 import           Agda.Utils.Lens
-import           Agda.Utils.List              
+import           Agda.Utils.List
 import qualified Agda.Utils.List1             as List1
 import           Agda.Utils.Maybe
+
+import qualified Utils.List1                  as List1
+import           Utils.Utils
 
 
 
@@ -49,7 +51,7 @@ setGrTerm :: LensSet GrinDefinition Term
 setGrTerm = set lensGrTerm
 
 getShortName :: GrinDefinition -> String
-getShortName = List1.last . list1splitOnDots . gr_name
+getShortName = List1.last . List1.splitOnDots . gr_name
 
 
 -- TODO
@@ -57,7 +59,7 @@ getShortName = List1.last . list1splitOnDots . gr_name
 -- • Combine Update and UpdateOffset
 -- • Rename *Offset to *Index
 -- • Maybe rename Abs
--- • Think about using another syntax for variables 
+-- • Think about using another syntax for variables
 --   - Need to have global access and/or tag info and/or type
 --   - Need to have easy substitutions/weakining/strengthening
 --   - Idea: use De Bruijn indicies as normal but use AbsInfo (type, tagInfo)
@@ -83,8 +85,8 @@ data Val = ConstantNode Tag [Val]
            deriving (Show, Eq, Ord)
 
 allVariables (Var n : vs) = (n :) <$> allVariables vs
-allVariables [] = Just []
-allVariables _ = Nothing
+allVariables []           = Just []
+allVariables _            = Nothing
 
 pattern ConstantNodeVect tag ns <- ConstantNode tag (allVariables -> Just ns)
   where ConstantNodeVect tag ns = ConstantNode tag (map Var ns)
@@ -154,8 +156,8 @@ freshGid :: MonadFresh Int m => m Gid
 freshGid = Gid <$> fresh
 
 -- TODO change to LPat and remove term
-data LAlt = LAltConstantNode Tag [Abs] Term 
-          | LAltVariableNode Abs [Abs] Term 
+data LAlt = LAltConstantNode Tag [Abs] Term
+          | LAltVariableNode Abs [Abs] Term
           | LAltEmpty Term
           | LAltVar Abs Term
             deriving (Show, Eq, Ord)
@@ -218,10 +220,10 @@ laltBody = \case
   LAltEmpty t            -> t
 
 splitLalt :: LAlt -> (Term -> LAlt, Term)
-splitLalt (LAltVar x t)                 = (LAltVar x, t)
+splitLalt (LAltVar x t)               = (LAltVar x, t)
 splitLalt (LAltConstantNode tag xs t) = (LAltConstantNode tag xs, t)
-splitLalt (LAltVariableNode x xs t) = (LAltVariableNode x xs, t)
-splitLalt (LAltEmpty t)                 = (LAltEmpty, t)
+splitLalt (LAltVariableNode x xs t)   = (LAltVariableNode x xs, t)
+splitLalt (LAltEmpty t)               = (LAltEmpty, t)
 
 splitLaltWithVars :: LAlt -> (Term -> LAlt, Term, [Abs])
 splitLaltWithVars (LAltVar x t)                 = (LAltVar x, t, [x])
@@ -231,15 +233,15 @@ splitLaltWithVars (LAltEmpty t)                 = (LAltEmpty, t, [])
 
 splitCalt :: CAlt -> (Term -> CAlt, Term)
 splitCalt (CAltConstantNode tag xs t) = (CAltConstantNode tag xs, t)
-splitCalt (CAltTag tag t)               = (CAltTag tag, t)
-splitCalt (CAltLit lit t)               = (CAltLit lit, t)
-splitCalt (CAltGuard t1 t2)             = (CAltGuard t1, t2)
+splitCalt (CAltTag tag t)             = (CAltTag tag, t)
+splitCalt (CAltLit lit t)             = (CAltLit lit, t)
+splitCalt (CAltGuard t1 t2)           = (CAltGuard t1, t2)
 
 splitCaltWithVars :: CAlt -> (Term -> CAlt, Term, [Abs])
 splitCaltWithVars (CAltConstantNode tag xs t) = (CAltConstantNode tag xs, t, xs)
 splitCaltWithVars (CAltTag tag t)             = (CAltTag tag, t, [])
 splitCaltWithVars (CAltLit lit t)             = (CAltLit lit, t, [])
-splitCaltWithVars (CAltGuard t1 t2)                   = (CAltGuard t1, t2, [])
+splitCaltWithVars (CAltGuard t1 t2)           = (CAltGuard t1, t2, [])
 
 tagArity :: Tag -> Int
 tagArity = \case
@@ -337,7 +339,7 @@ applySubstTerm rho term = case term of
     | Var n' <- lookupS rho n -> Fetch' mtag n' mn
     | otherwise -> __IMPOSSIBLE__
   Update tag (lookupS rho -> Var n') v -> Update tag n' (applySubst rho v)
-  Update{} -> __IMPOSSIBLE__ 
+  Update{} -> __IMPOSSIBLE__
   UpdateOffset (lookupS rho -> Var n') offset v -> UpdateOffset n' offset (applySubst rho v)
   UpdateOffset{} -> __IMPOSSIBLE__
   Error{} -> term
@@ -397,7 +399,7 @@ instance Pretty GrinDefinition where
     [ pretty gr_name <+> {- s <+>  -} sep (map pretty gr_args) <+> text "="
     , nest 2 $ pretty gr_term
     ]
-    where 
+    where
     s = maybe (text "") ((text "ret_" <>) . pretty) gr_return
 
 
@@ -416,9 +418,9 @@ instance Pretty Term where
         ]
     where
       go (LAltConstantNode tag xs _) = pretty tag <+> sep (map pretty xs)
-      go (LAltVariableNode x xs _) = sep (map pretty $ x : xs)
-      go (LAltVar x _)                 = pretty x
-      go (LAltEmpty _)                 = text "()"
+      go (LAltVariableNode x xs _)   = sep (map pretty $ x : xs)
+      go (LAltVar x _)               = pretty x
+      go (LAltEmpty _)               = text "()"
 
       isComplicated = case t of
         Bind{} -> True
@@ -439,8 +441,8 @@ instance Pretty Term where
       [ text "case" <+> pretty n <+> text "of"
       , nest 2 $ vcat $ applyWhen (not $ isUnreachable t) (`snoc` docDefault) $ map pretty alts ]
     where
-    docDefault = 
-      sep [ text "_ →" 
+    docDefault =
+      sep [ text "_ →"
           , nest 2 $ pretty t
           ]
 
@@ -448,7 +450,7 @@ instance Pretty Term where
     where
     docOffset = maybe mempty (brackets . pretty) moffset
     docTag = maybe mempty pretty mtag
-    
+
   pretty (Update Nothing v1 v2)
     | ConstantNode{} <- v2 = text "update" <+> pretty v1 <+> parens (pretty v2)
     | VariableNode{} <- v2 = text "update" <+> pretty v1 <+> parens (pretty v2)
@@ -462,8 +464,8 @@ instance Pretty Term where
   pretty (UpdateOffset n1 n2 v) = text "update" <+> pretty n1  <+> brackets (pretty n2) <+> pretty v
 
 instance Pretty Val where
-  pretty (VariableNode n vs) = sep (pretty n : map pretty vs)
-  pretty (ConstantNode tag vs)   = sep (pretty tag : map pretty vs)
+  pretty (VariableNode n vs)   = sep (pretty n : map pretty vs)
+  pretty (ConstantNode tag vs) = sep (pretty tag : map pretty vs)
   pretty (Tag tag)             = pretty tag
   pretty Empty                 = text "()"
   pretty (Lit lit)             = text "#" <> pretty lit

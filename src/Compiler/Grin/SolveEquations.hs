@@ -3,55 +3,56 @@
 {-# LANGUAGE OverloadedRecordDot      #-}
 {-# LANGUAGE OverloadedStrings        #-}
 {-# OPTIONS_GHC -Wno-name-shadowing #-}
-{-# LANGUAGE ViewPatterns #-}
+{-# LANGUAGE ViewPatterns             #-}
 
 
-module Agda.Llvm.SolveEquations (solveEquations) where
+module Compiler.Grin.SolveEquations (solveEquations) where
 
-import           Control.Monad.Reader      (MonadReader (ask, local), Reader,
-                                            asks, runReader, ReaderT)
-import           Control.Monad.State       (State, evalState, gets, modify)
-import Control.Monad (join)
-import           Data.Foldable             (foldrM, toList, fold)
-import Data.Tuple.Extra (both, fst3, snd3)
-import           Data.Function             (on)
-import           Data.List                 (find, insert, intercalate,
-                                            intersectBy, nub, partition, sortOn,
-                                            (\\))
-import           Data.List.Extra           (firstJust)
-import           Data.Map                  (Map)
-import qualified Data.Map                  as Map
-import           Data.Set                  (Set)
-import qualified Data.Set                  as Set
-import           Prelude                   hiding ((!!))
+import           Control.Monad                  (join)
+import           Control.Monad.Reader           (MonadReader (ask, local),
+                                                 Reader, ReaderT, asks,
+                                                 runReader)
+import           Control.Monad.State            (State, evalState, gets, modify)
+import           Data.Foldable                  (fold, foldrM, toList)
+import           Data.Function                  (on)
+import           Data.Graph
+import           Data.List                      (find, insert, intercalate,
+                                                 intersectBy, nub, partition,
+                                                 sortOn, (\\))
+import           Data.List.Extra                (firstJust)
+import           Data.Map                       (Map)
+import qualified Data.Map                       as Map
+import           Data.Set                       (Set)
+import qualified Data.Set                       as Set
+import           Data.Tree                      (drawTree)
+import           Data.Tuple.Extra               (both, fst3, snd3)
+import           GHC.IO                         (unsafePerformIO)
+import           Prelude                        hiding ((!!))
 
-import           Agda.Llvm.Grin            hiding (cnat)
-import           Agda.Llvm.Utils
 import           Agda.Syntax.Common.Pretty
-import           Agda.Utils.Function       (applyWhen)
+import           Agda.Utils.Function            (applyWhen)
 import           Agda.Utils.Functor
 import           Agda.Utils.Impossible
 import           Agda.Utils.Lens
 import           Agda.Utils.List
-import           Agda.Utils.List1             (List1, pattern (:|), (<|))
-import qualified Agda.Utils.List1          as List1
+import           Agda.Utils.List1               (List1, pattern (:|), (<|))
+import qualified Agda.Utils.List1               as List1
 import           Agda.Utils.Maybe
 
+import           Compiler.Grin.Grin             hiding (cnat)
+import           Compiler.Grin.HeapPointsToType
+import           Utils.Utils
 
-import Data.Graph
-import Data.Tree (drawTree)
-import Agda.Llvm.HeapPointsToType 
-import GHC.IO (unsafePerformIO)
 
 childrenFromValue :: Value -> [Gid]
 childrenFromValue (Union v1 v2) = on (++) childrenFromValue v1 v2
-childrenFromValue (VNode _ vs) = concatMap childrenFromValue vs
-childrenFromValue Bas = []
-childrenFromValue (Pick v _ _) = childrenFromValue v
-childrenFromValue (EVAL v) = childrenFromValue v
-childrenFromValue (FETCH v) = childrenFromValue v
-childrenFromValue (Loc loc) = [loc.unLoc]
-childrenFromValue (Abs x) = [x.unAbs]
+childrenFromValue (VNode _ vs)  = concatMap childrenFromValue vs
+childrenFromValue Bas           = []
+childrenFromValue (Pick v _ _)  = childrenFromValue v
+childrenFromValue (EVAL v)      = childrenFromValue v
+childrenFromValue (FETCH v)     = childrenFromValue v
+childrenFromValue (Loc loc)     = [loc.unLoc]
+childrenFromValue (Abs x)       = [x.unAbs]
 
 type Node = Either (Loc, Value) (Abs, Value)
 
@@ -67,20 +68,20 @@ edgeListFromContext (AbstractContext (AbsHeap heap) (AbsEnv env)) =
 dfo :: Tree Vertex -> [Vertex]
 dfo (Node parent children) = parent : foldr (\tree vs -> vs ++ dfo tree) [] children
 
--- TODO [Boquist, 1996] recommends the depth-first ordering [Aho, 2006] but this approach doesn't 
+-- TODO [Boquist, 1996] recommends the depth-first ordering [Aho, 2006] but this approach doesn't
 --      converge for our test program. Need to look into this further.
 solveEquations :: [GrinDefinition] -> AbstractContext -> AbstractContext
-solveEquations definitions context = 
+solveEquations definitions context =
   -- logg (
-  --   "\nnode order:\n" ++ intercalate "\n" (map (render . nest 4 . pretty) nodeOrder) 
-  --   ++ 
+  --   "\nnode order:\n" ++ intercalate "\n" (map (render . nest 4 . pretty) nodeOrder)
+  --   ++
   --   "\ngid order:\n" ++ intercalate "\n" (map (render . nest 4 . pretty) gidOrder)) $
   fix definitions newContext nodeOrder
   where
   (graph, nodeFromVertex, vertexFromKey) = graphFromEdges $ edgeListFromContext context
   forest = dff graph
 
-  
+
   -- f = listCase Nothing (List1.map (fst3 . nodeFromVertex) .: (:|)) . dfo
 
   nodeOrder :: [List1 Node]
@@ -89,7 +90,7 @@ solveEquations definitions context =
   gidOrder = map (map (snd3 . nodeFromVertex) . dfo) forest
 
   newContext = AbstractContext (AbsHeap []) (AbsEnv [])
-  
+
 
 logg s x = unsafePerformIO $ do
   putStrLn s
@@ -122,18 +123,18 @@ fix defs cxt missingNodes
   where
   (cxt', missingNodes') = case missingNodes of
     [] -> (cxt,  [])
-    (Left entry :| xs) : ys -> 
+    (Left entry :| xs) : ys ->
       (heapInsert entry cxt, caseList xs ys $ \ x xs -> (x :| xs) : ys)
-    (Right entry :| xs) : ys -> 
+    (Right entry :| xs) : ys ->
       (envInsert entry cxt, caseList xs ys $ \ x xs -> (x :| xs) : ys)
-  
+
   cxt'' = fixCurrent defs cxt'
 
 
 
 -- TODO fix __IMPOSSIBLE__ cases
 simplify :: [GrinDefinition] -> AbstractContext -> Value -> Value
-simplify defs cxt@AbstractContext{fHeap, fEnv} = go 
+simplify defs cxt@AbstractContext{fHeap, fEnv} = go
   where
   envLookup :: Abs -> Maybe Value
   envLookup abs = lookup abs $ unAbsEnv fEnv
@@ -178,7 +179,7 @@ simplify defs cxt@AbstractContext{fHeap, fEnv} = go
       -- isSelfReference (EVAL v) = isSelfReference v
       -- isSelfReference (FETCH v) = isSelfReference v
       isSelfReference (Abs (envLookup -> Just v)) = v == Union v1 v2
-      isSelfReference _ = False
+      isSelfReference _                           = False
 
   go (Pick v1 tag1 i)
     | VNode tag2 vs <- v1

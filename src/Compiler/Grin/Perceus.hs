@@ -1,10 +1,9 @@
+{-# LANGUAGE BlockArguments      #-}
 {-# LANGUAGE OverloadedRecordDot #-}
 {-# LANGUAGE ViewPatterns        #-}
-{-# LANGUAGE BlockArguments #-}
 
-module Agda.Llvm.Perceus (mkDrop, mkDup, perceus, specializeDrop, pushDownDup, fuseDupDrop) where
+module Compiler.Grin.Perceus (mkDrop, mkDup, perceus, specializeDrop, pushDownDup, fuseDupDrop) where
 
-import Prelude hiding ((!!))
 import           Control.Applicative          (Applicative (liftA2), (<|>))
 import           Control.Monad                (filterM, (<=<))
 import           Control.Monad.Reader         (MonadIO (liftIO), MonadReader,
@@ -18,25 +17,26 @@ import           Data.Map                     (Map)
 import qualified Data.Map                     as Map
 import           Data.Set                     (Set)
 import qualified Data.Set                     as Set
-
-
 import           Data.Tuple.Extra             (both, dupe, first)
+import           Prelude                      hiding ((!!))
 
-
-import           Agda.Compiler.Backend        (MonadFresh, TCM,
-                                               TPrim (PAdd, PSub, PSub64), Definition (theDef))
-import           Agda.Llvm.Grin
-import           Agda.Llvm.Utils
+import           Agda.Compiler.Backend        (Definition (theDef), MonadFresh,
+                                               TCM, TPrim (PAdd, PSub, PSub64))
 import           Agda.Syntax.Common.Pretty
 import           Agda.Syntax.Literal          (Literal (LitNat))
 import           Agda.TypeChecking.Substitute
-import           Agda.Utils.Impossible (__IMPOSSIBLE__)
+import           Agda.Utils.Function          (applyUnless, applyWhen)
+import           Agda.Utils.Impossible        (__IMPOSSIBLE__)
 import           Agda.Utils.List
 import           Agda.Utils.List1             (List1, pattern (:|), (<|))
 import qualified Agda.Utils.List1             as List1
 import           Agda.Utils.Maybe
 import           Agda.Utils.Monad
-import Agda.Utils.Function (applyWhen, applyUnless)
+
+import           Compiler.Grin.Grin
+import qualified Utils.List1                  as List1
+import           Utils.Monad
+import qualified Utils.Set                    as Set
 
 -- Properties:
 -- • Δ ∩ Γ = ∅
@@ -48,10 +48,10 @@ data Context = Context
  , gamma :: Set Abs }
 
 data PerceusCxt = PerceusCxt
-  { pc_vars             :: [Abs]
-  , pc_pointers         :: Set Abs -- ^ Variables which are pointers
-  , pc_returning        :: Bool 
-  , pc_bottoms          :: Set Abs
+  { pc_vars      :: [Abs]
+  , pc_pointers  :: Set Abs -- ^ Variables which are pointers
+  , pc_returning :: Bool
+  , pc_bottoms   :: Set Abs
   }
 
 initPerceusCxt :: GrinDefinition -> PerceusCxt
@@ -92,7 +92,7 @@ type Perceus a = Reader PerceusCxt a
 -- ø ⊢ f {x}∗ = t ⟿  f {x}∗ = drop Γ′; t′
 perceusDef :: [Abs] -> Term -> Perceus Term
 perceusDef xs t = do
-  -- Γ = fv(t)   
+  -- Γ = fv(t)
   gamma <- fvTerm t
   -- Γ′ = {x}∗ - Γ
   let gamma' = Set.fromList xs Set.\\ gamma
@@ -149,7 +149,7 @@ perceusTerm c (Case v t alts) = do
       dropSet gammai' t'
 
 -- Rules: FETCH-CTAG-DUP and FETCH-CTAG
-perceusTerm c (FetchOffset tag@CTag{} n i `Bind` LAltVar x t) = do 
+perceusTerm c (FetchOffset tag@CTag{} n i `Bind` LAltVar x t) = do
   fv <- varLocal x (fvTerm t)
   let gamma' = applyWhen (Set.member x fv) (Set.insert x) (Set.intersection c.gamma fv)
       gammad = Set.difference c.gamma gamma'
@@ -158,7 +158,7 @@ perceusTerm c (FetchOffset tag@CTag{} n i `Bind` LAltVar x t) = do
   pure $ FetchOffset tag n i `Bind` LAltVar x t''
 
 -- Rules: FETCH-FTAG and FETCH-FTAG-DROP
-perceusTerm c (FetchOffset tag@FTag{} n i `Bind` LAltVar x t) = do 
+perceusTerm c (FetchOffset tag@FTag{} n i `Bind` LAltVar x t) = do
   fv <- varLocal x (fvTerm t)
   let gamma' = applyWhen (Set.member x fv) (Set.insert x) (Set.intersection c.gamma fv)
       gammad = applyUnless (Set.member x fv) (Set.insert x) (c.gamma Set.\\ gamma')
@@ -169,8 +169,8 @@ perceusTerm c (FetchOffset tag@FTag{} n i `Bind` LAltVar x t) = do
 
 -- TODO formalize
 -- function calls and evaluations
-perceusTerm c (t1 `Bind` LAltVariableNode x xs (Case (Var n) Unreachable alts)) 
-  | n == length xs = do 
+perceusTerm c (t1 `Bind` LAltVariableNode x xs (Case (Var n) Unreachable alts))
+  | n == length xs = do
   ov_t1 <- ov t1
   fv_case <- varsLocal (x : xs) (fvTerm $ Case (Var n) Unreachable alts)
 
@@ -187,7 +187,7 @@ perceusTerm c (t1 `Bind` LAltVariableNode x xs (Case (Var n) Unreachable alts))
 
   pure $ t1' `Bind` LAltVariableNode x xs t2'
   where
-  step gamma2 (CAltTag tag t) = 
+  step gamma2 (CAltTag tag t) =
     CAltTag tag <$> (dupSet xs_dup =<< perceusTerm context t)
     where
     xs_dup = Set.fromList (take (tagArity tag) xs)
@@ -238,7 +238,7 @@ perceusTerm c (t1 `Bind` alt) = do
 -- Only allowed in dup and drop
 perceusTerm _ UpdateOffset{} = __IMPOSSIBLE__
 -- Fetch entire nodes are not allowed in lower-level GRIN.
--- P-tags are not yet implemented. All other matches should 
+-- P-tags are not yet implemented. All other matches should
 -- be handled by the other rules.
 perceusTerm _ Fetch'{} = __IMPOSSIBLE__
 
@@ -292,7 +292,7 @@ perceusVal _ _ = pure []
 -- where |{v}+| = n and Γᵢ = (Γ - Γᵢ₊₁,‥,Γₙ) ∩ fv(vᵢ)
 --
 splitContext :: Context -> List1 Val -> Perceus (List1 Context)
-splitContext c vs = list1scanr step (Context c.delta) <$> gammas
+splitContext c vs = List1.scanr' step (Context c.delta) <$> gammas
   where
   -- Δᵢ = Δᵢ₊₁,Γᵢ₊₁
   step gammai c = Context (c.delta <> c.gamma) gammai
@@ -341,12 +341,12 @@ fvTerm :: Term -> Perceus (Set Abs)
 fvTerm (t1 `Bind` (splitLaltWithVars -> (_, t2, xs))) = do
   xs1 <- fvTerm t1
   xs2 <- (Set.\\ Set.fromList xs) <$> varsLocal xs (fvTerm t2)
-  setfilterM isPointer (xs1 <> xs2)
+  Set.filterM isPointer (xs1 <> xs2)
 fvTerm (Case v t alts) = do
   xs1 <- fvVal v
   xs2 <- fvTerm t
   xs3 <- foldMapM (fvTerm . snd . splitCalt) alts
-  setfilterM isPointer (xs1 <> xs2 <> xs3)
+  Set.filterM isPointer (xs1 <> xs2 <> xs3)
 fvTerm (App _ vs) = foldMapM fvVal vs
 fvTerm (Unit v) = fvVal v
 fvTerm (Store _ v) = fvVal v
@@ -421,34 +421,34 @@ specializeDrop def = lensGrTerm (go $ replicate def.gr_arity Nothing) def
   where
   go :: [Maybe (Tag, [Int])] -> Term -> mf Term
 
-  
-  go xs (UpdateTag tag n (Cnat v) `BindEmpty` t) = 
+
+  go xs (UpdateTag tag n (Cnat v) `BindEmpty` t) =
     BindEmpty (UpdateTag tag n (Cnat v)) <$> go xs' t
     where
     xs' = updateAt n (const $ Just (NatTag, [])) xs
 
-  go xs (UpdateTag tag n (ConstantNodeVect tag' ns) `BindEmpty` t) = 
+  go xs (UpdateTag tag n (ConstantNodeVect tag' ns) `BindEmpty` t) =
     BindEmpty (UpdateTag tag n (ConstantNodeVect tag' ns)) <$> go xs' t
     where
     xs' = updateAt n (const $ Just (tag, map (\n0 -> n0 - n) ns)) xs
 
-  go xs (Drop n `BindEmpty` t) 
-    | Just (tag, map (n +) -> ns) <- xs !! n = do 
+  go xs (Drop n `BindEmpty` t)
+    | Just (tag, map (n +) -> ns) <- xs !! n = do
 
-      decref <- 
+      decref <-
         App (Prim PSub) [Var 0, mkLit 1] `bindVar`
         UpdateOffset (n + 2) 0 (Var 0)
 
       let unique = raise 1 $ foldr (BindEmpty . Drop) (free n) (reverse ns)
 
-      drop <- 
-        FetchOffset tag n 0 `bindVar` 
+      drop <-
+        FetchOffset tag n 0 `bindVar`
         Case (Var 0) decref [CAltLit (LitNat 1) unique]
 
       drop `bindEmptyR` go xs t
 
     | otherwise = pure (Drop n `BindEmpty` t)
-  
+
 
 
   go xs (t1 `Bind` (splitLaltWithVars -> (mkAlt, t2, length -> n))) = do
@@ -466,17 +466,17 @@ specializeDrop def = lensGrTerm (go $ replicate def.gr_arity Nothing) def
   go _ t = pure t
 
 pushDownDup :: Term -> Term
-pushDownDup (Dup n1 `BindEmpty` (pushDownDup -> t1)) = 
+pushDownDup (Dup n1 `BindEmpty` (pushDownDup -> t1)) =
   fromMaybe (Dup n1 `BindEmpty` t1) (go t1)
   where
-  go (UpdateTag tag n2 v `BindEmpty` 
-           (FetchOffset tag' n2' 0 `Bind` LAltVar x 
-           (Case (Var 0) t2 alts `BindEmpty` t3))) 
-    | n2 == n2' 
-    , tag == tag' = 
-      Just (UpdateTag tag n2 v `BindEmpty` 
-           (FetchOffset tag' n2' 0 `Bind` LAltVar x 
-           (Case (Var 0) t2' alts' `BindEmpty` t3))) 
+  go (UpdateTag tag n2 v `BindEmpty`
+           (FetchOffset tag' n2' 0 `Bind` LAltVar x
+           (Case (Var 0) t2 alts `BindEmpty` t3)))
+    | n2 == n2'
+    , tag == tag' =
+      Just (UpdateTag tag n2 v `BindEmpty`
+           (FetchOffset tag' n2' 0 `Bind` LAltVar x
+           (Case (Var 0) t2' alts' `BindEmpty` t3)))
     where
     t2' = Dup (n1 + 1) `BindEmpty` t2
     alts' = map (\(splitCalt -> (mkAlt, t)) -> mkAlt (Dup (n1 + 1) `BindEmpty` t))  alts
@@ -493,7 +493,7 @@ pushDownDup t = t
 fuseDupDrop (Dup n `BindEmpty` (fuseDupDrop -> t)) = fromMaybe (Dup n `BindEmpty` t) (go t)
   where
   -- TODO more patterns are valid!
-  go (Drop n' `BindEmpty` t) 
+  go (Drop n' `BindEmpty` t)
     | n' == n = Just t
     | otherwise = BindEmpty (Drop n') <$> go t
   go (Dup n' `BindEmpty` t) = BindEmpty (Dup n') <$> go t
@@ -506,7 +506,7 @@ fuseDupDrop (Case v t alts) = Case v (fuseDupDrop t) (map step alts)
   step (splitCalt -> (mkAlt, t)) = mkAlt (fuseDupDrop t)
 
 fuseDupDrop t = t
-  
+
 
 
 
@@ -541,13 +541,13 @@ drop x₀ =
 
 mkDrop :: forall mf. MonadFresh Int mf => [GrinDefinition] -> mf GrinDefinition
 mkDrop defs = do
-  decref <- 
+  decref <-
     App (Prim PSub) [Var 0, mkLit 1] `bindVar`
     UpdateOffset 2 0 (Var 0)
-  unique <- 
+  unique <-
     FetchOpaqueOffset 1 1 `bindVarR`
     Case (Var 0) Unreachable <$> mapM mkAlt tags
-  term <- 
+  term <-
     FetchOpaqueOffset 0 0 `bindVar`
     Case (Var 0) decref [CAltLit (LitNat 1) unique]
 

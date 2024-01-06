@@ -1,3 +1,4 @@
+{-# LANGUAGE BlockArguments           #-}
 {-# LANGUAGE DuplicateRecordFields    #-}
 {-# LANGUAGE NondecreasingIndentation #-}
 {-# LANGUAGE OverloadedLists          #-}
@@ -5,66 +6,69 @@
 {-# LANGUAGE OverloadedStrings        #-}
 {-# LANGUAGE ScopedTypeVariables      #-}
 {-# LANGUAGE ViewPatterns             #-}
-{-# LANGUAGE BlockArguments #-}
-module Agda.Llvm.Compiler (module Agda.Llvm.Compiler) where
+module Compiler.Llvm.Compiler (module Compiler.Llvm.Compiler) where
 
-import           Control.DeepSeq                (NFData)
-import           Control.Monad                  (forM, mapAndUnzipM, replicateM,
-                                                 void, when, join)
-import           Control.Monad.IO.Class         (liftIO)
-import           Control.Monad.Reader           (MonadReader,
-                                                 ReaderT (runReaderT), asks,
-                                                 local)
-import           Control.Monad.State            (MonadState, State, StateT,
-                                                 evalStateT, gets, modify,
-                                                 runState)
-import           Data.Bifunctor                 (Bifunctor (bimap, first))
-import Data.Bool (bool)
-import           Data.Foldable                  (foldrM, toList)
-import           Data.Function                  (on)
-import           Data.List                      (intercalate, mapAccumL,
-                                                 mapAccumR, singleton, sortOn,
-                                                 unzip4)
-import           Data.List.NonEmpty.Extra       ((|:), (|>))
-import           Data.Map                       (Map)
-import qualified Data.Map                       as Map
-import qualified Data.Set                       as Set
-import           Data.Tuple.Extra               (second, swap, uncurry3)
-import           GHC.Generics                   (Generic)
-import           Prelude                        hiding (drop, (!!))
-import qualified Prelude as P
-import           System.FilePath                ((<.>), (</>))
-import           System.Process.Extra           (readCreateProcess, shell)
+import           Control.DeepSeq                     (NFData)
+import           Control.Monad                       (forM, join, mapAndUnzipM,
+                                                      replicateM, void, when)
+import           Control.Monad.IO.Class              (liftIO)
+import           Control.Monad.Reader                (MonadReader,
+                                                      ReaderT (runReaderT),
+                                                      asks, local)
+import           Control.Monad.State                 (MonadState, State, StateT,
+                                                      evalStateT, gets, modify,
+                                                      runState)
+import           Data.Bifunctor                      (Bifunctor (bimap, first))
+import           Data.Bool                           (bool)
+import           Data.Foldable                       (foldrM, toList)
+import           Data.Function                       (on)
+import           Data.List                           (intercalate, mapAccumL,
+                                                      mapAccumR, singleton,
+                                                      sortOn, unzip4)
+import           Data.List.NonEmpty.Extra            ((|:), (|>))
+import           Data.Map                            (Map)
+import qualified Data.Map                            as Map
+import qualified Data.Set                            as Set
+import           Data.Tuple.Extra                    (second, swap, uncurry3)
+import           GHC.Generics                        (Generic)
+import           Prelude                             hiding (drop, (!!))
+import qualified Prelude                             as P
+import           System.FilePath                     ((<.>), (</>))
+import           System.Process.Extra                (readCreateProcess, shell)
 
-import           Agda.Compiler.Backend          hiding (Prim)
+import           Agda.Compiler.Backend               hiding (Prim)
 import           Agda.Interaction.Options
-import           Agda.Llvm.Grin
-import           Agda.Llvm.GrinInterpreter      (interpretGrin,
-                                                 printInterpretGrin)
-import           Agda.Llvm.GrinTransformations
-import           Agda.Llvm.HeapPointsTo
-import qualified Agda.Llvm.Llvm                 as L
-import           Agda.Llvm.Perceus
-import           Agda.Llvm.TreelessTransform
-import           Agda.Llvm.Utils
 import           Agda.Syntax.Common.Pretty
-import           Agda.Syntax.Literal            (Literal (LitNat))
+import           Agda.Syntax.Literal                 (Literal (LitNat))
 import           Agda.Syntax.TopLevelModuleName
+import           Agda.TypeChecking.SizedTypes.Utils  (setDebugging, traceM)
 import           Agda.TypeChecking.Substitute
-import           Agda.Utils.Applicative         (forA)
-import           Agda.Utils.Function            (applyWhen, applyWhenM)
+import           Agda.Utils.Applicative              (forA)
+import           Agda.Utils.Function                 (applyWhen, applyWhenM)
 import           Agda.Utils.Functor
-import           Agda.Utils.Impossible (__IMPOSSIBLE__)
+import           Agda.Utils.Impossible               (__IMPOSSIBLE__)
 import           Agda.Utils.Lens
 import           Agda.Utils.List
-import           Agda.Utils.List1               (List1, pattern (:|), (<|))
-import qualified Agda.Utils.List1               as List1
+import           Agda.Utils.List1                    (List1, pattern (:|), (<|))
+import qualified Agda.Utils.List1                    as List1
 import           Agda.Utils.Maybe
-import           Agda.Utils.Monad               (ifM, mapMaybeM)
-import           Control.Applicative            (Applicative (liftA2))
-import           GHC.IO                         (unsafePerformIO)
-import           System.Directory.Extra         (removeFile)
-import Agda.TypeChecking.SizedTypes.Utils (setDebugging, traceM)
+import           Agda.Utils.Monad                    (ifM, mapMaybeM)
+import           Control.Applicative                 (Applicative (liftA2))
+import           GHC.IO                              (unsafePerformIO)
+import           System.Directory.Extra              (removeFile)
+
+import           Compiler.Grin.Grin
+import           Compiler.Grin.GrinInterpreter       (interpretGrin,
+                                                      printInterpretGrin)
+import           Compiler.Grin.GrinTransformations
+import           Compiler.Grin.HeapPointsTo
+import           Compiler.Grin.Perceus
+import qualified Compiler.Llvm.Llvm                  as L
+import           Compiler.Treeless.TreelessTransform
+
+import qualified Utils.List1                         as List1
+import           Utils.Utils
+
 
 
 -- LONG TERM IDEAS AND TODOs
@@ -72,18 +76,18 @@ import Agda.TypeChecking.SizedTypes.Utils (setDebugging, traceM)
 -- • Lambda lifting
 --
 -- • Erase proofs and other unused terms (e.g. second argument of const). #6928
--- 
--- • Typed GRIN. 
+--
+-- • Typed GRIN.
 --   - Only use layout types for better code generation.
---   - Distinguish between linear and omega modalities (all zero modalities are  
+--   - Distinguish between linear and omega modalities (all zero modalities are
 --     hopefully erased).
---   - Will probably have big type inference pass which inserts types, specialization, 
---     and strictness analysis. Would be intresting to guide the strictness analysis with 
+--   - Will probably have big type inference pass which inserts types, specialization,
+--     and strictness analysis. Would be intresting to guide the strictness analysis with
 --     a cost model based on Hoffmann et al. [2000, 2022].
 --
 -- • Specialization/Monomorphization
---   - Treat monomorphization, type class dispatch, and specialization the same. Example: 
---     
+--   - Treat monomorphization, type class dispatch, and specialization the same. Example:
+--
 --     -- Defintions
 --     return : {A : Set} → ⦃M : RawMonad⦄ → A → M A
 --     return = ...
@@ -100,111 +104,111 @@ import Agda.TypeChecking.SizedTypes.Utils (setDebugging, traceM)
 --     returnListNat : ℕ → List ℕ
 --     returnListNat n = n ∷ []
 --
---     mapDouble : List ℕ → List ℕ 
---     mapDouble (n ∷ ns) = 2 * n ∷ mapDouble ns 
+--     mapDouble : List ℕ → List ℕ
+--     mapDouble (n ∷ ns) = 2 * n ∷ mapDouble ns
 --
---   - Singular usage of a specialization should always be inlined. 
---     Small specializations should preferably also be inlined 
+--   - Singular usage of a specialization should always be inlined.
+--     Small specializations should preferably also be inlined
 --     (or is it better to do this during late inlining?).
 --
---   - Need to balance code size and branching costs. Instead of specializing mapDouble, we can 
---     defunctionalize and pattern match on the funciton. Can we extend this to work for 
+--   - Need to balance code size and branching costs. Instead of specializing mapDouble, we can
+--     defunctionalize and pattern match on the funciton. Can we extend this to work for
 --     parametric and adhoc polymorphism?????
 --
 --     FIXME maybe not relevant ↓↓↓↓↓
 --
---   - Treeless is untyped. So, the monomorphization may need to be part 
---     of a treeless-to-GRIN type inference phase. Which means that MAlonzo can not reuse 
---     the optimizations. 
---   - Big obstacles are higher ranked types and polymorphic recursion. But it 
---     should be feasible with interprodural analysis. We may end up doing something 
+--   - Treeless is untyped. So, the monomorphization may need to be part
+--     of a treeless-to-GRIN type inference phase. Which means that MAlonzo can not reuse
+--     the optimizations.
+--   - Big obstacles are higher ranked types and polymorphic recursion. But it
+--     should be feasible with interprodural analysis. We may end up doing something
 --     similiar to [Brandon, 2023]. However, it would be best to do a "simple" monomorphization
---     (fuctions with the same layout type share one definition) and then implement a more general 
+--     (fuctions with the same layout type share one definition) and then implement a more general
 --     specializtion pass to avoid branching.
 --
 -- • Dead code elimination. #4733
 --
--- • Incremental/parallel compilation by storing call graph information in 
---   interface-like files. Then, there can be "thin" interprodural analysis 
---   which performs monomorphization and points-to analysis. These ideas are 
---   similiar to LLVM's ThinLTO. 
+-- • Incremental/parallel compilation by storing call graph information in
+--   interface-like files. Then, there can be "thin" interprodural analysis
+--   which performs monomorphization and points-to analysis. These ideas are
+--   similiar to LLVM's ThinLTO.
 --
 --   FIXME figure is wrong
---        
---           +            +            +     • Frontend stuff 
---           |            |            |  
+--
+--           +            +            +     • Frontend stuff
+--           |            |            |
 --         .agdai       .agdai       .agdai   (internal syntax + other info)
 --           |            |            |
 --           +            +            +     • Optionally do any of the following: add call graph information, lambda lift, add type constraints, add points-to equations.
---           |            |            |  
+--           |            |            |
 --         .agdai       .agdai       .agdai   (maybe treeless)
 --           \            |            /
 --            +--------.agdao---------+      • Interprodural analysis. Calculate transitive closure (reachability), mono types, and solve points-to equations.
---            |           |           | 
+--            |           |           |
 --            +           +           +      • Backend stuff. Use some smart diffing algorithm to only recompile affected modules.
 --            |           |           |
 --          .hs,ll      .hs,ll      .hs,ll
 --            |           |           |
 --            +           +           +      • GHC / Clang
---            |           |           | 
+--            |           |           |
 --            .o          .o          .o
 --             \          |          /
 --              +---------+---------+        • Linking
 --                        |
 --                   ELF executable
---          
+--
 -- • Some other GRIN transformations require interprodural analysis e.g. late inlining and arity raising.
---   Look at ThinLTO how they solved it. ThinLTO seems to only be able to do one layer of cross-module 
---   inlining. And it is unclear how "imports" work when funA inlines a function funB which require an 
+--   Look at ThinLTO how they solved it. ThinLTO seems to only be able to do one layer of cross-module
+--   inlining. And it is unclear how "imports" work when funA inlines a function funB which require an
 --   new import funC.
---      
+--
 --      module A where    module B where    module C  where
---      open import B     open import C     
+--      open import B     open import C
 --      funA = funB       funB = funC       funC = ...
 --
--- • Solve integer overflow issues. Maybe use bignum for Nat and an arbirary precision integer 
+-- • Solve integer overflow issues. Maybe use bignum for Nat and an arbirary precision integer
 --   for Fin. Also, look into GHC's approach of promoting to bignum.
 --
--- • Need to prevent stack overflow either by making things more strict by 
---   a demand analysis or/and by optimizing away laziness with deforestation and listlessness 
+-- • Need to prevent stack overflow either by making things more strict by
+--   a demand analysis or/and by optimizing away laziness with deforestation and listlessness
 --   (via e.g. arity raising and late inlining).
 --
 -- • Figure out a data layout that is optimal for Perceus-style memory reuse.
 --
--- • Figure out some smart way to identify and flatten/pack trees. If we know that the data 
---   structure is packed (with a certain alignment) and we know the pattern (size), then we 
---   should be able to optimize it to a O(1) access. However, it is non-trivial to pack an 
+-- • Figure out some smart way to identify and flatten/pack trees. If we know that the data
+--   structure is packed (with a certain alignment) and we know the pattern (size), then we
+--   should be able to optimize it to a O(1) access. However, it is non-trivial to pack an
 --   arbirary tree, and I wonder how this will interact with different node layouts.
 --
 --   ```
 --     -- Treeless
 --     proj₃ : Vec A 4 → A
---     proj₃ xs₁ = 
+--     proj₃ xs₁ =
 --       case xs₁ of
---         _ ∷ xs₂ → 
+--         _ ∷ xs₂ →
 --         case xs₂ of
---           _ ∷ xs₃ → 
+--           _ ∷ xs₃ →
 --           case xs₃ of
 --             x ∷ _ → x
 --
 --     -- Semi-optimized GRIN
 --     -- 4 sequential pointer dereferences
---     proj₃ xs₁ = 
+--     proj₃ xs₁ =
 --       fetch [3] xs₁ ; λ xs₂ →
 --       fetch [3] xs₂ ; λ xs₃ →
 --       fetch [2] xs₃ ; λ x →
---       fetch [2] x   ; λ n → 
+--       fetch [2] x   ; λ n →
 --       unit (Cnat n)
---     
+--
 --     -- Optimized GRIN
 --     -- Assume packed layout [cons , _ , next , cons , _ , next , cons , (nat n) , next , cons ,  _ , nil]
 --     -- Maybe remove next pointers when packing structure?
 --     -- Unclear if nested structure also have to be packed. And what happens when we extend arrays.
 --     -- Is it possible to do dynamic arrays (reallocate and expand when x% full)?
---     proj₃ xs = 
+--     proj₃ xs =
 --       fetch [8] xs ; λ → n
 --       unit (Cnat n)
--- 
+--
 --   ```
 --
 -- • Use sized types (BUILTIN) to maybe inline recursive functions, and pack/flatten inductive types.
@@ -240,9 +244,9 @@ data LlvmOptions = LlvmOptions
 
 instance NFData LlvmOptions
 
-newtype LlvmEnv = LlvmEnv 
+newtype LlvmEnv = LlvmEnv
   { envLlvmOpts :: LlvmOptions
-  } 
+  }
 
 data LlvmModuleEnv = LlvmModuleEnv
 newtype LlvmModule = LlvmModule [TreelessDefinition]
@@ -258,19 +262,19 @@ defaultLlvmOptions = LlvmOptions
 
 llvmCommandLineFlags :: [OptDescr (Flag LlvmOptions)]
 llvmCommandLineFlags =
-  [ Option []  ["llvm"] 
+  [ Option []  ["llvm"]
       do NoArg \ o -> pure o{flagLlvmCompile = True}
       do "compile program using the LLVM backend"
-  -- , Option []  ["opt-flag"] 
+  -- , Option []  ["opt-flag"]
   --     do ReqArg (\ f o -> pure o{flagLlvmOptFlag = o.flagLlvmOptFlag ++ " " ++ f}) "OPT-FLAG"
   --     do "give the flag OPT-FLAG to LLVM optimizer"
-  , Option ['O'] [] 
+  , Option ['O'] []
       do NoArg \ o -> pure o{flagLlvmOpt = True}
       do "enable LLVM optimizations"
-  , Option []  ["interpret"] 
+  , Option []  ["interpret"]
       do NoArg \ o -> pure o{flagLlvmInterpret = True}
       do "interprets the final GRIN code"
-  , Option ['o']  [] 
+  , Option ['o']  []
       do ReqArg (\ f o -> pure o{flagLLvmOutput = f}) "FILE"
       do "set output filename"
   ]
@@ -285,7 +289,7 @@ llvmCompileDef :: LlvmEnv
                -> Definition
                -> TCM (Maybe TreelessDefinition)
 
-llvmCompileDef _ _ isMain def = do 
+llvmCompileDef _ _ isMain def = do
   liftIO $ setDebugging True
   definitionToTreeless isMain def
 
@@ -449,7 +453,7 @@ llvmPostCompile env _ mods = do
     putStrLn $ intercalate "\n\n" $ map prettyShow defs_leftUnitLaw
 
   -- printInterpretGrin defs_leftUnitLaw
-  
+
   defs_specializeUpdate <- mapM (specializeUpdate tagInfo_inlineEval) defs_leftUnitLaw
   liftIO $ do
     putStrLn "\n------------------------------------------------------------------------"
@@ -499,7 +503,7 @@ llvmPostCompile env _ mods = do
     putStrLn $ intercalate "\n\n" $ map prettyShow defs_rightHoistFetch
 
   -- printInterpretGrin defs_rightHoistFetch
-  
+
   let defs_evaluateCase = map (updateGrTerm propagateConstant) defs_rightHoistFetch
   liftIO $ do
     putStrLn "\n------------------------------------------------------------------------"
@@ -513,10 +517,10 @@ llvmPostCompile env _ mods = do
 
   let defs_perceus = map (updateGrTerm normalise . perceus) defs_evaluateCase
 
-  defs_mem <- do 
+  defs_mem <- do
     -- drop is only need prior to Perceus optimizations
     drop <- mkDrop defs_rightHoistFetch
-    dup <- mkDup 
+    dup <- mkDup
     pure [drop, dup]
 
   liftIO $ do
@@ -601,17 +605,17 @@ llvmPostCompile env _ mods = do
       defs = intercalate "\n\n" (map prettyShow llvm_ir)
       program = intercalate "\n\n" [header, tags_table, defs]
 
-  
+
   liftIO $ do
     let file_ll = "llvm" </> env.envLlvmOpts.flagLLvmOutput ++ ".ll"
     let file_ll_opt = "llvm" </> env.envLlvmOpts.flagLLvmOutput ++ "-opt.ll"
     let file_asm_s = "llvm" </> env.envLlvmOpts.flagLLvmOutput ++ "-asm.s"
     putStrLn $ "Writing file " ++ file_ll
     writeFile file_ll program
-    
+
 
     -- -O3 -flto
-    let opt = unwords 
+    let opt = unwords
           -- Emit optimized LLVM IR (llvm/program_opt.ll)
           [ "clang -o", file_ll_opt, "-S -O3 -emit-llvm", file_ll
           -- Emit Assembly (llvm/program_asm.s)
@@ -625,9 +629,9 @@ llvmPostCompile env _ mods = do
           [ "clang -o", file_asm_s, "-S -masm=intel", file_ll
           , "&&\nclang -o", env.envLlvmOpts.flagLLvmOutput, "-fuse-ld=lld", file_ll
           ]
-      
 
-    
+
+
     let cmd = if env.envLlvmOpts.flagLlvmOpt then opt else no_opt
     putStrLn "Linking program"
     putStrLn cmd
@@ -646,14 +650,14 @@ llvmPostCompile env _ mods = do
 --   is to to modify the current treeless implementation:
 --
 --   >>> current
---    
+--
 --   RTE.hs
 --     addInt :: Integer -> Integer -> Integer
 --     addInt = (+)
---     
+--
 --   file.hs
 --     main = ... addInt ...
---     
+--
 --   >>> new
 --
 --   file.hs
@@ -686,16 +690,16 @@ llvmPostCompile env _ mods = do
 --
 --      >>> MAlonzo
 --
---      _+_ = (+) 
+--      _+_ = (+)
 --
 --      main = Agda.Builtin.Nat._+_ 1 2
---      
+--
 --
 --
 --      Changes:
 --
 --      + -- Example: Agda.Builtin.Nat._+_ returns PAdd (How are arguments dealt with?)
---      + lookupBuiltin : QName -> TCM (Maybe TTerm) 
+--      + lookupBuiltin : QName -> TCM (Maybe TTerm)
 --      + lookupBuiltin q = ...
 --
 --      - translateBuiltins :: TTerm -> TCM TTerm
@@ -704,10 +708,10 @@ llvmPostCompile env _ mods = do
 --      + translateBuiltins q t = do
 --          kit <- builtinKit
 --      -   return $ transform kit t
- --     +   fromMaybe t <$> lookupBuiltin q 
+ --     +   fromMaybe t <$> lookupBuiltin q
 --
---    
---    MAlonzo/Primitives.hs we do not need 
+--
+--    MAlonzo/Primitives.hs we do not need
 --
 --      treelessPrimName :: TPrim -> String
 --      treelessPrimName p =
@@ -717,7 +721,7 @@ llvmPostCompile env _ mods = do
 --      -   PAdd64  -> "addInt64"
 --      +   PAdd64  -> "(+) @Word64"
 --
---    Questions: 
+--    Questions:
 --      1. Is @PAdd64@ unused?
 --      2. Why do we create wrappers? E.g. @intAdd@ instead of @(+)@
 --      3. Why are the types specialized? @intAdd :: Integer -> Integer -> Integer@ instead of @Num a => a -> a -> a@
@@ -822,7 +826,7 @@ termToGrinR (TApp (TPrim prim) ts) = do
 -- | 𝓡 [foo x y] = foo x y
 termToGrinR (TApp (TDef q) vs) = do
   let call = App (Def (prettyShow q)) <$> mapMaybeM operandToGrin vs
-  shortName <- asks $ List1.last . list1splitOnDots . tl_name . definition
+  shortName <- asks $ List1.last . List1.splitOnDots . tl_name . definition
   returning <- asks returning
   applyWhen (shortName == "main" && returning) (`bindCnatL` printf 0) call
 
@@ -830,7 +834,7 @@ termToGrinR (TApp (TDef q) vs) = do
 -- TODO think of a nicer way to handle handle functions that don't return
 --      a node (either an unboxed value or `()`)
 termToGrinR (TLit lit) = do
-  shortName <- asks $ List1.last . list1splitOnDots . tl_name . definition
+  shortName <- asks $ List1.last . List1.splitOnDots . tl_name . definition
   if shortName == "main" then
     case lit of
       LitNat n -> pure $ printf (fromInteger n)
@@ -849,14 +853,14 @@ termToGrinR (TApp (TCon q) vs) =
 
 
 -- Forcing and argument via the identity function
-termToGrinR (TLet (TApp (TPrim PSeq) [TVar n, TVar n']) t) | n == n' = 
-  localReturning False (termToGrinR $ TVar n) `bindVarM` 
+termToGrinR (TLet (TApp (TPrim PSeq) [TVar n, TVar n']) t) | n == n' =
+  localReturning False (termToGrinR $ TVar n) `bindVarM`
   store (Var 0) `bindVarM`
   (raiseFrom 1 1 <$> termToGrinR t)
 
 -- TODO generalize
-termToGrinR (TLet (TApp (TPrim PSeq) (_ : TApp f xs : ys)) t) = 
-  localReturning False (termToGrinR $ TApp f $ xs ++ ys) `bindVarM` 
+termToGrinR (TLet (TApp (TPrim PSeq) (_ : TApp f xs : ys)) t) =
+  localReturning False (termToGrinR $ TApp f $ xs ++ ys) `bindVarM`
   store (Var 0) `bindVarM`
   (raiseFrom 1 1 <$> termToGrinR t)
   -- app <- termToGrinR $ mkTApp f xs
@@ -879,26 +883,26 @@ termToGrinC (TApp f []) = error "TODO CAF"
 --               store (Prim.add @1 @0)-
 --
 -- TODO this step should be unnecessary due to simplifyApp
-termToGrinC (TApp (TDef q) (v : vs)) 
+termToGrinC (TApp (TDef q) (v : vs))
   | Just (v' :| vs') <- allTVars1 (v :| vs) = do
-    loc <- freshLoc 
+    loc <- freshLoc
     pure $ Store loc $ constantFNode (prettyShow q) (v' : vs')
 
-termToGrinC (TApp (TCon q) (v : vs)) 
+termToGrinC (TApp (TCon q) (v : vs))
   | Just (v' :| vs') <- allTVars1 (v :| vs) = do
-  loc <- freshLoc 
+  loc <- freshLoc
   pure $ Store loc $ constantCNode (prettyShow q) (v' : vs')
 
 
 
 
-  -- termToGrinR (TApp f $ xs ++ ys) `bindCnatM` 
+  -- termToGrinR (TApp f $ xs ++ ys) `bindCnatM`
   -- store (cnat $ Var 0) `bindVarM`
   -- (raiseFrom 1 1 <$> termToGrinR t)
 
 -- termToGrinC (TApp (TPrim PSeq) vs) = undefined
 
--- termToGrinC (TApp (TPrim prim) (v : vs))  
+-- termToGrinC (TApp (TPrim prim) (v : vs))
 --   | Just (v' :| vs') <- allTVars1 (v :| vs) = do
 --   name <- asks (fromMaybe __IMPOSSIBLE__ . lookup prim . primitives)
 --   loc <- freshLoc
@@ -913,7 +917,7 @@ termToGrinC (TCon q) = do
   pure $ Store loc (constantCNode (prettyShow q) [])
 
 
--- TODO this probably works but currently we normalize all lets in TreelessTransform which is a bit unnecessary 
+-- TODO this probably works but currently we normalize all lets in TreelessTransform which is a bit unnecessary
 --      as everything will be normalized again after eval inlining
 -- termToGrinC (TLet t1 t2) = termToGrinC t1 `bindVarM` localEvaluatedNoOffset (termToGrinC t2)
 
@@ -922,12 +926,12 @@ termToGrinC t = error $ "TODO C scheme: " ++ take 80 (show t)
 
 allTVars1 :: List1 TTerm -> Maybe (List1 Val)
 allTVars1 (TVar n :| vs) = (Var n :|) <$> allTVars vs
-allTVars1 _ = Nothing
+allTVars1 _              = Nothing
 
 allTVars :: [TTerm] -> Maybe [Val]
 allTVars (TVar n : vs) = (Var n :) <$> allTVars vs
-allTVars [] = Just []
-allTVars _ = Nothing
+allTVars []            = Just []
+allTVars _             = Nothing
 
 appToGrinC :: MonadFresh Int mf => (List1 Val -> Term) -> List1 TTerm -> mf Term
 appToGrinC mkT vs = foldrM step (mkT vs') stores
@@ -958,8 +962,8 @@ altToGrin (TAGuard t1 t2) = liftA2 CAltGuard (termToGrinR t1) (termToGrinR t2)
 -- FIXME function definition is not modified yer...
 operandToGrin :: MonadFresh Int mf => TTerm -> GrinGen mf (Maybe Val)
 -- ugly!!!
-operandToGrin (TVar n)   = Just <$> (maybe (Var n) Var <$> applyEvaluatedOffset n)
-operandToGrin _ = pure Nothing
+operandToGrin (TVar n) = Just <$> (maybe (Var n) Var <$> applyEvaluatedOffset n)
+operandToGrin _        = pure Nothing
 -- Literals should not be operands!!
 --operandToGrin (TLit lit) = pure (Lit lit)
 
@@ -978,7 +982,7 @@ initGrinGenCxt def = GrinGenCxt
   , returning = True
   }
 
--- FIXME 
+-- FIXME
 applyEvaluatedOffset :: MonadReader GrinGenCxt m => Int -> m (Maybe Int)
 applyEvaluatedOffset _ = pure Nothing
 -- applyEvaluatedOffset :: MonadReader GrinGenCxt m => Int -> m (Maybe Int)
@@ -1070,8 +1074,8 @@ termToLlvm (Case (Var n) t alts `Bind` alt) = do
       mkBlock s x t = do
         t' <- continuationLocal cont $ returningLocal False (termToLlvm t)
         pure (L.Label s t')
-        where 
-        cont i = pure $ L.SetVar x i <|  L.Br (L.mkLocalId continue) :| [] 
+        where
+        cont i = pure $ L.SetVar x i <|  L.Br (L.mkLocalId continue) :| []
 
 
     (alts', instruction_blocks, xs_label, xs_res) <- fmap unzip4 $ forM alts $
@@ -1134,7 +1138,7 @@ termToLlvm (FetchOffset _ n offset `Bind` alt)
 
 
 termToLlvm (FetchOffset _ n 0 `Bind` LAltVar (L.mkLocalId -> x )
-           (Case (Var 0) t1 alts `BindEmpty` t2)) = do 
+           (Case (Var 0) t1 alts `BindEmpty` t2)) = do
   continue <- ("continue_" ++) .  show <$> freshAltNum
 
   x_ptr <- fromMaybe __IMPOSSIBLE__ <$> varLookup n
@@ -1143,8 +1147,8 @@ termToLlvm (FetchOffset _ n 0 `Bind` LAltVar (L.mkLocalId -> x )
   (x_unnamed, instruction_getelemtptr) <- setVar (L.getelementptr x_unnamed_ptr 0)
   let instruction_setVar = L.SetVar x (L.load L.I64 x_unnamed)
 
-  instructions1 <- varLocal x $ continuationLocal 
-                     (\instruction ->  pure [instruction, L.Br $ L.mkLocalId continue]) 
+  instructions1 <- varLocal x $ continuationLocal
+                     (\instruction ->  pure [instruction, L.Br $ L.mkLocalId continue])
                      (termToLlvm $ Case (Var 0) t1 alts)
 
   instructions2 <- varLocal x_ptr (termToLlvm t2)
@@ -1152,12 +1156,12 @@ termToLlvm (FetchOffset _ n 0 `Bind` LAltVar (L.mkLocalId -> x )
   let instruction_continue = L.Label continue instructions2
 
   pure $
-    [ instruction_inttoptr 
-    , instruction_getelemtptr 
-    , instruction_setVar ] <> 
-     (instructions1 |> 
+    [ instruction_inttoptr
+    , instruction_getelemtptr
+    , instruction_setVar ] <>
+     (instructions1 |>
       instruction_continue)
-  
+
 
 termToLlvm (App (Prim prim) [v1, v2] `Bind` alt) = do
   let op = case prim of
@@ -1213,10 +1217,10 @@ termToLlvm (App (Def "free") [Var n]) = do
 termToLlvm (App (Def (L.mkGlobalId -> f)) vs) = do
   (argsTy, returnTy) <- fromMaybe __IMPOSSIBLE__ <$> globalLookup f
   (instructions1, vs') <- first concat . unzip <$> mapM valToLlvm vs
-  -- If the tail call contains are passed references to new alllocations made in 
-  -- the current function then Clang is unable to tail call optimize. So, currently 
+  -- If the tail call contains are passed references to new alllocations made in
+  -- the current function then Clang is unable to tail call optimize. So, currently
   -- we only uses the tailcall hint `tail` instead of the garantee `musttail`.
-  tail <- asks $ flip boolToMaybe L.Tail . cg_returning 
+  tail <- asks $ flip boolToMaybe L.Tail . cg_returning
   let instruction_call = L.Call tail L.Fastcc returnTy f (zip argsTy vs')
   instructions2 <- ($ instruction_call) =<< view continuationLens
   pure (instructions1 `List1.prependList` instructions2)
@@ -1373,7 +1377,7 @@ initLlvmGenCxt :: [GrinDefinition] -> GrinDefinition -> LlvmGenCxt
 initLlvmGenCxt defs def = LlvmGenCxt
   { cg_vars         = map L.mkLocalId (reverse def.gr_args)
   , cg_globalsTy    = mkGlobalTys defs
-  , cg_continuation = mkCont def 
+  , cg_continuation = mkCont def
   , cg_returning    = True }
 
 varsLens :: Lens' LlvmGenCxt [L.LocalId]
