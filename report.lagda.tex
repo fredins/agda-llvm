@@ -578,15 +578,37 @@ Elements in the borrowed environment can only be applied to non-consuming operat
 We can promote an element from the borrowed environment to the owned environment by calling the function \lstinline{dup}.
 \ref{fig:perceus-rules}
 
+% TODO Sometimes we use the shorthand set union notation Γ₁,...,Γₙ  and sometimes we use \bigcup. 
+%      Should this be fixed?
 \begin{figure*}[hptb]
 \begin{mdframed}
 \centering
-% APP
+% FETCH-OPAQUE
 \AxiomC{}
-\noLine{}
-\UnaryInfC{\jmv{\Delta,\Gamma$_{i+1}$,...,\Gamma$_n$}{\Gamma$_i$}{v$_i$}{\Gamma$_{d_i}$}}
+\RightLabel{\textsc{fetch-opaque}}
+\UnaryInfC{\jm{\Delta}{\Gamma}{\lstinline|fetch| x$_m$ [n]}{\lstinline|fetch| x$_m$ [n]}}
+\DisplayProof
+\\
+\vspace{1em}
+% UPDATE
+\AxiomC{}
+\RightLabel{\textsc{update}}
+\UnaryInfC{\jm{\Delta}{\Gamma}{\lstinline|update| tag x$_n$ v}{\lstinline|update| x$_n$ v}}
+\DisplayProof
+\\
+\vspace{1em}
+% UNREACHABLE
+\AxiomC{}
+\RightLabel{\textsc{unreachable}}
+\UnaryInfC{\jm{\Delta}{\Gamma}{unreachable}{unreachable}}
+\DisplayProof
+\\
+\vspace{1em}
+% APP
+\AxiomC{\Gamma$_i$\;=\;(\Gamma - $\bigcup_{j=1}^{n-i}\Gamma_{i+j}$)\;\cap\;fv(v$_i$)}
+\AxiomC{\jmv{\Delta,\Gamma$_{i+1}$,...,\Gamma$_n$}{\Gamma$_i$}{v$_i$}{\Gamma$_{d_i}$}}
 \RightLabel{\textsc{app}}
-\UnaryInfC{\jm{\Delta}{\Gamma}{f\;\{v$_1$,...,v$_n$\}}{dup $\bigcup_{i=1}^n\Gamma_{d_i}$\;; f$^\prime$\;\{v$_1^\prime$,...,v$_n^\prime$\}}}
+\BinaryInfC{\jm{\Delta}{\Gamma}{f\;\{v$_1$,...,v$_n$\}}{dup $\bigcup_{i=1}^n\Gamma_{d_i}$\;; f$^\prime$\;\{v$_1^\prime$,...,v$_n^\prime$\}}}
 \DisplayProof
 \\
 \vspace{1em}
@@ -640,7 +662,7 @@ We can promote an element from the borrowed environment to the owned environment
 \UnaryInfC{\Gamma$_d$\;=\;\Gamma\;-\;\Gamma$^\prime$}
 \AxiomC{\jm{\Delta}{\Gamma$^\prime$}{t}{t$^\prime$}}
 \RightLabel{\textsc{fetch-ftag}}
-\TrinaryInfC{{\jm{\Delta}{\Gamma}{\lstinline{fetch} ftag x$_m$ [n] ; λ → t}{\lstinline|fetch| ftag x$_m$ [n] ; λ → drop \Gamma$_d$ ; t$^\prime$}}}
+\TrinaryInfC{\jm{\Delta}{\Gamma}{\lstinline{fetch} ftag x$_m$ [n] ; λ → t}{\lstinline|fetch| ftag x$_m$ [n] ; λ → drop \Gamma$_d$ ; t$^\prime$}}
 \DisplayProof
 \\
 \vspace{1em}
@@ -651,7 +673,7 @@ We can promote an element from the borrowed environment to the owned environment
 \UnaryInfC{\Gamma$_d$\;=\;(\Gamma\;-\;\Gamma$^\prime$)\;\cup\;\{x$_0$\}}
 \AxiomC{\jm{\Delta}{\Gamma$^\prime$}{t}{t$^\prime$}}
 \RightLabel{\textsc{fetch-ftag-drop}}
-\TrinaryInfC{{\jm{\Delta}{\Gamma}{\lstinline{fetch} ftag x$_m$ [n] ; λ → t}{\lstinline|fetch| ftag x$_m$ [n] ; λ → drop \Gamma$_d$ ; t$^\prime$}}}
+\TrinaryInfC{\jm{\Delta}{\Gamma}{\lstinline{fetch} ftag x$_m$ [n] ; λ → t}{\lstinline|fetch| ftag x$_m$ [n] ; λ → drop \Gamma$_d$ ; t$^\prime$}}
 \DisplayProof
 \end{mdframed}
 \caption{Perceus rules}

@@ -105,36 +105,29 @@ perceusDef xs t = do
 -- Δ | Γ ⊢ t ⟿  t′
 perceusTerm :: Context -> Term -> Perceus Term
 
--- Rule: App
-perceusTerm c (App (Def f) vs) = do
+-- Rule: FETCH-OPAQUE
+perceusTerm _ (FetchOpaqueOffset n offset) = pure (FetchOpaqueOffset n offset)
+
+-- Rule: UPDATE
+perceusTerm _ (Update tag n v) = pure (Update tag n v)
+
+-- Rule: UNREACHABLE
+perceusTerm _ (Error e) = pure (Error e)
+
+-- Rule: APP
+perceusTerm c (App v vs) = do
   -- FIXME GRIN.hs should use List1
   let vs' = List1.fromListSafe __IMPOSSIBLE__ vs
   cs <- splitContext c vs'
   dups <- fold <$> List1.zipWithM perceusVal cs vs'
-  pure (foldr BindEmpty (App (Def f) vs) dups)
+  pure (foldr BindEmpty (App v vs) dups)
 
--- Rule: Store
+-- Rule: STORE
 perceusTerm c (Store loc v) = foldr BindEmpty (Store loc v) <$> perceusVal c v
 
--- Rule: Unit
+-- Rule: UNIT
 perceusTerm c (Unit v) = foldr BindEmpty (Unit v) <$> perceusVal c v
 
--- Rules: FETCH-CTAG-DUP and FETCH-CTAG
-perceusTerm c (FetchOffset tag@CTag{} n i `Bind` LAltVar x t) = do 
-  fv <- varLocal x (fvTerm t)
-  let gamma' = applyWhen (Set.member x fv) (Set.insert x) (Set.intersection c.gamma fv)
-      gammad = Set.difference c.gamma gamma'
-  t' <- varLocal x $ dropSet gammad =<< perceusTerm (Context c.delta gamma') t
-  let t'' = applyWhen (Set.member x fv) (Dup 0 `BindEmpty`) t'
-  pure $ FetchOffset tag n i `Bind` LAltVar x t''
-
--- Rules: FETCH-FTAG and FETCH-FTAG-DROP
-perceusTerm c (FetchOffset tag@FTag{} n i `Bind` LAltVar x t) = do 
-  fv <- varLocal x (fvTerm t)
-  let gamma' = applyWhen (Set.member x fv) (Set.insert x) (Set.intersection c.gamma fv)
-      gammad = applyUnless (Set.member x fv) (Set.insert x) (c.gamma Set.\\ gamma')
-  t' <- varLocal x $ dropSet gammad  =<< perceusTerm (Context c.delta gamma') t
-  pure (FetchOffset tag n i `Bind` LAltVar x t')
 
 -- Rule: CASE
 perceusTerm c (Case v t alts) = do
@@ -154,6 +147,25 @@ perceusTerm c (Case v t alts) = do
 
       -- drop Γᵢ′ ; tᵢ′
       dropSet gammai' t'
+
+-- Rules: FETCH-CTAG-DUP and FETCH-CTAG
+perceusTerm c (FetchOffset tag@CTag{} n i `Bind` LAltVar x t) = do 
+  fv <- varLocal x (fvTerm t)
+  let gamma' = applyWhen (Set.member x fv) (Set.insert x) (Set.intersection c.gamma fv)
+      gammad = Set.difference c.gamma gamma'
+  t' <- varLocal x $ dropSet gammad =<< perceusTerm (Context c.delta gamma') t
+  let t'' = applyWhen (Set.member x fv) (Dup 0 `BindEmpty`) t'
+  pure $ FetchOffset tag n i `Bind` LAltVar x t''
+
+-- Rules: FETCH-FTAG and FETCH-FTAG-DROP
+perceusTerm c (FetchOffset tag@FTag{} n i `Bind` LAltVar x t) = do 
+  fv <- varLocal x (fvTerm t)
+  let gamma' = applyWhen (Set.member x fv) (Set.insert x) (Set.intersection c.gamma fv)
+      gammad = applyUnless (Set.member x fv) (Set.insert x) (c.gamma Set.\\ gamma')
+  t' <- varLocal x $ dropSet gammad  =<< perceusTerm (Context c.delta gamma') t
+  pure (FetchOffset tag n i `Bind` LAltVar x t')
+
+
 
 
 -- function calls and evaluations
@@ -182,8 +194,6 @@ perceusTerm c (t1 `Bind` LAltVariableNode x xs (Case (Var n) Unreachable alts))
     context = Context c.delta (gamma2 <> xs_dup)
   step _ _ = __IMPOSSIBLE__
 
-
-  
 -- Drops references which are not needed in t₂, both
 -- from the newly bound variables {x}∗ and the owned
 -- environment Γ. It make sure to not drop any
@@ -223,20 +233,13 @@ perceusTerm c (t1 `Bind` alt) = do
 
   pure (t1' `Bind` mkAlt t2'_drop)
 
-
-
-
--- These only borrows values, and thereby don't create any dups.
--- x ∈ Δ is ensured by fv(t) in the other patterns.
-perceusTerm _ (Fetch' mtag n (Just offset)) = pure $ Fetch' mtag n (Just offset)
-perceusTerm _ (Update tag n v) = pure (Update tag n v)
+-- Only allowed in dup and drop
 perceusTerm _ UpdateOffset{} = __IMPOSSIBLE__
-perceusTerm _ (Error e) = pure (Error e)
-perceusTerm _ (App (Prim prim) vs) = pure (App (Prim prim) vs)
-
-perceusTerm _ Case{} = __IMPOSSIBLE__
+-- Fetch entire nodes are not allowed in lower-level GRIN.
+-- P-tags are not yet implemented. All other matches should 
+-- be handled by the other rules.
 perceusTerm _ Fetch'{} = __IMPOSSIBLE__
-perceusTerm _ App{} = __IMPOSSIBLE__
+
 
 type Dups = [Term]
 
@@ -259,7 +262,7 @@ perceusVal c (Var n) = do
 
   pure $ fromMaybe (error s) (is_bottom <|> not_ptr <|> svar <|> svar_dup)
 
-perceusVal c val@(ConstantNode _ (v : vs)) = do
+perceusVal c (ConstantNode _ (v : vs)) = do
   contexts <- splitContext c (v :| vs)
   -- logIO $ render $ vcat
   --   [ text "\nCONSTANTNODE" <+> pretty val
@@ -283,7 +286,7 @@ perceusVal _ _ = pure []
 --
 -- (Δ,Γ₂,‥,Γₙ | Γ₁), (Δ,Γ₃,‥,Γₙ | Γ₂),‥, (Δ | Γₙ)
 --
--- where |{v}+| = n and Γᵢ = (Γ - Γᵢ₊₁ - ‥ - Γₙ) ∩ fv(vᵢ)   -- TODO maybe ov(vᵢ)
+-- where |{v}+| = n and Γᵢ = (Γ - Γᵢ₊₁,‥,Γₙ) ∩ fv(vᵢ)
 --
 splitContext :: Context -> List1 Val -> Perceus (List1 Context)
 splitContext c vs = list1scanr step (Context c.delta) <$> gammas
