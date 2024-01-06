@@ -136,10 +136,11 @@ perceusTerm c (FetchOffset tag@FTag{} n i `Bind` LAltVar x t) = do
   t' <- varLocal x $ dropSet gammad  =<< perceusTerm (Context c.delta gamma') t
   pure (FetchOffset tag n i `Bind` LAltVar x t')
 
-perceusTerm c (Case (Var n) t alts) = do
+-- Rule: CASE
+perceusTerm c (Case v t alts) = do
   t' <- step t
   alts' <- mapM (\(splitCalt -> (mkAlt, t)) -> mkAlt <$> step t) alts
-  pure (Case (Var n) t' alts')
+  pure (Case v t' alts')
   where
   -- Δ | Γᵢ ⊢ tᵢ ⟿  drop Γᵢ′ ; tᵢ′
   step t = do

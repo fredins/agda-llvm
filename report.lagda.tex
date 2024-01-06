@@ -318,14 +318,14 @@ future mentions of \emph{suspended computation} and \emph{weak head normal form}
 \begin{empheq}[box=\fbox]{align*}
 % TODO fix rest of emph
 &\begin{array}{l l l l}
-term & ::=    & \emph{term} \; ; \; \lambda \; \emph{lpat} \rightarrow \emph{term}                        & \; \text{binding} \\
-     & \;\; \mid  & \texttt{case} \; \emph{val} \; \texttt{of} \; \emph{term} \; \{\emph{calt}\,\}*  & \; \text{case} \\
-     & \;\; \mid  & val \; \{val\}*                                           & \; \text{application} \\
-     & \;\; \mid  & \texttt{unit} \; val                                      & \; \text{return value} \\
-     & \;\; \mid  & \texttt{store} \; val                                     & \; \text{allocate new heap node} \\
-     & \;\; \mid  & \texttt{fetch} \; \{tag\} \; n \;  \{i\}                  & \; \text{load heap node} \\
-     & \;\; \mid  & \texttt{update} \; \{tag\} \; n \; \{i\} \; val           & \; \text{overwrite heap node} \\
-     & \;\; \mid  & \texttt{unreachable}                                      & \; \text{unreachable} \\
+term & ::=    & \emph{term} \; ; \; \lambda \; \emph{lpat} \rightarrow \emph{term}                                      & \; \text{binding} \\
+     & \;\; \mid  & \texttt{case} \; \emph{val} \; \texttt{of} \; \emph{term} \; \{\emph{cpat\;\rightarrow\;term}\,\}*  & \; \text{case} \\
+     & \;\; \mid  & val \; \{val\}*                                                                                     & \; \text{application} \\
+     & \;\; \mid  & \texttt{unit} \; val                                                                                & \; \text{return value} \\
+     & \;\; \mid  & \texttt{store} \; val                                                                               & \; \text{allocate new heap node} \\
+     & \;\; \mid  & \texttt{fetch} \; \{tag\} \; n \;  \{i\}                                                            & \; \text{load heap node} \\
+     & \;\; \mid  & \texttt{update} \; \{tag\} \; n \; \{i\} \; val                                                     & \; \text{overwrite heap node} \\
+     & \;\; \mid  & \texttt{unreachable}                                                                                & \; \text{unreachable} \\
 \end{array} \\ \\
 &\begin{array}{l l l l}
 val & ::=     & \emph{tag} \; \{\emph{val}\,\}* & \; \text{constant node} \\
@@ -586,7 +586,7 @@ We can promote an element from the borrowed environment to the owned environment
 \noLine{}
 \UnaryInfC{\jmv{\Delta,\Gamma$_{i+1}$,...,\Gamma$_n$}{\Gamma$_i$}{v$_i$}{\Gamma$_{d_i}$}}
 \RightLabel{\textsc{app}}
-\UnaryInfC{\jm{\Delta}{\Gamma}{f\;v$_1$...v$_n$}{dup $\bigcup_{i=1}^n\Gamma_{d_i}$\;; f$^\prime$\;v$_1^\prime$,...,v$_n^\prime$}}
+\UnaryInfC{\jm{\Delta}{\Gamma}{f\;\{v$_1$,...,v$_n$\}}{dup $\bigcup_{i=1}^n\Gamma_{d_i}$\;; f$^\prime$\;\{v$_1^\prime$,...,v$_n^\prime$\}}}
 \DisplayProof
 \\
 \vspace{1em}
@@ -600,6 +600,14 @@ We can promote an element from the borrowed environment to the owned environment
 \AxiomC{\jmv{\Delta}{\Gamma}{v}{\Gamma$_d$}}
 \RightLabel{\textsc{unit}}
 \UnaryInfC{\jm{\Delta}{\Gamma}{\lstinline|unit|\;v}{dup\;\Gamma$_d$\;;\;\lstinline|unit|\;v$^\prime$}}
+\DisplayProof
+\\
+\vspace{1em}
+% CASE
+\AxiomC{\Gamma$_i$\;=\;\Gamma\;\cup\;fv(t$_i$)}
+\AxiomC{\jm{\Delta}{\Gamma$_i$}{t$_i$}{t$^\prime_i$}}
+\RightLabel{\textsc{case}}
+\BinaryInfC{\jm{\Delta}{\Gamma}{\lstinline|case|\;v\;t$_1$\;\{p$_2$\rightarrow\:t$_2$,...,p$_n$\rightarrow\:t$_n$\}}{\lstinline|case|\;v\;t$^\prime_1$\;\{p$_2$\rightarrow\:t$^\prime_2$,...,p$_n$\rightarrow\:t$^\prime_n$\}}}
 \DisplayProof
 \\
 \vspace{1em}
