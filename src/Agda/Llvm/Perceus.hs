@@ -167,7 +167,7 @@ perceusTerm c (FetchOffset tag@FTag{} n i `Bind` LAltVar x t) = do
 
 
 
-
+-- TODO formalize
 -- function calls and evaluations
 perceusTerm c (t1 `Bind` LAltVariableNode x xs (Case (Var n) Unreachable alts)) 
   | n == length xs = do 
@@ -194,6 +194,8 @@ perceusTerm c (t1 `Bind` LAltVariableNode x xs (Case (Var n) Unreachable alts))
     context = Context c.delta (gamma2 <> xs_dup)
   step _ _ = __IMPOSSIBLE__
 
+-- TODO formalize
+--
 -- Drops references which are not needed in t₂, both
 -- from the newly bound variables {x}∗ and the owned
 -- environment Γ. It make sure to not drop any
@@ -243,6 +245,7 @@ perceusTerm _ Fetch'{} = __IMPOSSIBLE__
 
 type Dups = [Term]
 
+-- TODO formalize
 perceusVal :: Context -> Val -> Perceus Dups
 perceusVal c (Var n) = do
   x <- fromMaybe __IMPOSSIBLE__ <$> deBruijnLookup n
