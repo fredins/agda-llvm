@@ -1,4 +1,5 @@
 -- {-# LANGUAGE OverloadedLists     #-}
+{-# LANGUAGE BlockArguments      #-}
 {-# LANGUAGE OverloadedRecordDot #-}
 {-# LANGUAGE ViewPatterns        #-}
 
@@ -6,13 +7,12 @@ module Compiler.Grin.GrinTransformations
   (module Compiler.Grin.GrinTransformations) where
 
 import           Control.Applicative            (liftA2)
-import           Control.Monad                  (forM, (<=<))
+import           Control.Monad                  (forM, replicateM, (<=<))
 import           Control.Monad.Reader           (MonadReader (local),
                                                  ReaderT (runReaderT), asks)
 import           Control.Monad.State            (StateT (runStateT), modify)
-import           Control.Monad.Trans.Maybe      (MaybeT (..), hoistMaybe)
-import           Data.Foldable                  (find, fold, toList)
-import           Data.Function                  (on)
+import           Data.Foldable                  (find, toList)
+import           Data.List                      (partition)
 import           Data.Map                       (Map)
 import qualified Data.Map                       as Map
 import           Data.Set                       (Set)
@@ -32,6 +32,8 @@ import           Agda.Utils.Maybe
 
 import           Compiler.Grin.Grin             as G
 import           Compiler.Grin.HeapPointsToType
+import           Data.List.Extra                (maximumOn)
+import           Data.Tuple.Extra               (first, second, secondM, swap)
 import           Utils.Utils
 
 newtype TagInfo = TagInfo{unTagInfo :: Map Abs (Set Tag)}
@@ -116,6 +118,7 @@ type E m = ReaderT [Abs] (StateT TagInfo m)
 -- Tag Info:
 --   x38 → {Cnat, FAgda.Builtin.Nat._-_}
 --   x39 → {Cnat}
+-- FIXME should only take one GrinDefinition
 inlineEval :: forall mf. MonadFresh Int mf
            => [GrinDefinition]
            -> AbstractContext
@@ -148,10 +151,9 @@ inlineEval defs absCxt tagInfo =
   generateEval :: Int -> E mf (Term, Set Tag)
   generateEval n = do
     x <- deBruijnLookup n
-    case Set.toList (fetchTagSet x) of
-      []         -> __IMPOSSIBLE__
-      [tag]      -> genLambda tag
-      (tag:tags) -> genCase (tag :| tags)
+    caseList do Set.toList (fetchTagSet x)
+             do __IMPOSSIBLE__
+             do genCase' .: (:|)
     where
     -- TODO implement this as an optimization instead
     genLambda tag = do
@@ -179,6 +181,37 @@ inlineEval defs absCxt tagInfo =
       eval <&> (, returnTags)
       where
       returnTags = mkReturnTags (tag :| [])
+
+    genCase' tags = do
+      x1 <- freshAbs
+      x2 <- freshAbs
+
+      -- Assign caseTags to x1 and returnTags to x2
+      --
+      -- fetch 0 ; λ x1 →
+      --  (case 0 of
+      --     FAgda.Builtin.Nat._-_ x40 x41 → Agda.Builtin.Nat._-_ 1 0
+      --     _ → unit 0
+      --  ) ; λ x2 →
+      modify (tagInfoInsert x2 returnTags . tagInfoInsert x1 caseTags)
+
+      let
+        infixr 2 `bindVarL'`, `bindVarR'`
+        bindVarR' t1 t2 = Bind t1 . LAltVar x1 <$> t2
+        bindVarL' t1 t2 = t1 <&> (`Bind` LAltVar x2 t2)
+        eval =
+          FetchOpaque n                  `bindVarR'`
+          Case (Var 0) t <$> alts        `bindVarL'`
+          Update Nothing (n + 2) (Var 0) `BindEmpty`
+          Unit (Var 0)
+
+      eval <&> (, returnTags)
+      where
+      caseTags = Set.fromList (toList tags)
+      returnTags = mkReturnTags tags
+      t = if null ctags then Unreachable else Unit (Var 0)
+      (ctags, ftags) = List1.partition (\case {CTag{} -> True; _ -> False}) tags
+      alts = mapM (caltConstantNode <*> genBody) (toList ftags)
 
     genCase tags = do
       x1 <- freshAbs
@@ -456,41 +489,48 @@ caseUpdateView _ = Nothing
 -- <t1> ; λ tag x₂ x₃ →
 -- <t2> [tag x₂ x₃ / x₁]
 -- TODO update taginfo
-vectorize :: forall mf. MonadFresh Int mf => TagInfo -> Term -> mf Term
+vectorize :: forall mf. MonadFresh Int mf => TagInfo -> Term -> mf (TagInfo, Term)
 vectorize tagInfo (t1 `Bind` LAltVar x1 t2)
-  | Just tag <- singletonTag x1 tagInfo = do
-    let arity = tagArity tag
-        vs = map Var $ downFrom arity
-        node = ConstantNode tag vs
-        offset = arity
-        rho = singletonS offset node `composeS` raiseS offset
-    t2' <- vectorize tagInfo t2
-    alt <- laltConstantNode tag (applySubst rho t2')
-    pure (t1 `Bind` alt)
-
+  -- -- FIXME remove?
+  -- | Just tag <- singletonTag x1 tagInfo = do
+  --   let arity = tagArity tag
+  --       vs = map Var $ downFrom arity
+  --       node = ConstantNode tag vs
+  --       offset = arity
+  --       rho = singletonS offset node `composeS` raiseS offset
+  --   (tagInfo', t2') <- vectorize tagInfo t2
+  --   alt <- laltConstantNode tag (applySubst rho t2')
+  --   pure (tagInfo', t1 `Bind` alt)
 
   | Just arity <- lookupMaxArity x1 tagInfo = do
     let vs = map Var $ downFrom arity
         node = VariableNode arity vs
         offset = succ arity
         rho = singletonS offset node `composeS` raiseS offset
-    t2' <- vectorize tagInfo t2
-    alt <- laltVariableNode arity (applySubst rho t2')
-    pure (t1 `Bind` alt)
 
-vectorize absCxt (t1 `Bind` (splitLalt -> (mkAlt, t2))) = do
-  t1' <- vectorize absCxt t1
-  t2' <- vectorize absCxt t2
-  pure (t1' `Bind` mkAlt t2')
+    x <- freshAbs
+    xs  <- replicateM arity freshAbs
 
-vectorize absCxt (Case v t alts) = do
-  t' <- vectorize absCxt t
-  alts' <- mapM step alts
-  pure $ Case v t' alts'
+    let x1_tags = fromMaybe __IMPOSSIBLE__ (Map.lookup x1 tagInfo.unTagInfo)
+        tagInfo' = TagInfo (Map.insert x x1_tags tagInfo.unTagInfo)
+
+    (tagInfo'', t2') <- vectorize tagInfo' t2
+    let alt = LAltVariableNode x xs (applySubst rho t2')
+    pure (tagInfo'', t1 `Bind` alt)
+
+vectorize tagInfo (t1 `Bind` (splitLalt -> (mkAlt, t2))) = do
+  (tagInfo', t1') <- vectorize tagInfo t1
+  (tagInfo'', t2') <- vectorize tagInfo' t2
+  pure (tagInfo'', t1' `Bind` mkAlt t2')
+
+vectorize tagInfo (Case v t alts) = do
+  (tagInfo', t') <- vectorize tagInfo t
+  (tagInfo'', alts') <- mapAccumM step tagInfo' alts
+  pure (tagInfo'', Case v t' alts')
   where
-  step (splitCalt -> (mkAlt, t)) = mkAlt <$> vectorize absCxt t
+  step tagInfo (splitCalt -> (mkAlt, t)) = second mkAlt <$> vectorize tagInfo t
 
-vectorize _ t = pure t
+vectorize tagInfo t = pure (tagInfo, t)
 
 
 -- Should this be part of propagateConstant?
@@ -575,32 +615,50 @@ fetchRest mtag n xs t = foldr (uncurry fetch) t (zip [2 ..] xs)
 -- • Annotate fetch with tag so it is known whether small layout or big layout should
 --   be used.
 -- • Implement the the missing patterns (see TODOs below)
-rightHoistFetch :: forall mf. MonadFresh Int mf => Term -> mf Term
-rightHoistFetch (FetchOpaqueOffset n 1      `Bind` LAltVar x1
-                (FetchOpaqueOffset _ offset `Bind` LAltVar x2 t)) = do
-  t' <- hoistFetch n x1 x2 t offset
-  rightHoistFetch (FetchOpaqueOffset n 1 `Bind` LAltVar x1 t')
+rightHoistFetch :: forall mf. MonadFresh Int mf => TagInfo -> Term -> mf Term
+rightHoistFetch tagInfo (FetchOpaqueOffset n 1      `Bind` LAltVar x1
+                        (FetchOpaqueOffset _ offset `Bind` LAltVar x2 t)) = do
+  t' <- hoistFetch tagInfo n x1 x2 t offset
+  rightHoistFetch tagInfo (FetchOpaqueOffset n 1 `Bind` LAltVar x1 t')
 
-rightHoistFetch (Bind t1 (splitLalt-> (mkAlt, t2))) = Bind t1 . mkAlt <$> rightHoistFetch t2
-rightHoistFetch (Case v t alts) = (Case v <$> rightHoistFetch t) <*> mapM step alts
+rightHoistFetch tagInfo (Bind t1 (splitLalt-> (mkAlt, t2))) = Bind t1 . mkAlt <$> rightHoistFetch tagInfo t2
+rightHoistFetch tagInfo (Case v t alts) = (Case v <$> rightHoistFetch tagInfo t) <*> mapM step alts
   where
-  step (splitCalt -> (mkAlt, t)) = mkAlt <$> rightHoistFetch t
-rightHoistFetch term = pure term
+  step (splitCalt -> (mkAlt, t)) = mkAlt <$> rightHoistFetch tagInfo t
+rightHoistFetch _ term = pure term
 
-hoistFetch :: forall mf. MonadFresh Int mf => Int -> Abs -> Abs -> Term -> Int -> mf Term
-hoistFetch n x1 x2 t offset =
+
+maximumCtag :: Abs -> TagInfo -> Maybe Tag
+maximumCtag x tagInfo = maximumOn tagArity
+                      . filter isCtag
+                      . toList
+                    <$> Map.lookup x tagInfo.unTagInfo
+  where
+  isCtag :: Tag -> Bool
+  isCtag CTag{} = True
+  isCtag _      = False
+
+hoistFetch :: forall mf. MonadFresh Int mf => TagInfo -> Int -> Abs -> Abs -> Term -> Int -> mf Term
+hoistFetch tagInfo n x1 x2 t offset =
     go (x2 <| x1 :| []) t
   where
+
     go :: List1 Abs -> Term -> mf Term
     go xs (Case (Var n) t alts)
-      | x1 `elem` (toList xs !!! n) =
-        let v = strengthen impossible $ Var n in
-        Case v t <$> updateAlts xs alts
+      | x1 `elem` (toList xs !!! n) = do
+        let v   = strengthen impossible $ Var n
+        t' <- case t of
+          Unreachable -> pure Unreachable
+          _ -> maybe __IMPOSSIBLE__ (\ tag -> updateTerm xs tag t) (maximumCtag x1 tagInfo)
+        Case v t' <$> updateAlts xs alts
 
     go xs (Case (Var n) t alts `Bind` alt)
       | x1 `elem` (toList xs !!! n) = do
-        let v = strengthen impossible $ Var n
-        (Case v t <$> updateAlts xs alts) <&> (`Bind` strengthen (error $ "Cannot strengthen alt:\n" ++ prettyShow alt) alt)
+        let v   = strengthen impossible $ Var n
+        t' <- case t of
+          Unreachable -> pure Unreachable
+          _ -> maybe (error $ "TAGINFO OF VARIABLE " ++ prettyShow x1 ++ "\n" ++ prettyShow tagInfo) (\ tag -> updateTerm xs tag t) (maximumCtag x1 tagInfo)
+        Case v t' <$> updateAlts xs alts <&> (`Bind` strengthen (error $ "Cannot strengthen alt:\n" ++ prettyShow alt) alt)
 
     go (x1 :| xs) (t1 `Bind` LAltVar x2 t2) = do
       -- Swap indices 0 and 1
@@ -623,12 +681,16 @@ hoistFetch n x1 x2 t offset =
     updateAlts  :: List1 Abs -> [CAlt] -> mf [CAlt]
     updateAlts xs = mapM step
       where
-      step (CAltTag tag t) =
-        CAltTag tag <$> caseMaybe (prependFetchOnUse tag xs t)
-          -- Strengthen alternatives which didn't prepend fetch
-          (pure $ strengthen (error $ "DIDN'T PREPEND FETCH:\n" ++ prettyShow t) t)
-          id
-      step _ = __IMPOSSIBLE__
+      step (CAltTag tag t) = CAltTag tag <$> updateTerm xs tag t
+      step _               = __IMPOSSIBLE__
+
+    updateTerm :: List1 Abs -> Tag -> Term -> mf Term
+    updateTerm xs tag t =
+      caseMaybe do prependFetchOnUse tag xs t
+                   -- Strengthen alternatives which didn't prepend fetch
+                do pure $ strengthen (error $ "DIDN'T PREPEND FETCH:\n" ++ prettyShow t) t
+                do id
+
 
     prependFetchOnUse :: Tag -> List1 Abs -> Term -> Maybe (mf Term)
     prependFetchOnUse tag (x1 :| xs) (Bind t1 (splitLaltWithVars -> (mkAlt, t2, [x2])))
@@ -674,10 +736,7 @@ hoistFetch n x1 x2 t offset =
         isX2 xs n = caseMaybe (toList xs !!! n) False (== x2)
 
 propagateConstant :: Term -> Term
-propagateConstant (Case (Tag tag1) _ alts) = propagateConstant $ headWithDefault __IMPOSSIBLE__ (mapMaybe step alts)
-  where
-  step (CAltTag tag2 t) = boolToMaybe (tag2 == tag1) t
-  step _                = Nothing
+propagateConstant (Case (Tag _) t []) = propagateConstant t
 propagateConstant (Case v t alts) = Case v (propagateConstant t) (map step alts)
   where
   step (splitCalt -> (mkAlt, t)) = mkAlt (propagateConstant t)

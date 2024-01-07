@@ -433,8 +433,8 @@ instance Pretty Term where
         | otherwise   = text "unit" <+> pretty v
 
   pretty (Store l v)
-    | Var _ <- v = text "store" {- <+> pretty l -} <+> pretty v
-    | otherwise  = text "store" {- <+> pretty l -} <+> parens (pretty v)
+    | Var _ <- v = text "store" <+> pretty l <+> pretty v
+    | otherwise  = text "store" <+> pretty l <+> parens (pretty v)
   pretty (App v vs) = sep $ pretty v : map pretty vs
   pretty (Case n t alts) =
     vcat

@@ -85,6 +85,7 @@ perceus def = setGrTerm t def
   where t = runReader (perceusDef def.gr_args def.gr_term) (initPerceusCxt def)
 
 
+-- FIXME use MonadReader PerceusCxt
 type Perceus a = Reader PerceusCxt a
 
 -- ∅ | Γ ⊢ t ⟿  t′   Γ = fv(t)   Γ′ = {x}∗ - Γ
@@ -330,11 +331,16 @@ dupSet set t = do
 ov :: Term -> Perceus (Set Abs)
 ov (App _ vs) = foldMapM fvVal vs
 ov (Store _ (ConstantNode _ vs)) = foldMapM fvVal vs
+ov Store{} = __IMPOSSIBLE__
 ov (Unit (ConstantNode _ vs)) = foldMapM fvVal vs
-ov (Update _ _ (ConstantNode _ vs)) = foldMapM fvVal vs
+ov (Unit (VariableNode _ vs)) = foldMapM fvVal vs
+ov Unit{} = pure mempty
 ov (Case _ t alts) = ov t <> foldMapM (ov . snd . splitCalt) alts
 ov (t1 `Bind` (splitLaltWithVars -> (_, t2, xs))) = ov t1 <> varsLocal xs (ov t2)
-ov _  = pure mempty
+ov Update{} = pure mempty
+ov UpdateOffset{} = pure mempty
+ov Error{} = pure mempty
+ov Fetch'{} = pure mempty
 
 -- | Returns the free variables of a terms that are pointers.
 fvTerm :: Term -> Perceus (Set Abs)
