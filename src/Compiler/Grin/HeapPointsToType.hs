@@ -40,7 +40,7 @@ import           Agda.Utils.Maybe
 import           GHC.IO                             (unsafePerformIO)
 
 import           Compiler.Grin.Grin                 hiding (cnat)
-import           Utils.Utils
+import           Utils.List
 
 
 

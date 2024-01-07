@@ -67,6 +67,7 @@ import           Agda.Utils.Maybe
 import           Compiler.Grin.Grin             hiding (cnat)
 import           Compiler.Grin.HeapPointsToType
 import qualified Compiler.Grin.SolveEquations   as Solve
+import           Utils.List
 import           Utils.Utils
 
 

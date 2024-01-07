@@ -1,10 +1,5 @@
-{-# LANGUAGE ViewPatterns    #-}
-
 module Utils.Utils
-  ( adjustWithDefault
-  , unionNub
-  , differenceBy
-  , (??)
+  ( (??)
   , (.:)
   , caseEither
   , swap01'
@@ -19,40 +14,18 @@ module Utils.Utils
   , prettyCallStackShort
   ) where
 
-import           Control.Monad                (filterM, liftM)
-import           Control.Monad.IO.Class       (liftIO)
+import           Control.Monad                (liftM)
+import           Control.Monad.IO.Class       (MonadIO, liftIO)
 import           Data.Coerce                  (Coercible, coerce)
 import           Data.Functor                 (($>))
-import           Data.List                    (deleteBy, intercalate, mapAccumR,
-                                               union, unzip4)
-import           Data.Map                     (Map)
-import qualified Data.Map                     as Map
+import           Data.List                    (intercalate, mapAccumR)
+import           System.IO.Unsafe             (unsafePerformIO)
 
-import           Agda.Compiler.Backend        (TCM)
 import           Agda.Syntax.Common.Pretty
 import           Agda.TypeChecking.Substitute
 import           Agda.Utils.CallStack
-import           Agda.Utils.List
-import           Agda.Utils.List1             (List1, pattern (:|), (<|))
-import qualified Agda.Utils.List1             as List1
-import           Control.Arrow                (Arrow (second))
-import           Control.Monad.IO.Class       (MonadIO)
-import           Data.List.Extra              (splitOn)
-import           System.IO.Unsafe             (unsafePerformIO)
-import           Unsafe.Coerce                (unsafeCoerce)
 
 -- TODO migrate rest of the functions to new modules
-
-adjustWithDefault :: Ord k => k -> (v -> v) -> v -> Map k v -> Map k v
-adjustWithDefault k f v xs | Map.member k xs = Map.adjust f k xs
-                           | otherwise = Map.insert k v xs
-
-unionNub :: Eq a => [a] -> [a] -> [a]
-unionNub xs = union xs . filter (`notElem` xs)
-
--- | Non-overloaded version of '\\' (non-associative).
-differenceBy :: (a -> a -> Bool) -> [a] -> [a] -> [a]
-differenceBy eq =  foldl (flip $ deleteBy eq)
 
 infixr 8 .:
 (.:) :: (c -> d) -> (a -> b -> c) -> a -> b -> d

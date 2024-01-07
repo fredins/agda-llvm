@@ -68,7 +68,9 @@ library
     Compiler.Llvm.Compiler
     Compiler.Llvm.Llvm
     Compiler.Treeless.TreelessTransform
+    Utils.List
     Utils.List1
+    Utils.Map
     Utils.Monad
     Utils.Set
     Utils.Utils
