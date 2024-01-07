@@ -1,5 +1,6 @@
 {-# LANGUAGE BlockArguments      #-}
 {-# LANGUAGE LambdaCase          #-}
+{-# LANGUAGE LexicalNegation     #-}
 {-# LANGUAGE OverloadedRecordDot #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE ViewPatterns        #-}
@@ -43,7 +44,9 @@ import           Agda.Utils.List
 import           Agda.Utils.Maybe
 
 
+import           Agda.Utils.Function       (applyWhen)
 import           Compiler.Grin.Grin
+import qualified Utils.Map                 as Map
 import           Utils.Utils
 
 
@@ -51,6 +54,7 @@ import           Utils.Utils
 -- * Data types and auxiliary functions
 ------------------------------------------------------------------------
 
+-- | Semantic values
 data Value
   = BasNat Integer
   | VTag Tag
@@ -110,7 +114,7 @@ instance Pretty Error where
 
 data InterpreterError = InterpreterError
   { err      :: Error
-  , location :: CallStack}
+  , location :: CallStack }
   deriving Show
 
 interpreterError :: HasCallStack => Error -> InterpreterError
@@ -146,18 +150,23 @@ prettyStackFrame stackFrame = vcat $ map step stackFrame
 
 data Ctx = Ctx
   { stack :: Stack
-  , defs  :: [GrinDefinition] }
+  , defs  :: [GrinDefinition]
+  , name  :: String }
 
 initCtx :: [GrinDefinition] -> Ctx
 initCtx defs = Ctx
   { stack = [mempty]
-  , defs = defs }
+  , defs = defs
+  , name = "main" }
 
 lensStack :: Lens' Ctx Stack
 lensStack f env = f env.stack <&> \stack -> env{stack = stack}
 
 lensDefs :: Lens' Ctx [GrinDefinition]
 lensDefs f env = f env.defs <&> \defs -> env{defs = defs}
+
+lensName :: Lens' Ctx String
+lensName f env = f env.name <&> \name -> env{name = name}
 
 stackFrameLookup :: (HasCallStack, MonadError InterpreterError m, MonadReader Ctx m) => Int -> m Value
 stackFrameLookup n =  do
@@ -177,20 +186,46 @@ stackFrameLocal x v f = do
 
 stackFrameLocals :: (HasCallStack, MonadReader Ctx m, MonadError InterpreterError m) => [Abs] -> [Value] -> m a -> m a
 stackFrameLocals [] [] = id
-stackFrameLocals xs vs = foldl do \f (x, v) -> f . stackFrameLocal x v
+stackFrameLocals xs vs = foldl do \ f (x, v) -> f . stackFrameLocal x v
                                do id
                                do zip xs (vs ++ repeat Undefined)
+
+data ActionType = Produce | Consume
+
+data Action = Action ActionType Loc String
+
+
+move :: Loc -> String -> String -> [Action] -> [Action]
+move loc name name' xs = Action Consume loc name : Action Produce loc name' : xs
+
+fromActionType :: ActionType -> Int -> Int
+fromActionType Produce = (+ 1)
+fromActionType Consume = (- 1)
+
+toActions :: (Num n, Ord n) => Loc -> String -> n -> [Action] -> [Action]
+toActions loc name n xs
+  | n <= -1   = toActions loc name (n + 1) (Action Consume loc name : xs)
+  | n >= 1    = toActions loc name (n - 1) (Action Produce loc name : xs)
+  | otherwise = xs
+
+foldAction :: [Action] -> String -> Loc -> Int
+foldAction xs name loc = foldr step 0 xs
+  where
+  step (Action typ loc' name') =
+    applyWhen (loc == loc' && name == name') (fromActionType typ)
 
 data Env = Env
   { heap                 :: Heap
   , allocation_info      :: Map Tag Int
-  , highest_memory_usage :: Heap }
+  , highest_memory_usage :: Heap
+  , actions              :: [Action] }
 
 initEnv :: Env
 initEnv = Env
-  { heap = mempty
-  , allocation_info = mempty
-  , highest_memory_usage = mempty }
+  { heap                 = mempty
+  , allocation_info      = mempty
+  , highest_memory_usage = mempty
+  , actions              = mempty }
 
 lensHeap :: Lens' Env Heap
 lensHeap f env = f env.heap <&> \heap -> env{heap = heap}
@@ -201,13 +236,23 @@ lensAllocationInfo f env = f env.allocation_info <&> \x -> env{allocation_info =
 lensHighestMemoryUsage :: Lens' Env Heap
 lensHighestMemoryUsage f env = f env.highest_memory_usage <&> \x -> env{highest_memory_usage = x}
 
-allocate :: (HasCallStack, MonadFresh Int m, MonadError InterpreterError m, MonadState Env m) => Value -> m Loc
+lensActions :: Lens' Env [Action]
+lensActions f env = f env.actions <&> \ x -> env{actions = x}
+
+allocate
+  :: ( HasCallStack, MonadFresh Int m
+     , MonadError InterpreterError m
+     , MonadState Env m, MonadReader Ctx m )
+  => Value
+  -> m Loc
 allocate (VNode tag vs) = do
   loc <- freshLoc
   heap <- use lensHeap
+  name <- view lensName
+  lensActions %= cons (Action Produce loc name)
   let heap' = Map.insert loc (HeapNode 1 tag vs) heap
   lensHeap .= heap'
-  lensAllocationInfo %= adjustWithDefault tag succ 1
+  lensAllocationInfo %= Map.adjustWithDefault tag succ 1
   highest_memory_usage <- use lensHighestMemoryUsage
   when do on (>) length heap' highest_memory_usage
        do lensHighestMemoryUsage .= heap'
@@ -226,10 +271,12 @@ update loc tag vs = do
   HeapNode count _ _ <- heapLookup loc
   lensHeap %= Map.insert loc (HeapNode count tag vs)
 
-updateReferenceCount :: (HasCallStack, MonadError InterpreterError m, MonadState Env m) => Loc -> Integer -> m ()
-updateReferenceCount loc count = do
-  HeapNode _ tag vs <- heapLookup loc
-  lensHeap %= Map.insert loc (HeapNode count tag vs)
+updateReferenceCount :: (HasCallStack, MonadError InterpreterError m, MonadState Env m, MonadReader Ctx m) => Loc -> Integer -> m ()
+updateReferenceCount loc count' = do
+  name <- view lensName
+  HeapNode count tag vs <- heapLookup loc
+  lensActions %= toActions loc name (count' - count)
+  lensHeap %= Map.insert loc (HeapNode count' tag vs)
 
 sel :: Int -> HeapNode -> Value
 sel 0 (HeapNode i _ _) = BasNat i
@@ -356,13 +403,17 @@ eval (App (Def "free") [Var n]) = do
     v       -> throw (ExpectedHeapPointer v)
   pure VEmpty
 
-eval (App (Def name) vs) = do
+eval (App (Def name') vs) = do
   vs' <- mapM evalVal vs
   defs <- view lensDefs
   def <- liftEither $ maybeToEither (interpreterError DefinitionNotInScope)
-                    $ find (\ def -> def.gr_name == name) defs
+                    $ find (\ def -> def.gr_name == name') defs
   let sf = reverse $ zip def.gr_args vs'
-  locally lensStack (sf :) (eval def.gr_term)
+  let locs = forMaybe vs' \case Loc loc -> Just loc
+                                _       -> Nothing
+  name <- view lensName
+  lensActions %= \ xs -> foldr (\ loc -> move loc name name') xs locs
+  locally lensStack (sf :) $ locally lensName (const name') (eval def.gr_term)
 
 eval (Case v def alts) = do
   v' <- evalVal v
@@ -386,7 +437,6 @@ eval (Case v def alts) = do
       [] | t == Unreachable -> error $ "Couln't match tag " ++ prettyShow tag1 ++ " in\n" ++ render (nest 4 (pretty (Case v def alts)))
       []    -> ([], t)
       [alt] -> alt
-      xs    -> error $ show xs
       _     -> __IMPOSSIBLE__-- TODO
     where
     matching = forMaybe alts $ \case
@@ -409,7 +459,17 @@ eval (Case v def alts) = do
 
 eval t@UpdateOffset{} = error $ "TODO: " ++ show t
 
-eval (Unit v) = evalVal v
+eval (Unit v) = do
+  v' <- evalVal v
+  case v' of
+    VNode _ vs -> do
+      let locs = forMaybe vs \case Loc loc -> Just loc
+                                   _       -> Nothing
+      name <- view lensName
+      lensActions %= \ xs -> foldr (\ loc -> cons $ Action Consume loc name) xs locs
+      pure v'
+    _ -> pure v'
+
 eval Store{} = __IMPOSSIBLE__
 eval Fetch'{} = __IMPOSSIBLE__
 eval Update{} = __IMPOSSIBLE__
@@ -462,7 +522,7 @@ printResult (val, env) = do
     , text "Allocations" <+> vcat (allocation_counts ++ [text "Total:" <+> pretty allocations])
     , text "Highest memory usage: " <+> pretty (length env.highest_memory_usage) <+> text "nodes."
     , text "In use at exit:" <+> pretty (Map.size env.heap) ]
-
+  putStrLn $ render $ prettyHeap env.heap
   -- putStrLn $ render $ text "\nHeap at highest memory usage:\n" <> nest 2 (pretty env.highest_memory_usage)
 
 printInterpretGrin :: (MonadIO m, MonadFresh Int m) => [GrinDefinition] -> m ()
