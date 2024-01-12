@@ -212,6 +212,13 @@ laltVariableNode n t = do
   xs  <- replicateM n freshAbs
   pure $ LAltVariableNode tag xs t
 
+caltBody :: LensGet CAlt Term
+caltBody = \case
+  CAltTag _ t            -> t
+  CAltConstantNode _ _ t -> t
+  CAltGuard _ t          -> t
+  CAltLit _ t            -> t
+
 laltBody :: LensGet LAlt Term
 laltBody = \case
   LAltConstantNode _ _ t -> t
@@ -433,8 +440,8 @@ instance Pretty Term where
         | otherwise   = text "unit" <+> pretty v
 
   pretty (Store l v)
-    | Var _ <- v = text "store" {- <+> pretty l -} <+> pretty v
-    | otherwise  = text "store" {- <+> pretty l -} <+> parens (pretty v)
+    | Var _ <- v = text "store" <+> pretty l <+> pretty v
+    | otherwise  = text "store" <+> pretty l <+> parens (pretty v)
   pretty (App v vs) = sep $ pretty v : map pretty vs
   pretty (Case n t alts) =
     vcat

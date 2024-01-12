@@ -3,21 +3,17 @@
 
 module Compiler.Llvm.Llvm (module Compiler.Llvm.Llvm) where
 
-import           Data.List                 (intercalate, intersperse)
+import           Data.List                 (intercalate)
 import           Data.String               (IsString)
 
-import           Agda.Compiler.Backend     hiding (Name, Prim)
 import           Agda.Syntax.Common.Pretty
 import           Agda.Syntax.Literal
 import           Agda.Utils.Impossible     (__IMPOSSIBLE__)
 import           Agda.Utils.List
 import           Agda.Utils.List1          (List1, pattern (:|), (<|))
 import qualified Agda.Utils.List1          as List1
-import           Agda.Utils.Monad          (forM')
 import           Control.Arrow             (Arrow (first))
-import           Control.Monad             (forM)
 import           Data.Foldable             (toList)
-import           Data.Semigroup            (sconcat)
 import qualified Utils.List1               as List1
 
 data Instruction =

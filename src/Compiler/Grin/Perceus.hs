@@ -1,12 +1,14 @@
 {-# LANGUAGE BlockArguments      #-}
 {-# LANGUAGE OverloadedRecordDot #-}
+{-# LANGUAGE RecursiveDo         #-}
 {-# LANGUAGE ViewPatterns        #-}
 
 module Compiler.Grin.Perceus (mkDrop, mkDup, perceus, specializeDrop, pushDownDup, fuseDupDrop) where
 
 import           Control.Applicative          (Applicative (liftA2), (<|>))
-import           Control.Monad                (filterM, (<=<))
-import           Control.Monad.Reader         (MonadIO (liftIO), MonadReader,
+import           Control.Monad                (filterM, mapAndUnzipM, (<=<))
+import           Control.Monad.IO.Class       (liftIO)
+import           Control.Monad.Reader         (MonadIO, MonadReader (ask),
                                                Reader, ReaderT (runReaderT),
                                                asks, local, runReader)
 import           Data.Bool                    (bool)
@@ -26,6 +28,7 @@ import           Agda.Syntax.Common.Pretty
 import           Agda.Syntax.Literal          (Literal (LitNat))
 import           Agda.TypeChecking.Substitute
 import           Agda.Utils.Function          (applyUnless, applyWhen)
+import           Agda.Utils.Functor
 import           Agda.Utils.Impossible        (__IMPOSSIBLE__)
 import           Agda.Utils.List
 import           Agda.Utils.List1             (List1, pattern (:|), (<|))
@@ -33,10 +36,17 @@ import qualified Agda.Utils.List1             as List1
 import           Agda.Utils.Maybe
 import           Agda.Utils.Monad
 
+import           Agda.Utils.Applicative       (forA)
+import           Agda.Utils.Functor           (for)
 import           Compiler.Grin.Grin
+import           Control.Monad.Fix            (MonadFix)
+import           Debug.Trace                  (traceM)
+import           GHC.IO                       (unsafePerformIO)
+import           Utils.List                   (zipWith3M)
 import qualified Utils.List1                  as List1
 import           Utils.Monad
 import qualified Utils.Set                    as Set
+import           Utils.Utils                  (logIO)
 
 -- Properties:
 -- • Δ ∩ Γ = ∅
@@ -47,69 +57,65 @@ data Context = Context
  { delta :: Set Abs
  , gamma :: Set Abs }
 
-data PerceusCxt = PerceusCxt
+data Cxt = PerceusCxt
   { pc_vars      :: [Abs]
   , pc_pointers  :: Set Abs -- ^ Variables which are pointers
   , pc_returning :: Bool
   , pc_bottoms   :: Set Abs
   }
 
-initPerceusCxt :: GrinDefinition -> PerceusCxt
+initPerceusCxt :: GrinDefinition -> Cxt
 initPerceusCxt def = PerceusCxt
-  { pc_vars = def.gr_args
-  , pc_pointers = Set.fromList def.gr_args <> gatherPointers def.gr_term
+  { pc_vars      = mempty
+  , pc_pointers  = Set.fromList def.gr_args <> gatherPointers def.gr_term
   , pc_returning = True
-  , pc_bottoms = mempty
+  , pc_bottoms   = mempty
   }
 
-varsLocal :: MonadReader PerceusCxt m => [Abs] -> m a -> m a
-varsLocal xs = local $ \cxt -> cxt{pc_vars = cxt.pc_vars ++ xs}
+varsLocal :: MonadReader Cxt m => [Abs] -> m a -> m a
+varsLocal xs = local \ cxt -> cxt{pc_vars = cxt.pc_vars ++ xs}
 
-varLocal :: MonadReader PerceusCxt m => Abs -> m a -> m a
+varLocal :: MonadReader Cxt m => Abs -> m a -> m a
 varLocal x = varsLocal [x]
 
-deBruijnLookup :: Int -> Perceus (Maybe Abs)
+deBruijnLookup :: MonadReader Cxt m => Int -> m (Maybe Abs)
 deBruijnLookup n = asks $ (!!! n) . reverse . pc_vars
 
 deBruijnOf :: Abs -> [Abs] -> Maybe Int
 deBruijnOf x = genericElemIndex x . reverse
 
-isPointer :: Abs -> Perceus Bool
+isPointer :: MonadReader Cxt m => Abs -> m Bool
 isPointer x = asks $ Set.member x . pc_pointers
 
 -- bottomsLocal :: MonadReader PerceusCxt m => Set Abs -> m a -> m a
 -- bottomsLocal xs = local $ \cxt -> cxt{pc_bottoms = xs <> cxt.pc_bottoms}
 
-perceus :: GrinDefinition -> GrinDefinition
-perceus def = setGrTerm t def
-  where t = runReader (perceusDef def.gr_args def.gr_term) (initPerceusCxt def)
-
-
-type Perceus a = Reader PerceusCxt a
+perceus :: MonadIO m => GrinDefinition -> m GrinDefinition
+perceus def = do
+  t <- liftIO $ runReaderT (perceusDef def.gr_args def.gr_term) (initPerceusCxt def)
+  pure $ setGrTerm t def
+  where
 
 -- ∅ | Γ ⊢ t ⟿  t′   Γ = fv(t)   Γ′ = {x}∗ - Γ
 -- -------------------------------------------
 -- ø ⊢ f {x}∗ = t ⟿  f {x}∗ = drop Γ′; t′
-perceusDef :: [Abs] -> Term -> Perceus Term
+perceusDef :: [Abs] -> Term -> ReaderT Cxt IO Term
 perceusDef xs t = do
   -- Γ = fv(t)
-  gamma <- fvTerm t
+  gamma <- varsLocal xs $ fvTerm t
   -- Γ′ = {x}∗ - Γ
-  let gamma' = Set.fromList xs Set.\\ gamma
+  let gammad = Set.fromList xs Set.\\ gamma
   varsLocal xs $ do
     -- ∅ | Γ ⊢ t ⟿  t′
     t' <- perceusTerm (Context mempty gamma) t
     -- drop Γ′; t′
-    dropSet gamma' t'
+    dropSet gammad t'
 
 -- Δ | Γ ⊢ t ⟿  t′
-perceusTerm :: Context -> Term -> Perceus Term
+perceusTerm :: Context -> Term -> ReaderT Cxt IO Term
 
 -- Rule: FETCH-OPAQUE
 perceusTerm _ (FetchOpaqueOffset n offset) = pure (FetchOpaqueOffset n offset)
-
--- Rule: UPDATE
-perceusTerm _ (Update tag n v) = pure (Update tag n v)
 
 -- Rule: UNREACHABLE
 perceusTerm _ (Error e) = pure (Error e)
@@ -122,12 +128,14 @@ perceusTerm c (App v vs) = do
   dups <- fold <$> List1.zipWithM perceusVal cs vs'
   pure (foldr BindEmpty (App v vs) dups)
 
+-- Rule: UPDATE
+perceusTerm c (Update tag n v) = foldr BindEmpty (Update tag n v) <$> perceusVal c v
+
 -- Rule: STORE
 perceusTerm c (Store loc v) = foldr BindEmpty (Store loc v) <$> perceusVal c v
 
 -- Rule: UNIT
 perceusTerm c (Unit v) = foldr BindEmpty (Unit v) <$> perceusVal c v
-
 
 -- Rule: CASE
 perceusTerm c (Case v t alts) = do
@@ -149,6 +157,7 @@ perceusTerm c (Case v t alts) = do
       dropSet gammai' t'
 
 -- Rules: FETCH-CTAG-DUP and FETCH-CTAG
+-- TODO split into two
 perceusTerm c (FetchOffset tag@CTag{} n i `Bind` LAltVar x t) = do
   fv <- varLocal x (fvTerm t)
   let gamma' = applyWhen (Set.member x fv) (Set.insert x) (Set.intersection c.gamma fv)
@@ -158,6 +167,7 @@ perceusTerm c (FetchOffset tag@CTag{} n i `Bind` LAltVar x t) = do
   pure $ FetchOffset tag n i `Bind` LAltVar x t''
 
 -- Rules: FETCH-FTAG and FETCH-FTAG-DROP
+-- TODO merge better
 perceusTerm c (FetchOffset tag@FTag{} n i `Bind` LAltVar x t) = do
   fv <- varLocal x (fvTerm t)
   let gamma' = applyWhen (Set.member x fv) (Set.insert x) (Set.intersection c.gamma fv)
@@ -165,75 +175,62 @@ perceusTerm c (FetchOffset tag@FTag{} n i `Bind` LAltVar x t) = do
   t' <- varLocal x $ dropSet gammad  =<< perceusTerm (Context c.delta gamma') t
   pure (FetchOffset tag n i `Bind` LAltVar x t')
 
+-- Rule: BIND-CASE
+perceusTerm c (t `Bind` LAltVariableNode x xs (Case (Var n) Unreachable alts))  = do
+  ov_t <- ov t
+  rec
+    (gammais, gammaids) <- mapAndUnzipM (mkGammai gamma') alts
+    let gamma' = (c.gamma `Set.intersection` ov_t) `Set.difference` fold gammais
 
+  t' <- perceusTerm
+          do Context (fold [c.delta, fold gammaids, fold gammais]) gamma'
+          do t
 
--- TODO formalize
--- function calls and evaluations
-perceusTerm c (t1 `Bind` LAltVariableNode x xs (Case (Var n) Unreachable alts))
-  | n == length xs = do
-  ov_t1 <- ov t1
-  fv_case <- varsLocal (x : xs) (fvTerm $ Case (Var n) Unreachable alts)
+  alts' <- zipWith3M step gammais gammaids alts
 
-
-  let gamma2 = Set.intersection c.gamma fv_case
-      gamma2' = c.gamma Set.\\ (ov_t1 <> gamma2)
-
-  -- Δ,Γ₂,Γ₂′ | Γ - Γ₂,Γ₂′ ⊢ t₁ ⟿  t₁′
-  let context = Context (c.delta <> gamma2 <> gamma2') (c.gamma Set.\\ (gamma2 <> gamma2'))
-  t1' <- perceusTerm context t1
-
-  alts' <- mapM (varsLocal (x : xs) . step gamma2) alts
-  t2' <- dropSet gamma2' (Case (Var n) Unreachable alts')
-
-  pure $ t1' `Bind` LAltVariableNode x xs t2'
+  pure $ t' `Bind` LAltVariableNode x xs (Case (Var n) Unreachable alts')
   where
-  step gamma2 (CAltTag tag t) =
-    CAltTag tag <$> (dupSet xs_dup =<< perceusTerm context t)
-    where
-    xs_dup = Set.fromList (take (tagArity tag) xs)
-    context = Context c.delta (gamma2 <> xs_dup)
-  step _ _ = __IMPOSSIBLE__
+  step gammai gammaid (CAltTag tag ti) =
+    fmap (CAltTag tag)
+      $ varsLocal (x : xs)
+      $ dropSet gammaid =<< perceusTerm (Context c.delta gammai) ti
+  step _ _ _ = __IMPOSSIBLE__
 
--- TODO formalize
---
--- Drops references which are not needed in t₂, both
--- from the newly bound variables {x}∗ and the owned
--- environment Γ. It make sure to not drop any
--- referernces which t₁ is responsible for dropping.
---
--- Γ₂  = Γ ∩ fv(t₂)
--- Γ₂′ = Γ - Γ₂,ov(t₁)
--- Γₓ  = fv(t₂) ∩ {x}∗    Δ,Γ₂,Γ₂′ | Γ - Γ₂,Γ₂′ ⊢ t₁ ⟿  t₁′
--- Γₓ′ = {x}∗ - fv(t₂)               Δ | Γ₂,Γₓ ⊢ t₂ ⟿  t₂′
--- -------------------------------------------------------------
--- Δ | Γ ⊢ t₁ ; λ {x}∗ → t₂ ⟿  t₁′ ; λ {x}∗ → drop Γ₂′,Γₓ′ ; t₂′
+  mkGammai' gamma' tag fv_t = (gammai, gammaid)
+    where
+    xs' = Set.fromList $ take (tagArity tag) xs
+    gammai = (c.gamma `Set.union` xs') `Set.intersection` fv_t
+    gammaid = (c.gamma `Set.union` xs') `Set.difference` (gamma' `Set.union` gammai)
+
+  mkGammai gamma' (CAltTag tag t) = mkGammai' gamma' tag <$> varsLocal (x : xs) (fvTerm t)
+  mkGammai _      _               = __IMPOSSIBLE__
+
+-- Rule: BIND
 perceusTerm c (t1 `Bind` alt) = do
   let (mkAlt, t2, xs) = splitLaltWithVars alt
+  bv_p <- Set.fromList <$> filterM isPointer xs
 
-  ov1 <- ov t1
-  fv2 <- varsLocal xs (fvTerm t2)
-  xs' <- Set.fromList <$> filterM isPointer xs
+  ov_t1 <- ov t1
+  fv_t2 <- varsLocal xs (fvTerm t2)
 
-  -- Γ₂ = Γ ∩ fv(t₂)
-  -- Γ₂′ = Γ - Γ₂,ov(t₁)
-  let gamma2  = Set.intersection c.gamma fv2
-      gamma2' = c.gamma Set.\\ (gamma2 <> ov1)
+  let gamma2 = (c.gamma `Set.union` bv_p) `Set.intersection` fv_t2
+      gamma1 = (c.gamma `Set.intersection` ov_t1) `Set.difference` gamma2
+      gammad = (c.gamma `Set.union` bv_p) `Set.difference` (gamma1 `Set.union` gamma2)
 
-  -- Γₓ = fv(t₂) ∪ {x}∗
-  -- Γₓ′ = fv(t₂) - {x}∗
-  let (gammax, gammax') = Set.partition (`Set.member` fv2) xs'
+  logIO ""
+  logIO $ "t1:\n" ++ render (nest 4 (pretty t1))
+  logIO $ "alt:\n" ++ render (nest 4 (pretty (mkAlt t2)))
+  logIO $ "gamma1: " ++ prettyShow gamma1
+  logIO $ "gammad: " ++ prettyShow gammad
+  logIO $ "gamma2: " ++ prettyShow gamma2
 
-  -- Δ,Γ₂,Γ₂′ | Γ - Γ₂,Γ₂′ ⊢ t₁ ⟿  t₁′
-  let cxt = Context (c.delta <> gamma2 <> gamma2') (c.gamma Set.\\ (gamma2 <> gamma2'))
+  t1' <- perceusTerm
+           do Context (c.delta `Set.union` gammad `Set.union` gamma2) gamma1
+           do t1
 
-  t1' <- perceusTerm cxt t1
+  t2' <- varsLocal xs $ dropSet gammad =<< perceusTerm (Context c.delta gamma2) t2
 
-  -- Δ | Γ₂ ⊢ t₂ ⟿  t₂′
-  t2' <- varsLocal xs $ perceusTerm (Context c.delta $ gamma2 <> gammax) t2
-  -- drop Γ₂′,Γₓ′ ; t₂′
-  t2'_drop <- varsLocal xs $ dropSet (gamma2' <> gammax') t2'
-
-  pure (t1' `Bind` mkAlt t2'_drop)
+  pure (t1' `Bind` mkAlt t2')
 
 -- Only allowed in dup and drop
 perceusTerm _ UpdateOffset{} = __IMPOSSIBLE__
@@ -246,7 +243,7 @@ perceusTerm _ Fetch'{} = __IMPOSSIBLE__
 type Dups = [Term]
 
 -- TODO formalize
-perceusVal :: Context -> Val -> Perceus Dups
+perceusVal :: MonadReader Cxt m => Context -> Val -> m Dups
 perceusVal c (Var n) = do
   x <- fromMaybe __IMPOSSIBLE__ <$> deBruijnLookup n
   p <- isPointer x
@@ -291,7 +288,7 @@ perceusVal _ _ = pure []
 --
 -- where |{v}+| = n and Γᵢ = (Γ - Γᵢ₊₁,‥,Γₙ) ∩ fv(vᵢ)
 --
-splitContext :: Context -> List1 Val -> Perceus (List1 Context)
+splitContext :: MonadReader Cxt m => Context -> List1 Val -> m (List1 Context)
 splitContext c vs = List1.scanr' step (Context c.delta) <$> gammas
   where
   -- Δᵢ = Δᵢ₊₁,Γᵢ₊₁
@@ -309,43 +306,42 @@ splitContext c vs = List1.scanr' step (Context c.delta) <$> gammas
 
 
 -- | drop Γ; t = drop x₁; ..; drop xₙ ; t   where |Γ| = n
-dropSet :: Set Abs -> Term -> Perceus Term
-dropSet set t = do
-  set' <- asks $ (set Set.\\) . pc_bottoms
-  xs <- asks pc_vars
-  let drops = Set.map (Drop . fromMaybe __IMPOSSIBLE__ . flip deBruijnOf xs) set'
-  pure $ foldr BindEmpty t drops
-
-
--- | dup Γ; t = dup x₁; ..; dup xₙ ; t   where |Γ| = n
-dupSet :: Set Abs -> Term -> Perceus Term
-dupSet set t = do
-  set' <- asks $ (set Set.\\) . pc_bottoms
-  xs <- asks pc_vars
-  let drops = Set.map (Dup . fromMaybe __IMPOSSIBLE__ . flip deBruijnOf xs) set'
-  pure $ foldr BindEmpty t drops
-
+dropSet :: MonadReader Cxt m => Set Abs -> Term -> m Term
+dropSet gammad t = asks \ cxt ->
+  foldr (step cxt.pc_vars) t (gammad `Set.difference` cxt.pc_bottoms)
+  where
+  step xs x t =
+    caseMaybe do deBruijnOf x xs
+              do error $ unwords ["dropSet: Cannot find", prettyShow x, "in", prettyShow xs]
+              do \ n -> Drop n `BindEmpty` t
 
 -- | Returns the free variables that the term want to own.
-ov :: Term -> Perceus (Set Abs)
+-- ov :: Term -> Reader Cxt (Set Abs)
+ov :: MonadReader Cxt m => Term -> m (Set Abs)
 ov (App _ vs) = foldMapM fvVal vs
 ov (Store _ (ConstantNode _ vs)) = foldMapM fvVal vs
 ov (Unit (ConstantNode _ vs)) = foldMapM fvVal vs
 ov (Update _ _ (ConstantNode _ vs)) = foldMapM fvVal vs
-ov (Case _ t alts) = ov t <> foldMapM (ov . snd . splitCalt) alts
-ov (t1 `Bind` (splitLaltWithVars -> (_, t2, xs))) = ov t1 <> varsLocal xs (ov t2)
+ov (Case _ t alts) =
+  liftA2 Set.union (ov t) $ foldMapM (ov . snd . splitCalt) alts
+ov (t1 `Bind` (splitLaltWithVars -> (_, t2, xs))) = do
+  xs1 <- ov t1
+  xs2 <- varsLocal xs (ov t2) <&> (`Set.difference` Set.fromList xs)
+  pure (xs1 <> xs2)
 ov _  = pure mempty
 
 -- | Returns the free variables of a terms that are pointers.
-fvTerm :: Term -> Perceus (Set Abs)
+fvTerm :: MonadReader Cxt m => Term -> m (Set Abs)
 fvTerm (t1 `Bind` (splitLaltWithVars -> (_, t2, xs))) = do
   xs1 <- fvTerm t1
   xs2 <- (Set.\\ Set.fromList xs) <$> varsLocal xs (fvTerm t2)
+  -- unnecessary?
   Set.filterM isPointer (xs1 <> xs2)
 fvTerm (Case v t alts) = do
   xs1 <- fvVal v
   xs2 <- fvTerm t
   xs3 <- foldMapM (fvTerm . snd . splitCalt) alts
+  -- unnecessary?
   Set.filterM isPointer (xs1 <> xs2 <> xs3)
 fvTerm (App _ vs) = foldMapM fvVal vs
 fvTerm (Unit v) = fvVal v
@@ -354,15 +350,16 @@ fvTerm (Fetch' _ n (Just _)) = do
   x <- fromMaybe __IMPOSSIBLE__ <$> deBruijnLookup n
   unlessM (isPointer x) __IMPOSSIBLE__
   pure (Set.singleton x)
-fvTerm (Update _ n v) = do
-  x <- fromMaybe __IMPOSSIBLE__ <$> deBruijnLookup n
+fvTerm t@(Update _ n v) = do
+  xs <- asks pc_vars
+  x <- fromMaybe (error $ unwords ["can't find", show n, "in", prettyShow xs, "\nTerm:", prettyShow t]) <$> deBruijnLookup n
   unlessM (isPointer x) __IMPOSSIBLE__
   Set.insert x <$> fvVal v
 fvTerm Error{} = pure mempty
 fvTerm _ = __IMPOSSIBLE__
 
 -- Only returns free variables that are pointers
-fvVal :: Val -> Perceus (Set Abs)
+fvVal :: MonadReader Cxt m => Val -> m (Set Abs)
 fvVal (Var n) = do
   x <- fromMaybe __IMPOSSIBLE__ <$> deBruijnLookup n
   bool mempty (Set.singleton x) <$> isPointer x

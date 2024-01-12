@@ -46,6 +46,8 @@ import           Agda.Utils.Maybe
 
 import           Agda.Utils.Function       (applyWhen)
 import           Compiler.Grin.Grin
+import           Debug.Trace               (trace, traceM)
+import           System.IO.Unsafe          (unsafePerformIO)
 import qualified Utils.Map                 as Map
 import           Utils.Utils
 
@@ -109,8 +111,11 @@ mkErrorDoc e s = text (errorString e) <> text ":" <> space <> text s
 -- TODO
 instance Pretty Error where
   pretty e = case e of
-    NoStackFrame -> mkErrorDoc e "Stack is empty!"
-    _            -> mkErrorDoc e ""
+    NoStackFrame            -> mkErrorDoc e "Stack is empty!"
+    DanglingHeapPointer loc -> mkErrorDoc e (prettyShow loc)
+    TagMismatch tag tag'    -> mkErrorDoc e $ unwords ["Expected", prettyShow tag, "but got", prettyShow tag']
+    ExpectedHeapPointer v   -> mkErrorDoc e $ "Expected heap pointer but got " ++ prettyShow v
+    _                       -> mkErrorDoc e ""
 
 data InterpreterError = InterpreterError
   { err      :: Error
@@ -266,17 +271,6 @@ heapLookup loc = do
     do interpreterError (DanglingHeapPointer loc)
     do Map.lookup loc heap
 
-update :: (HasCallStack, MonadError InterpreterError m, MonadState Env m) => Loc -> Tag -> [Value] -> m ()
-update loc tag vs = do
-  HeapNode count _ _ <- heapLookup loc
-  lensHeap %= Map.insert loc (HeapNode count tag vs)
-
-updateReferenceCount :: (HasCallStack, MonadError InterpreterError m, MonadState Env m, MonadReader Ctx m) => Loc -> Integer -> m ()
-updateReferenceCount loc count' = do
-  name <- view lensName
-  HeapNode count tag vs <- heapLookup loc
-  lensActions %= toActions loc name (count' - count)
-  lensHeap %= Map.insert loc (HeapNode count' tag vs)
 
 sel :: Int -> HeapNode -> Value
 sel 0 (HeapNode i _ _) = BasNat i
@@ -300,8 +294,14 @@ fetch n = do
 -- * The evaluator
 ------------------------------------------------------------------------
 
+-- TODO remove
+traceHeap :: (MonadState Env m, MonadIO m) => Doc -> m ()
+traceHeap s = do
+  heap <- use lensHeap
+  logIO $ render $ vcat [s, prettyHeap heap]
+
 eval :: ( HasCallStack, MonadState Env m, MonadReader Ctx m
-        , MonadError InterpreterError m, MonadFresh Int m )
+        , MonadError InterpreterError m, MonadFresh Int m, MonadIO m)
      => Term
      -> m Value
 eval (App (Def "printf") [v]) = evalVal v
@@ -313,7 +313,7 @@ eval (App (Def "printf") [v]) = evalVal v
 eval (Store _ v `Bind` LAltVar x t2) = do
   v' <- evalVal v
   loc <- allocate v'
-  -- traceHeap (text "store" <+> pretty loc <+> pretty v')
+  traceHeap (text "store" <+> pretty loc <+> pretty v')
   stackFrameLocal x (Loc loc) (eval t2)
 
 eval (FetchOpaque n) = fromHeapNode <$> fetch n
@@ -351,6 +351,18 @@ eval (Update mtag n v)
 
     pure VEmpty
 
+  update
+    :: ( HasCallStack, MonadError InterpreterError m
+       , MonadState Env m, MonadIO m )
+    => Loc
+    -> Tag
+    -> [Value]
+    -> m ()
+  update loc tag' vs' = do
+    HeapNode count tag vs <- heapLookup loc
+    lensHeap %= Map.insert loc (HeapNode count tag' vs')
+    traceHeap $ text "update" <+> pretty loc <+> brackets (pretty (VNode tag vs) <+> text "→" <+> pretty (VNode tag' vs'))
+
 eval (UpdateOffset n 0 v) = do
   v' <- evalVal v
   i <- case v' of
@@ -362,6 +374,19 @@ eval (UpdateOffset n 0 v) = do
     Loc loc -> updateReferenceCount loc i
     v'      -> throw (ExpectedHeapPointer v')
   pure VEmpty
+  where
+  updateReferenceCount
+    :: ( HasCallStack, MonadError InterpreterError m
+       , MonadState Env m, MonadReader Ctx m, MonadIO m )
+    => Loc
+    -> Integer
+    -> m ()
+  updateReferenceCount loc count' = do
+    name <- view lensName
+    HeapNode count tag vs <- heapLookup loc
+    lensActions %= toActions loc name (count' - count)
+    lensHeap %= Map.insert loc (HeapNode count' tag vs)
+    traceHeap (text "updateOffset" <+> pretty (HeapNode count tag vs) <+> pretty (HeapNode count' tag vs))
 
 eval (t1 `Bind` LAltVar x t2) = do
   v <- eval t1
@@ -399,7 +424,9 @@ eval (App (Prim prim) vs) = do
 eval (App (Def "free") [Var n]) = do
   v <- stackFrameLookup n
   case v of
-    Loc loc -> lensHeap %= Map.delete loc
+    Loc loc -> do
+      lensHeap %= Map.delete loc
+      traceHeap (text "free" <+> pretty loc)
     v       -> throw (ExpectedHeapPointer v)
   pure VEmpty
 
@@ -413,7 +440,10 @@ eval (App (Def name') vs) = do
                                 _       -> Nothing
   name <- view lensName
   lensActions %= \ xs -> foldr (\ loc -> move loc name name') xs locs
-  locally lensStack (sf :) $ locally lensName (const name') (eval def.gr_term)
+  logIO $ unwords ["call", name', "from", name]
+  v <- locally lensStack (sf :) $ locally lensName (const name') (eval def.gr_term)
+  logIO $ unwords ["return to", name]
+  pure v
 
 eval (Case v def alts) = do
   v' <- evalVal v

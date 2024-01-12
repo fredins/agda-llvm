@@ -396,7 +396,6 @@ llvmPostCompile env _ mods = do
     putStrLn $ intercalate "\n\n" $ map prettyShow defs_inlineEval
     putStrLn $ "\nTag Info:\n" ++ prettyShow tagInfo_inlineEval
 
-  -- printInterpretGrin defs_inlineEval
 
   let defs_normalize = map (updateGrTerm normalise) defs_inlineEval
   liftIO $ do
@@ -405,7 +404,6 @@ llvmPostCompile env _ mods = do
     putStrLn "------------------------------------------------------------------------\n"
     putStrLn $ intercalate "\n\n" $ map prettyShow defs_normalize
 
-  -- printInterpretGrin defs_normalize
 
   let defs_leftUnitLaw = map (updateGrTerm leftUnitLaw) defs_normalize
   liftIO $ do
@@ -415,7 +413,6 @@ llvmPostCompile env _ mods = do
     putStrLn $ intercalate "\n\n" $ map prettyShow defs_leftUnitLaw
 
 
-  -- printInterpretGrin defs_leftUnitLaw
 
   defs_specializeUpdate <- mapM (specializeUpdate tagInfo_inlineEval) defs_leftUnitLaw
   liftIO $ do
@@ -424,7 +421,6 @@ llvmPostCompile env _ mods = do
     putStrLn "------------------------------------------------------------------------\n"
     putStrLn $ intercalate "\n\n" $ map prettyShow defs_specializeUpdate
 
-  -- printInterpretGrin defs_specializeUpdate
 
   let defs_normalize = map (updateGrTerm normalise) defs_specializeUpdate
   liftIO $ do
@@ -433,7 +429,6 @@ llvmPostCompile env _ mods = do
     putStrLn "------------------------------------------------------------------------\n"
     putStrLn $ intercalate "\n\n" $ map prettyShow defs_normalize
 
-  -- printInterpretGrin defs_normalize
 
   defs_vectorize <- mapM (lensGrTerm $ fmap constantNodeUpdate . vectorize tagInfo_inlineEval) defs_normalize
   liftIO $ do
@@ -442,7 +437,6 @@ llvmPostCompile env _ mods = do
     putStrLn "------------------------------------------------------------------------\n"
     putStrLn $ intercalate "\n\n" $ map prettyShow defs_vectorize
 
-  -- printInterpretGrin defs_vectorize
 
 
   let defs_leftUnitLaw = map (updateGrTerm leftUnitLaw) defs_vectorize
@@ -452,7 +446,6 @@ llvmPostCompile env _ mods = do
     putStrLn "------------------------------------------------------------------------\n"
     putStrLn $ intercalate "\n\n" $ map prettyShow defs_leftUnitLaw
 
-  -- printInterpretGrin defs_leftUnitLaw
 
   defs_specializeUpdate <- mapM (specializeUpdate tagInfo_inlineEval) defs_leftUnitLaw
   liftIO $ do
@@ -475,7 +468,6 @@ llvmPostCompile env _ mods = do
     putStrLn "------------------------------------------------------------------------\n"
     putStrLn $ intercalate "\n\n" $ map prettyShow defs_simplifyCase
 
-  -- printInterpretGrin defs_simplifyCase
 
   let defs_splitFetch = map (updateGrTerm splitFetch) defs_simplifyCase
   liftIO $ do
@@ -484,7 +476,6 @@ llvmPostCompile env _ mods = do
     putStrLn "------------------------------------------------------------------------\n"
     putStrLn $ intercalate "\n\n" $ map prettyShow defs_splitFetch
 
-  -- printInterpretGrin defs_splitFetch
 
   let defs_leftUnitLaw = map (updateGrTerm leftUnitLaw) defs_splitFetch
   liftIO $ do
@@ -493,7 +484,6 @@ llvmPostCompile env _ mods = do
     putStrLn "------------------------------------------------------------------------\n"
     putStrLn $ intercalate "\n\n" $ map prettyShow defs_leftUnitLaw
 
-  -- printInterpretGrin defs_leftUnitLaw
 
   defs_rightHoistFetch <- mapM (lensGrTerm rightHoistFetch) defs_leftUnitLaw
   liftIO $ do
@@ -502,7 +492,6 @@ llvmPostCompile env _ mods = do
     putStrLn "------------------------------------------------------------------------\n"
     putStrLn $ intercalate "\n\n" $ map prettyShow defs_rightHoistFetch
 
-  -- printInterpretGrin defs_rightHoistFetch
 
   let defs_evaluateCase = map (updateGrTerm propagateConstant) defs_rightHoistFetch
   liftIO $ do
@@ -511,11 +500,8 @@ llvmPostCompile env _ mods = do
     putStrLn "------------------------------------------------------------------------\n"
     putStrLn $ intercalate "\n\n" $ map prettyShow defs_evaluateCase
 
-  -- printInterpretGrin defs_evaluateCase
 
-
-
-  let defs_perceus = map (updateGrTerm normalise . perceus) defs_evaluateCase
+  defs_perceus <- mapM (fmap (updateGrTerm normalise) . perceus) defs_evaluateCase
 
   defs_mem <- do
     -- drop is only need prior to Perceus optimizations
@@ -529,37 +515,39 @@ llvmPostCompile env _ mods = do
     putStrLn "------------------------------------------------------------------------\n"
     putStrLn $ intercalate "\n\n" (map prettyShow $ defs_perceus ++ defs_mem) ++ "\n"
 
+
+  when env.envLlvmOpts.flagLlvmInterpret $
+    printInterpretGrin (defs_perceus ++ defs_mem)
+
   -- liftIO $ removeFile "trace.log"
   -- printInterpretGrin (defs_perceus ++ defs_mem)
 
   defs_specializeDrop <- map (updateGrTerm normalise) <$> mapM specializeDrop defs_perceus
-  liftIO $ do
-    putStrLn "\n------------------------------------------------------------------------"
-    putStrLn "-- * Specialize drop"
-    putStrLn "------------------------------------------------------------------------\n"
-    putStrLn $ intercalate "\n\n" (map prettyShow defs_specializeDrop) ++ "\n"
-
-  -- printInterpretGrin (defs_specializeDrop ++ defs_mem)
-
-
+  -- liftIO $ do
+  --   putStrLn "\n------------------------------------------------------------------------"
+  --   putStrLn "-- * Specialize drop"
+  --   putStrLn "------------------------------------------------------------------------\n"
+  --   putStrLn $ intercalate "\n\n" (map prettyShow defs_specializeDrop) ++ "\n"
+  --
+  -- -- printInterpretGrin (defs_specializeDrop ++ defs_mem)
+  --
+  --
   let defs_pushDownDup = map (updateGrTerm pushDownDup) defs_specializeDrop
-  liftIO $ do
-    putStrLn "\n------------------------------------------------------------------------"
-    putStrLn "-- * Push down dup"
-    putStrLn "------------------------------------------------------------------------\n"
-    putStrLn $ intercalate "\n\n" (map prettyShow defs_pushDownDup) ++ "\n"
-
-  -- printInterpretGrin (defs_pushDownDup ++ defs_mem)
-
+  -- liftIO $ do
+  --   putStrLn "\n------------------------------------------------------------------------"
+  --   putStrLn "-- * Push down dup"
+  --   putStrLn "------------------------------------------------------------------------\n"
+  --   putStrLn $ intercalate "\n\n" (map prettyShow defs_pushDownDup) ++ "\n"
+  --
+  -- -- printInterpretGrin (defs_pushDownDup ++ defs_mem)
+  --
   let defs_fuseDupDrop = map (updateGrTerm fuseDupDrop) defs_pushDownDup
-  liftIO $ do
-    putStrLn "\n------------------------------------------------------------------------"
-    putStrLn "-- * Fuse dup/drop"
-    putStrLn "------------------------------------------------------------------------\n"
-    putStrLn $ intercalate "\n\n" (map prettyShow defs_fuseDupDrop) ++ "\n"
+  -- liftIO $ do
+  --   putStrLn "\n------------------------------------------------------------------------"
+  --   putStrLn "-- * Fuse dup/drop"
+  --   putStrLn "------------------------------------------------------------------------\n"
+  --   putStrLn $ intercalate "\n\n" (map prettyShow defs_fuseDupDrop) ++ "\n"
 
-  when env.envLlvmOpts.flagLlvmInterpret $
-    printInterpretGrin (defs_fuseDupDrop ++ defs_mem)
 
 
 
@@ -576,7 +564,7 @@ llvmPostCompile env _ mods = do
   -- liftIO $ putStrLn $ "\nResult: " ++ show res_introduceRegisters
 
   -- FIXME specializeDrop wrong for IdentityPair
-  let (llvm_ir, tagsToInt) = grinToLlvm (defs_fuseDupDrop ++ defs_mem)
+  let (llvm_ir, tagsToInt) = grinToLlvm (defs_perceus ++ defs_mem)-- (defs_fuseDupDrop ++ defs_mem)
       header =
         unlines
           [ "target triple = \"x86_64-unknown-linux-gnu\""
