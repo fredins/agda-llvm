@@ -1,34 +1,10 @@
 An Agda backend which compiles to LLVM via the intermidate representation GRIN (Boquist 1999, Johnsson 1991).
 It uses Perceus-style reference counting. Our compiler does not require an external runtime system except initialization code (crt0) and libc.
 
-### Example programs
+### Example program
+
 
 ```agda
-module DownFrom where
-
-open import Agda.Builtin.Nat using (suc; zero; _+_) renaming (Nat to ℕ) 
-
-infixr 5 _∷_
-data List A : Set where
-  []  : List A
-  _∷_ : A → List A → List A
-
-downFrom : ℕ → List ℕ
-downFrom zero = []
-downFrom (suc n) = n ∷ downFrom n
-
-sum : List ℕ → ℕ
-sum [] = 0
-sum (x ∷ xs) = x + sum xs
-
--- Stack overflow when > 58 000
-main = sum (downFrom 10_000) 
-```
-Tail recursive and non-leaky variant:
-
-```agda
-module DownFromOpt where
-
 open import Agda.Builtin.Nat using (suc; zero; _+_) renaming (Nat to ℕ) 
 open import Agda.Builtin.Strict using (primForce)
 
@@ -67,6 +43,15 @@ main = sum 0 (downFrom 100)
   manually mitigated by using `primForce`.
 - Proofs are not erased properly.
 
+### TODO
+1. Formalize Perceus algorithm
+2. Add the big data node layout
+3. Switch over to the new heap points-to analysis which 
+   should fix all termination issues.
+4. Add higher-order functions
+5. Implement the rest of the GRIN optimizations
+6. Implement the Perceus reuse-analysis
+
 ### Dependencies
 
 - ghc
@@ -88,7 +73,7 @@ agda-llvm --llvm agda-programs/DownFromOpt.agda
 
 Many programs use the standard library which needs to be installed and configured separately, see [agda.readthedocs.io/en/latest/getting-started/installation.html](https://agda.readthedocs.io/en/latest/getting-started/installation.html) and [agda.readthedocs.io/en/latest/tools/package-system.html#use-std-lib](https://agda.readthedocs.io/en/latest/tools/package-system.html#use-std-lib).  
 
-### Logbook
+### Logbook (OUT OF DATE)
 See [fredins.github.io](https://fredins.github.io)
 
 ### Paper (WIP)
