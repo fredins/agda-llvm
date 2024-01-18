@@ -590,7 +590,8 @@ llvmPostCompile env _ mods = do
          -- ]
 
       tags_table = "; Tag numbering table:\n" ++ prettyShow (align 20 (map (bimap ((++) "; " . show) pretty . swap) (sortOn snd (Map.toList tagsToInt))))
-      defs = intercalate "\n\n" (map prettyShow llvm_ir)
+      render200 = renderStyle Style{ribbonsPerLine = 1.5, mode = PageMode, lineLength = 200}
+      defs = intercalate "\n\n" (map (render200 . pretty) llvm_ir)
       program = intercalate "\n\n" [header, tags_table, defs]
 
 

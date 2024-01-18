@@ -1,9 +1,12 @@
+{-# LANGUAGE BlockArguments    #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ViewPatterns      #-}
 
 module Compiler.Llvm.Llvm (module Compiler.Llvm.Llvm) where
 
-import           Data.List                 (intercalate)
+import           Control.Arrow             (Arrow (first))
+import           Data.Foldable             (toList)
+import           Data.List                 (intercalate, isPrefixOf)
 import           Data.String               (IsString)
 
 import           Agda.Syntax.Common.Pretty
@@ -12,9 +15,10 @@ import           Agda.Utils.Impossible     (__IMPOSSIBLE__)
 import           Agda.Utils.List
 import           Agda.Utils.List1          (List1, pattern (:|), (<|))
 import qualified Agda.Utils.List1          as List1
-import           Control.Arrow             (Arrow (first))
-import           Data.Foldable             (toList)
+
 import qualified Utils.List1               as List1
+
+
 
 data Instruction =
     Define CallingConvention Type GlobalId [(Type, LocalId)] (List1 Instruction)
@@ -185,7 +189,7 @@ instance Pretty Instruction where
     Define cc t n as is -> vcat
       [ text "define" <+> pretty cc <+> pretty t
       , pretty n <> text ("(" ++ render (prettyArgs as) ++ "){")
-      , nest 2 $ vcat $ List1.map pretty is
+      , nest 4 $ vcat $ List1.map pretty is
       , text "}"
       ]
     SetVar x i -> pretty x <+> text "=" <+> pretty i
@@ -194,7 +198,11 @@ instance Pretty Instruction where
       , text (prettyShow t ++ ",")
       , text $ intercalate ", " $ toList $ List1.map (\(t, v) -> render $ pretty t <+> pretty v) is
       ]
-    Label s is -> vcat [nest (-2) $ text (s `snoc` ':'), vcat $ map pretty $ toList is]
+
+    Label s is
+      | isPrefixOf "continue" s -> vcat [text (s `snoc` ':'), vcat $ map pretty $ toList is]
+      | otherwise               -> nest 4 $ vcat [text (s `snoc` ':'), nest 4 $ vcat $ map pretty $ toList is]
+
     Switch t x l alts ->
       (text "switch" <+> pretty t <+> (pretty x <> text ", label") <+> pretty l <+> text "[")
       <> vcat (map pretty alts) <> text "]"
