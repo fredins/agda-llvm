@@ -55,6 +55,9 @@ getShortName = List1.last . List1.splitOnDots . gr_name
 
 
 -- TODO
+-- • Split into Grin.HighLevel, Grin.LowLevel, Grin.LowLevelPerceus
+-- • Make UpdateOffset to IncRef and DecRef
+-- • Only keep Update with a fixed Tag
 -- • Remove Loc from Store
 -- • Combine Update and UpdateOffset
 -- • Rename *Offset to *Index
@@ -70,7 +73,7 @@ data Term = Bind Term LAlt
           | Error TError
           | Store Loc Val
           | Fetch' (Maybe Tag) Int (Maybe Int)
-          | Update (Maybe Tag) Int Val
+          | Update Tag Int Val
           | UpdateOffset Int Int Val
             deriving (Show, Eq, Ord)
 
@@ -102,12 +105,6 @@ pattern FetchOpaqueOffset n1 n2 = Fetch' Nothing n1 (Just n2)
 
 pattern FetchOffset :: Tag -> Int -> Int -> Term
 pattern FetchOffset tag n1 n2 = Fetch' (Just tag) n1 (Just n2)
-
-pattern UpdateTag :: Tag -> Int -> Val -> Term
-pattern UpdateTag tag n v = Update (Just tag) n v
-
-pattern UpdateOpaque :: Int -> Val -> Term
-pattern UpdateOpaque n v = Update Nothing n v
 
 pattern Drop n = App (Def "drop") [Var n]
 pattern Dup n = App (Def "dup") [Var n]
@@ -345,8 +342,9 @@ applySubstTerm rho term = case term of
   Fetch' mtag n mn
     | Var n' <- lookupS rho n -> Fetch' mtag n' mn
     | otherwise -> __IMPOSSIBLE__
-  Update tag (lookupS rho -> Var n') v -> Update tag n' (applySubst rho v)
-  Update{} -> __IMPOSSIBLE__
+  Update tag n v 
+    | Var n' <- lookupS rho n -> Update tag n' (applySubst rho v)
+    | otherwise -> error $ prettyShow term ++ " " ++ show (lookupS rho n)
   UpdateOffset (lookupS rho -> Var n') offset v -> UpdateOffset n' offset (applySubst rho v)
   UpdateOffset{} -> __IMPOSSIBLE__
   Error{} -> term
@@ -403,7 +401,7 @@ applySubstVal _   (Prim prim)           = Prim prim
 
 instance Pretty GrinDefinition where
   pretty GrinDefinition{..} = vcat
-    [ pretty gr_name <+> {- s <+>  -} sep (map pretty gr_args) <+> text "="
+    [ pretty gr_name <+> s <+>  sep (map pretty gr_args) <+> text "="
     , nest 2 $ pretty gr_term
     ]
     where
@@ -458,11 +456,7 @@ instance Pretty Term where
     docOffset = maybe mempty (brackets . pretty) moffset
     docTag = maybe mempty pretty mtag
 
-  pretty (Update Nothing v1 v2)
-    | ConstantNode{} <- v2 = text "update" <+> pretty v1 <+> parens (pretty v2)
-    | VariableNode{} <- v2 = text "update" <+> pretty v1 <+> parens (pretty v2)
-    | otherwise = text "update" <+> pretty v1 <+> pretty v2
-  pretty (Update (Just tag) v1 v2)
+  pretty (Update tag v1 v2)
     | ConstantNode{} <- v2 = (text "update" <> pretty tag) <+> pretty v1 <+> parens (pretty v2)
     | VariableNode{} <- v2 = (text "update" <> pretty tag) <+> pretty v1 <+> parens (pretty v2)
     | otherwise = (text "update" <> pretty tag) <+> pretty v1 <+> pretty v2

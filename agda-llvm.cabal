@@ -68,6 +68,7 @@ library
     Compiler.Llvm.Compiler
     Compiler.Llvm.Llvm
     Compiler.Treeless.TreelessTransform
+    Utils.Foldable
     Utils.List
     Utils.List1
     Utils.Map

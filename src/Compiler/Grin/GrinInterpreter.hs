@@ -332,13 +332,9 @@ eval (FetchOffset tag n i) = do
     then pure $ sel i (HeapNode m tag vs)
     else throw (TagMismatch tag tag')
 
-eval (Update mtag n v)
-  | Nothing <- mtag = go
-  | Just tag <- mtag
-  , ConstantNode tag' _ <- v
-  , tag' == tag = go
-  where
-  go = do
+eval (Update tag n v)
+  | ConstantNode tag' _ <- v
+  , tag' == tag = do
     v' <- stackFrameLookup n
     loc <- case v' of
       Loc loc -> pure loc
@@ -350,7 +346,8 @@ eval (Update mtag n v)
       v'           -> throw (ExpectedNode v')
 
     pure VEmpty
-
+  
+  where
   update
     :: ( HasCallStack, MonadError InterpreterError m
        , MonadState Env m, MonadIO m )

@@ -42,3 +42,6 @@ unzip4 ((a, b, c, d) :| xs) = (a :| as, b :| bs, c :| cs, d :| ds)
 
 lookup :: Eq k => k -> List1 (k, v) -> Maybe v
 lookup k = List.lookup k . List1.toList
+
+forMaybe :: List1 a -> (a -> Maybe b) -> [b]
+forMaybe = flip List1.mapMaybe

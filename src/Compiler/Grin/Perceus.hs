@@ -419,13 +419,13 @@ specializeDrop def = lensGrTerm (go $ replicate def.gr_arity Nothing) def
   go :: [Maybe (Tag, [Int])] -> Term -> mf Term
 
 
-  go xs (UpdateTag tag n (Cnat v) `BindEmpty` t) =
-    BindEmpty (UpdateTag tag n (Cnat v)) <$> go xs' t
+  go xs (Update tag n (Cnat v) `BindEmpty` t) =
+    BindEmpty (Update tag n (Cnat v)) <$> go xs' t
     where
     xs' = updateAt n (const $ Just (NatTag, [])) xs
 
-  go xs (UpdateTag tag n (ConstantNodeVect tag' ns) `BindEmpty` t) =
-    BindEmpty (UpdateTag tag n (ConstantNodeVect tag' ns)) <$> go xs' t
+  go xs (Update tag n (ConstantNodeVect tag' ns) `BindEmpty` t) =
+    BindEmpty (Update tag n (ConstantNodeVect tag' ns)) <$> go xs' t
     where
     xs' = updateAt n (const $ Just (tag, map (\n0 -> n0 - n) ns)) xs
 
@@ -466,12 +466,12 @@ pushDownDup :: Term -> Term
 pushDownDup (Dup n1 `BindEmpty` (pushDownDup -> t1)) =
   fromMaybe (Dup n1 `BindEmpty` t1) (go t1)
   where
-  go (UpdateTag tag n2 v `BindEmpty`
+  go (Update tag n2 v `BindEmpty`
            (FetchOffset tag' n2' 0 `Bind` LAltVar x
            (Case (Var 0) t2 alts `BindEmpty` t3)))
     | n2 == n2'
     , tag == tag' =
-      Just (UpdateTag tag n2 v `BindEmpty`
+      Just (Update tag n2 v `BindEmpty`
            (FetchOffset tag' n2' 0 `Bind` LAltVar x
            (Case (Var 0) t2' alts' `BindEmpty` t3)))
     where
