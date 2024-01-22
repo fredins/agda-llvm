@@ -564,7 +564,7 @@ which is used for higher-order functions.
 The optimizing transformations significantly alter the program and achieve similar effects to deforestation \citep{wadler1988} and listlessness \citep{wadler1984}.
 % FIXME deforestation is the algorithm for getting listlessness/Treelessness
 % TODO Instead, mention that it eliminates allocations and unboxing, or constant folding?
-Of these, we have only implemented \emph{copy propagation}.
+Of these, we have only implemented \emph{copy propagation} and \emph{constant propagation}.
 This project aims to combine lazy functional programming with precise reference counting. 
 Producing the most optimized code is out of scope. 
 However, this is something we would like to explore in future research.
