@@ -387,6 +387,7 @@ applySubstVal :: Substitution' Val -> Val -> Val
 applySubstVal rho (ConstantNode tag vs) = ConstantNode tag $ map (applySubst rho) vs
 applySubstVal rho (VariableNode n vs)
   | Var n' <- lookupS rho n  = VariableNode n' $ map (applySubst rho) vs
+  | Tag tag <- lookupS rho n = ConstantNode tag $ map (applySubst rho) vs
   | otherwise = __IMPOSSIBLE__
 applySubstVal _   (Tag tag)             = Tag tag
 applySubstVal _   Empty                 = Empty

@@ -476,16 +476,12 @@ gatherPointersLalt (LAltEmpty t) = gatherPointers t
 gatherPointersCalt :: CAlt -> Set Abs
 gatherPointersCalt (snd . splitCalt -> t) = gatherPointers t
 
-
-
 specializeDrop :: forall mf. MonadFresh Int mf =>  GrinDefinition -> mf GrinDefinition
 specializeDrop def = lensGrTerm (go $ replicate def.gr_arity Nothing) def
   where
   go :: [Maybe (Tag, [Int])] -> Term -> mf Term
-
-
   go xs (Update tag' tag n (Cnat v) `BindEmpty` t) =
-    BindEmpty (Update tag' tag n (Cnat v)) <$> go xs' t
+    (Update tag' tag n (Cnat v) `BindEmpty`) <$> go xs' t
     where
     xs' = updateAt n (const $ Just (NatTag, [])) xs
 

@@ -7,7 +7,7 @@ module Compiler.Grin.GrinTransformations
 
 import           Control.Applicative            (liftA2)
 import           Control.Arrow                  (Arrow (first), second)
-import           Control.Monad                  (forM, when, (<=<))
+import           Control.Monad                  (forM, when, (<=<), replicateM)
 import           Control.Monad.Reader           (MonadReader (local),
                                                  ReaderT (runReaderT), asks)
 import           Control.Monad.State            (StateT (runStateT), modify)
@@ -47,13 +47,13 @@ lensTagInfo f tagInfo = TagInfo <$> f tagInfo.unTagInfo
 tagInfoInsert :: Abs -> Set Tag -> TagInfo -> TagInfo
 tagInfoInsert = over lensTagInfo .: Map.insert
 
-lookupMaxArity :: Abs -> TagInfo -> Maybe Int
-lookupMaxArity x tagInfo =
+lookupMaxArity :: TagInfo -> Abs -> Maybe Int
+lookupMaxArity tagInfo x =
   maximum . map tArity . Set.toList <$> Map.lookup x tagInfo.unTagInfo
 
-singletonTag :: Abs -> TagInfo -> Maybe Tag
-singletonTag abs tagInfo =
-  Map.lookup abs tagInfo.unTagInfo >>= \set ->
+singletonTag :: TagInfo -> Abs -> Maybe Tag
+singletonTag tagInfo x =
+  Map.lookup x tagInfo.unTagInfo >>= \set ->
     boolToMaybe (Set.size set == 1) (Set.elemAt 0 set)
 
 instance Semigroup TagInfo where
@@ -236,43 +236,33 @@ evalInlining cxt returnVars tagInfo def = go tagInfo (reverse def.gr_args) def.g
 -- >>>
 -- <t1> ; λ tag x₂ x₃ →
 -- <t2> [tag x₂ x₃ / x₁]
--- TODO update taginfo
-vectorization :: forall mf. MonadFresh Int mf => TagInfo -> Term -> mf Term
-vectorization tagInfo (t1 `Bind` LAltVar x1 t2)
-  | Just tag <- singletonTag x1 tagInfo = do
-    let arity = tagArity tag
-        vs = map Var $ downFrom arity
-        node = ConstantNode tag vs
-        offset = arity
-        rho = singletonS offset node `composeS` raiseS offset
-    t1' <- vectorization tagInfo t1
-    t2' <- vectorization tagInfo t2
-    alt <- laltConstantNode tag (applySubst rho t2')
-    pure (t1' `Bind` alt)
+vectorization :: forall mf. MonadFresh Int mf => TagInfo -> Term -> mf (TagInfo, Term)
+vectorization tagInfo (t1 `Bind` LAltVar x1@(lookupMaxArity tagInfo -> Just arity) t2) = do
+  (tagInfo', t1') <- vectorization tagInfo t1
+  (tagInfo'', t2') <- vectorization tagInfo' t2
 
-  | Just arity <- lookupMaxArity x1 tagInfo = do
-    let vs = map Var $ downFrom arity
-        node = VariableNode arity vs
-        offset = succ arity
-        rho = singletonS offset node `composeS` raiseS offset
-    t1' <- vectorization tagInfo t1
-    t2' <- vectorization tagInfo t2
-    alt <- laltVariableNode arity (applySubst rho t2')
-    pure (t1' `Bind` alt)
-
-vectorization absCxt (t1 `Bind` (splitLalt -> (mkAlt, t2))) = do
-  t1' <- vectorization absCxt t1
-  t2' <- vectorization absCxt t2
-  pure (t1' `Bind` mkAlt t2')
-
-vectorization absCxt (Case v t alts) = do
-  t' <- vectorization absCxt t
-  alts' <- mapM step alts
-  pure $ Case v t' alts'
+  x <- freshAbs
+  xs  <- replicateM arity freshAbs
+  let alt = LAltVariableNode x xs (applySubst rho t2')
+      tags = fromMaybe __IMPOSSIBLE__ (Map.lookup x1 tagInfo.unTagInfo)
+  -- Assign x to the tags of x1
+  pure (tagInfoInsert x tags tagInfo'' , t1' `Bind` alt)
   where
-  step (splitCalt -> (mkAlt, t)) = mkAlt <$> vectorization absCxt t
-
-vectorization _ t = pure t
+  vs = map Var $ downFrom arity
+  node = VariableNode arity vs
+  offset = succ arity
+  rho = singletonS offset node `composeS` raiseS offset
+vectorization tagInfo (t1 `Bind` (splitLalt -> (mkAlt, t2))) = do
+  (tagInfo', t1') <- vectorization tagInfo t1
+  (tagInfo'', t2') <- vectorization tagInfo' t2
+  pure (tagInfo'', t1' `Bind` mkAlt t2')
+vectorization tagInfo (Case v t alts) = do
+  (tagInfo', t') <- vectorization tagInfo t
+  (tagInfo'', alts') <- mapAccumM step tagInfo' alts
+  pure (tagInfo'', Case v t' alts')
+  where
+  step tagInfo (splitCalt -> (mkAlt, t)) = second mkAlt <$> vectorization tagInfo t
+vectorization tagInfo t = pure (tagInfo, t)
 
 substPatternBinds :: [Val] -> CAlt -> CAlt
 substPatternBinds vs (CAltConstantNode tag xs t) = CAltTag tag t''
@@ -476,19 +466,34 @@ copyPropagation (Case n t alts) = Case n (copyPropagation t) (map step alts)
 copyPropagation t = t
 
 
--- | (Boquist 1999, ch. 4.3.12)
--- TODO also replace variables by tags using tag info
-constantPropagation :: Term -> Term
-constantPropagation (Case (Tag tag1) _ alts) = constantPropagation $ headWithDefault __IMPOSSIBLE__ (mapMaybe step alts)
+
+-- | Constant propagation uses tag information to replace variables which have only one possible 
+--   tag with tag itself. It also eliminates _known_ case expressions. (Boquist 1999, ch. 4.3.12)
+--   
+-- @ 
+--     case x of
+--       tag₁ → <m₁>
+--       tag₂ → <m₁>
+--     >>>
+--     <m₁>
+-- @
+constantPropagation :: TagInfo -> Term -> Term
+constantPropagation tagInfo (Case (Tag tag1) _ alts) = 
+  constantPropagation tagInfo $ headWithDefault __IMPOSSIBLE__ (mapMaybe step alts)
   where
   step (CAltTag tag2 t) = boolToMaybe (tag2 == tag1) t
   step _                = Nothing
-constantPropagation (Case v t alts) = Case v (constantPropagation t) (map step alts)
+constantPropagation tagInfo (Case v t alts) = 
+  Case v (constantPropagation tagInfo t) (map step alts)
   where
-  step (splitCalt -> (mkAlt, t)) = mkAlt (constantPropagation t)
-constantPropagation (t1 `Bind` (splitLalt -> (mkAlt, t2))) = constantPropagation t1 `Bind` mkAlt (constantPropagation t2)
-constantPropagation t = t
-
+  step (splitCalt -> (mkAlt, t)) = mkAlt (constantPropagation tagInfo t)
+constantPropagation tagInfo (t1 `Bind` LAltVariableNode (singletonTag tagInfo -> Just tag) xs t2) =
+   constantPropagation tagInfo (t1 `Bind` LAltConstantNode tag xs t2')
+   where
+   t2' = substUnder (length xs) (Tag tag) t2
+constantPropagation tagInfo (t1 `Bind` (splitLalt -> (mkAlt, t2))) = 
+  constantPropagation tagInfo t1 `Bind` mkAlt (constantPropagation tagInfo t2)
+constantPropagation _ t = t
 
 ------------------------------------------------------------------------
 -- * Miscellaneous transformations

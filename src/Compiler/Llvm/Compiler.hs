@@ -393,8 +393,7 @@ llvmPostCompile env _ mods = do
 
   (tagInfo_evalInlining, defs_evalInlining) <- forAccumM tagInfo_pointsTo defs_grin \ tagInfo def -> do
     (tagInfo, t) <- evalInlining absCxt returnVars tagInfo def
-    let def' = setGrTerm t def
-    pure (tagInfo, def')
+    pure (tagInfo, setGrTerm t def)
 
   liftIO $ do
     putStrLn "\n------------------------------------------------------------------------"
@@ -419,12 +418,17 @@ llvmPostCompile env _ mods = do
 
   liftIO $ putStrLn $ "\nTag Info:\n" ++ prettyShow tagInfo_evalInlining
 
-  defs_vectorization <- mapM (lensGrTerm $ vectorization tagInfo_evalInlining) defs_copyPropagation
+  (tagInfo_vectorization, defs_vectorization) <- 
+    forAccumM tagInfo_evalInlining defs_copyPropagation \ tagInfo def -> do
+      (tagInfo', t) <- vectorization tagInfo def.gr_term
+      pure (tagInfo', setGrTerm t def)
+
   liftIO $ do
     putStrLn "\n------------------------------------------------------------------------"
     putStrLn "-- * Vectorization"
     putStrLn "------------------------------------------------------------------------\n"
     putStrLn $ intercalate "\n\n" $ map prettyShow defs_vectorization
+    putStrLn $ "\nTag Info:\n" ++ prettyShow tagInfo_vectorization
 
   let defs_caseSimplification = map (updateGrTerm caseSimplification) defs_vectorization
   liftIO $ do
@@ -433,7 +437,7 @@ llvmPostCompile env _ mods = do
     putStrLn "------------------------------------------------------------------------\n"
     putStrLn $ intercalate "\n\n" $ map prettyShow defs_caseSimplification
 
-  let defs_constantPropagation = map (updateGrTerm constantPropagation) defs_caseSimplification
+  let defs_constantPropagation = map (updateGrTerm $ constantPropagation tagInfo_vectorization) defs_caseSimplification
   liftIO $ do
     putStrLn "\n------------------------------------------------------------------------"
     putStrLn "-- * Constant propagation"
@@ -498,27 +502,35 @@ llvmPostCompile env _ mods = do
 
   when env.envLlvmOpts.flagLlvmInterpret $ printInterpretGrin (defs_bindNormalisation ++ defs_mem)
 
-  {-
-  defs_specializeDrop <- map (updateGrTerm bindNormalisation) <$> mapM specializeDrop defs_perceus
+  -- defs_specializeDrop <- mapM specializeDrop defs_bindNormalisation
   -- liftIO $ do
   --   putStrLn "\n------------------------------------------------------------------------"
   --   putStrLn "-- * Specialize drop"
   --   putStrLn "------------------------------------------------------------------------\n"
   --   putStrLn $ intercalate "\n\n" (map prettyShow defs_specializeDrop) ++ "\n"
+
+  -- when env.envLlvmOpts.flagLlvmInterpret $ printInterpretGrin (defs_specializeDrop ++ defs_mem)
+
+  -- let defs_bindNormalisation = map (updateGrTerm bindNormalisation) defs_specializeDrop
+  -- liftIO $ do
+  --   putStrLn "\n------------------------------------------------------------------------"
+  --   putStrLn "-- * Bind normalisation"
+  --   putStrLn "------------------------------------------------------------------------\n"
+  --   putStrLn $ intercalate "\n\n" (map prettyShow defs_bindNormalisation) ++ "\n"
   --
-  -- -- printInterpretGrin (defs_specializeDrop ++ defs_mem)
-  --
-  --
-  let defs_pushDownDup = map (updateGrTerm pushDownDup) defs_specializeDrop
+  -- let defs_pushDownDup = map (updateGrTerm pushDownDup) defs_bindNormalisation
   -- liftIO $ do
   --   putStrLn "\n------------------------------------------------------------------------"
   --   putStrLn "-- * Push down dup"
   --   putStrLn "------------------------------------------------------------------------\n"
   --   putStrLn $ intercalate "\n\n" (map prettyShow defs_pushDownDup) ++ "\n"
+
+
+
+  {-
+
   --
-  -- -- printInterpretGrin (defs_pushDownDup ++ defs_mem)
-  --
-  let defs_fuseDupDrop = map (updateGrTerm fuseDupDrop) defs_pushDownDup
+  -- let defs_fuseDupDrop = map (updateGrTerm fuseDupDrop) defs_pushDownDup
   -- liftIO $ do
   --   putStrLn "\n------------------------------------------------------------------------"
   --   putStrLn "-- * Fuse dup/drop"
