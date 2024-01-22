@@ -8,4 +8,4 @@ nfib zero = 1
 nfib (suc zero) = 1
 nfib (suc (suc n)) = nfib (suc n) + nfib n + 1
 
-main = nfib 20
+main = nfib 10
