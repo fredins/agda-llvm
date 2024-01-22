@@ -111,11 +111,12 @@ mkErrorDoc e s = text (errorString e) <> text ":" <> space <> text s
 -- TODO
 instance Pretty Error where
   pretty e = case e of
-    NoStackFrame            -> mkErrorDoc e "Stack is empty!"
-    DanglingHeapPointer loc -> mkErrorDoc e (prettyShow loc)
-    TagMismatch tag tag'    -> mkErrorDoc e $ unwords ["Expected", prettyShow tag, "but got", prettyShow tag']
-    ExpectedHeapPointer v   -> mkErrorDoc e $ "Expected heap pointer but got " ++ prettyShow v
-    _                       -> mkErrorDoc e ""
+    NoStackFrame                    -> mkErrorDoc e "Stack is empty!"
+    DanglingHeapPointer loc         -> mkErrorDoc e (prettyShow loc)
+    TagMismatch tag tag'            -> mkErrorDoc e $ unwords ["Expected", prettyShow tag, "but got", prettyShow tag']
+    ExpectedHeapPointer v           -> mkErrorDoc e $ "Expected heap pointer but got " ++ prettyShow v
+    StackFrameIndexOutOfBounds n sf -> mkErrorDoc e $ unwords ["Index", show n, "is out of bounds for the stack frame", prettyShow sf]
+    _                               -> mkErrorDoc e ""
 
 data InterpreterError = InterpreterError
   { err      :: Error
@@ -332,21 +333,18 @@ eval (FetchOffset tag n i) = do
     then pure $ sel i (HeapNode m tag vs)
     else throw (TagMismatch tag tag')
 
-eval (Update tag n v)
-  | ConstantNode tag' _ <- v
-  , tag' == tag = do
-    v' <- stackFrameLookup n
-    loc <- case v' of
-      Loc loc -> pure loc
-      v'      -> throw (ExpectedHeapPointer v')
+eval (Update tag' tag n (ConstantNode _ vs)) = do
+  v' <- stackFrameLookup n
+  loc <- case v' of
+    Loc loc -> pure loc
+    v'      -> throw (ExpectedHeapPointer v')
 
-    v' <- evalVal v
-    case v' of
-      VNode tag vs -> update loc tag vs
-      v'           -> throw (ExpectedNode v')
+  v' <- evalVal (ConstantNode tag' vs)
+  case v' of
+    VNode tag vs -> update loc tag vs
+    v'           -> throw (ExpectedNode v')
 
-    pure VEmpty
-  
+  pure VEmpty
   where
   update
     :: ( HasCallStack, MonadError InterpreterError m

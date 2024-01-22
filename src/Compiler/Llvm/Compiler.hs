@@ -403,19 +403,21 @@ llvmPostCompile env _ mods = do
     putStrLn $ intercalate "\n\n" $ map prettyShow defs_evalInlining
     putStrLn $ "\nTag Info:\n" ++ prettyShow tagInfo_evalInlining
 
-  let defs_normalize = map (updateGrTerm bindNormalisation) defs_evalInlining
+  let defs_bindNormalisation = map (updateGrTerm bindNormalisation) defs_evalInlining
   liftIO $ do
     putStrLn "\n------------------------------------------------------------------------"
     putStrLn "-- * Bind normalisation"
     putStrLn "------------------------------------------------------------------------\n"
-    putStrLn $ intercalate "\n\n" $ map prettyShow defs_normalize
+    putStrLn $ intercalate "\n\n" $ map prettyShow defs_bindNormalisation
 
-  let defs_copyPropagation = map (updateGrTerm copyPropagation) defs_normalize
+  let defs_copyPropagation = map (updateGrTerm copyPropagation) defs_bindNormalisation
   liftIO $ do
     putStrLn "\n------------------------------------------------------------------------"
     putStrLn "-- * Copy propagation"
     putStrLn "------------------------------------------------------------------------\n"
     putStrLn $ intercalate "\n\n" $ map prettyShow defs_copyPropagation
+
+  liftIO $ putStrLn $ "\nTag Info:\n" ++ prettyShow tagInfo_evalInlining
 
   defs_vectorization <- mapM (lensGrTerm $ vectorization tagInfo_evalInlining) defs_copyPropagation
   liftIO $ do
@@ -438,14 +440,21 @@ llvmPostCompile env _ mods = do
     putStrLn "------------------------------------------------------------------------\n"
     putStrLn $ intercalate "\n\n" $ map prettyShow defs_constantPropagation
 
-  let defs_normalize = map (updateGrTerm bindNormalisation) defs_constantPropagation
+  let defs_fetchSpecialisation = map (updateGrTerm fetchSpecialisation) defs_constantPropagation
+  liftIO $ do
+    putStrLn "\n------------------------------------------------------------------------"
+    putStrLn "-- * Fetch specialisation"
+    putStrLn "------------------------------------------------------------------------\n"
+    putStrLn $ intercalate "\n\n" $ map prettyShow defs_fetchSpecialisation
+
+  let defs_bindNormalisation = map (updateGrTerm bindNormalisation) defs_fetchSpecialisation
   liftIO $ do
     putStrLn "\n------------------------------------------------------------------------"
     putStrLn "-- * Bind normalisation"
     putStrLn "------------------------------------------------------------------------\n"
-    putStrLn $ intercalate "\n\n" $ map prettyShow defs_normalize
+    putStrLn $ intercalate "\n\n" $ map prettyShow defs_bindNormalisation
 
-  let defs_copyPropagation = map (updateGrTerm copyPropagation) defs_normalize
+  let defs_copyPropagation = map (updateGrTerm copyPropagation) defs_bindNormalisation
   liftIO $ do
     putStrLn "\n------------------------------------------------------------------------"
     putStrLn "-- * Copy propagation"
@@ -466,36 +475,30 @@ llvmPostCompile env _ mods = do
     putStrLn "------------------------------------------------------------------------\n"
     putStrLn $ intercalate "\n\n" $ map prettyShow defs_rightHoistFetchOperations
 
-
   when env.envLlvmOpts.flagLlvmInterpret $ printInterpretGrin defs_rightHoistFetchOperations
 
-  {-
-
-
-
-
-
-  defs_perceus <- mapM (fmap (updateGrTerm bindNormalisation) . perceus) defs_evaluateCase
-
   defs_mem <- do
-    -- drop is only need prior to Perceus optimizations
-    drop <- mkDrop defs_rightHoistFetchOperationsOperations
+    drop <- mkDrop defs_fetchSpecialisation
     dup <- mkDup
     pure [drop, dup]
 
+  defs_perceus <- mapM perceus defs_rightHoistFetchOperations
   liftIO $ do
     putStrLn "\n------------------------------------------------------------------------"
     putStrLn "-- * Perceus"
     putStrLn "------------------------------------------------------------------------\n"
     putStrLn $ intercalate "\n\n" (map prettyShow $ defs_perceus ++ defs_mem) ++ "\n"
 
+  let defs_bindNormalisation = map (updateGrTerm bindNormalisation) defs_perceus
+  liftIO $ do
+    putStrLn "\n------------------------------------------------------------------------"
+    putStrLn "-- * Bind normalisation"
+    putStrLn "------------------------------------------------------------------------\n"
+    putStrLn $ intercalate "\n\n" (map prettyShow defs_bindNormalisation) ++ "\n"
 
-  when env.envLlvmOpts.flagLlvmInterpret $
-    printInterpretGrin (defs_perceus ++ defs_mem)
+  when env.envLlvmOpts.flagLlvmInterpret $ printInterpretGrin (defs_bindNormalisation ++ defs_mem)
 
-  -- liftIO $ removeFile "trace.log"
-  -- printInterpretGrin (defs_perceus ++ defs_mem)
-
+  {-
   defs_specializeDrop <- map (updateGrTerm bindNormalisation) <$> mapM specializeDrop defs_perceus
   -- liftIO $ do
   --   putStrLn "\n------------------------------------------------------------------------"
@@ -882,8 +885,8 @@ termToGrinC (TCon q) = do
   pure $ Store loc (constantCNode (prettyShow q) [])
 
 
--- TODO this probably works but currently we normalize all lets in TreelessTransform which is a bit unnecessary
---      as everything will be normalized again after eval inlining
+-- TODO this probably works but currently we normalise all lets in TreelessTransform which is a bit unnecessary
+--      as everything will be normalised again after eval inlining
 -- termToGrinC (TLet t1 t2) = termToGrinC t1 `bindVarM` localEvaluatedNoOffset (termToGrinC t2)
 
 termToGrinC (TApp (TVar n) xs) = undefined
@@ -1192,7 +1195,7 @@ termToLlvm (App (Def (L.mkGlobalId -> f)) vs) = do
 
 -- Important to fetch the reference count and combine it with the rest of the node
 -- before updating.
-termToLlvm (Update _ n v `BindEmpty` t) = do
+termToLlvm (Update _ _ n v `BindEmpty` t) = do
   x <- fromMaybe __IMPOSSIBLE__ <$> varLookup n
   (instructions1, v') <- valToLlvm v
   (x_unnamed_ptr, instruction_inttoptr) <- setVar (L.inttoptr x)

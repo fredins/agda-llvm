@@ -106,14 +106,16 @@ escapeinside={!}{!},
 \newcommand{\jmdouble}[4]{\ensuremath{#1 \mid #2 \vdash\fCenter \stackengine{\stackgap}{#3\rightsquigarrow}{#4}{U}{l}{F}{F}{S}}}
 \newcommand{\jmv}[4]{#1 $\mid$ #2 $\vdash$ #3 $\rightsquigarrow_v$ #4}
 
+\newcommand{\axEmpty}{\Axiom$\fCenter$}
 \newcommand{\axLet}[2]{\Axiom$#1\;=\fCenter\;#2$}
 \newcommand{\uiLet}[2]{\UnaryInf$#1\;=\fCenter\;#2$}
 \newcommand{\axJudgmentV}[4]{\Axiom$#1\;\mid\;#2\;\vdash\fCenter\;#3\;\rightsquigarrow_v\;#4$}
 \newcommand{\axJudgment}[4]{\Axiom$#1\;\mid\;#2\;\vdash\fCenter\;#3\;\rightsquigarrow\;#4$}
 \newcommand{\uiJudgment}[4]{\UnaryInf$#1\;\mid\;#2\;\vdash\fCenter\;#3\;\rightsquigarrow\;#4$}
 \newcommand{\biJudgment}[4]{\BinaryInf$#1\;\mid\;#2\;\vdash\fCenter\;#3\;\rightsquigarrow\;#4$}
-\newcommand{\biJudgmentDouble}[4]{\BinaryInf$#1\;\mid\;#2\;\vdash\fCenter\;\stackengine{\stackgap}{$#3\rightsquigarrow$}{$#4$}{U}{l}{F}{F}{S}$}
-\newcommand{\tiJudgment}[4]{\TrinaryInf$#1\;\mid\;#2\;\vdash\fCenter\;#3\;\rightsquigarrow\;#4$}
+\newcommand{\biJudgmentAlignRight}[4]{\BinaryInf$#1\;\mid\;#2\;\vdash\fCenter\;#3\;\rightsquigarrow\;\stackMath\Shortunderstack[l]{#4}$}
+\newcommand{\triJudgment}[4]{\TrinaryInf$#1\;\mid\;#2\;\vdash\fCenter\;#3\;\rightsquigarrow\;#4$}
+\newcommand{\triJudgmentDouble}[4]{\TrinaryInf$#1\;\mid\;#2\;\vdash\fCenter\;\stackengine{\stackgap}{$#3\rightsquigarrow$}{$#4$}{U}{l}{F}{F}{S}$}
 
 % https://tex.stackexchange.com/questions/87407/iterating-through-comma-separated-arguments
 \ExplSyntaxOn
@@ -599,30 +601,20 @@ Elements in the borrowed environment can only be applied to non-consuming operat
 We can promote an element from the borrowed environment to the owned environment by calling the function \lstinline{dup}.
 \ref{fig:perceus-rules}
 
-% TODO
-% • Use the new commands \uiJudgment, \axLet...
-% • Use \subsequence instead of \bigcup
 \begin{figure*}[hptb]
 \begin{mdframed}
 \centering
 % FETCH-OPAQUE
 \AxiomC{}
 \RightLabel{\textsc{fetch-opaque}}
-\UnaryInfC{\jm{\Delta}{\Gamma}{\lstinline|fetch| x$_m$ [n]}{\lstinline|fetch| x$_m$ [n]}}
+\UnaryInfC{\jm{\Delta}{\Gamma}{\lstinline|fetch| x$_m$ [1]}{\lstinline|fetch| x$_m$ [1]}}
 \DisplayProof
-\\
-\vspace{1em}
+%\\
+\hspace{1em}
 % ⊥
 \AxiomC{}
 \RightLabel{\textsc{unreachable}}
 \uiJudgment{\Delta}{\Gamma}{\bot}{\bot}
-\DisplayProof
-\\
-\vspace{1em}
-% UPDATE
-\axJudgmentV{\Delta}{\Gamma}{v}{\Gamma_d}
-\RightLabel{\textsc{update}}
-\uiJudgment{\Delta}{\Gamma}{\mbox{\lstinline|update|}\;tag\;x_n\;v}{dup\;\Gamma_d\;;\;\mbox{\lstinline|update|}\;tag\;x_n\;v}
 \DisplayProof
 \\
 \vspace{1em}
@@ -640,83 +632,68 @@ We can promote an element from the borrowed environment to the owned environment
 \\
 \vspace{1em}
 % APP
-\AxiomC{\Gamma$_i$\;=\;(\Gamma - $\bigcup_{j=1}^{n-i}\Gamma_{i+j}$)\;\cap\;fv(v$_i$)}
-\AxiomC{\jmv{\Delta,\Gamma$_{i+1}$,...,\Gamma$_n$}{\Gamma$_i$}{v$_i$}{\Gamma$_{d_i}$}}
+\axLet{\Gamma_i}%
+  {(\Gamma\;-\;\sequence{\Gamma_{i+1},\dots,\Gamma_n})\;\cap\;fv(v_i)}
+\axJudgment%
+  {\sequence{\Delta,\Gamma_{i+1},\dots,\Gamma_n}}%
+  {\Gamma_i}{v_i}{\Gamma_{d_i}}
 \RightLabel{\textsc{app}}
-\BinaryInfC{\jm{\Delta}{\Gamma}{f\;\{v$_1$,...,v$_n$\}}{dup $\bigcup_{i=1}^n\Gamma_{d_i}$\;; f$^\prime$\;\{v$_1^\prime$,...,v$_n^\prime$\}}}
+\biJudgment{\Delta}{\Gamma}%
+  {f\;\{\sequence{v_i,\dots,v_n}\}}%
+  {dup\;(\sequence{\Gamma_{d_1},\dots,\Gamma_{d_n}})\;;\;f\;\{\sequence{v_i,\dots,v_n}\}}%
 \DisplayProof
 \\
 \vspace{1em}
 % CASE
-\AxiomC{\Gamma$_i$\;=\;\Gamma,\;fv(t$_i$)}
-\AxiomC{\jm{\Delta}{\Gamma$_i$}{t$_i$}{t$^\prime_i$}}
+\axLet{\Gamma_i}{\Gamma\;\cap\;fv(t_i)}
+\axLet{\Gamma_d}{\Gamma\;-\;\Gamma_i}
+\axJudgment{\Delta}{\Gamma_i}{t_i}{t^\prime_i}
 \RightLabel{\textsc{case}}
-\BinaryInfC{\jm{\Delta}{\Gamma}{\lstinline|case|\;v\;t$_1$\;\{tag$_2$\rightarrow\:t$_2$,...,tag$_n$\rightarrow\:t$_n$\}}{\lstinline|case|\;v\;t$^\prime_1$\;\{tag$_2$\rightarrow\:t$^\prime_2$,...,tag$_n$\rightarrow\:t$^\prime_n$\}}}
+\triJudgmentDouble{\Delta}{\Gamma}%
+  {\mbox{\lstinline|case|}\;v\;t_1\;\{\sequence{tag_2\rightarrow\:t_2,\dots,tag_n\rightarrow\:t_n}\}}%
+  {\mbox{\lstinline|case|}\;v\;t^\prime_1\;\{\sequence{tag_2\rightarrow\:drop\;\Gamma_{d_2}\;;\;t^\prime_2,\dots,tag_n\rightarrow\:drop\;\Gamma_{d_n}\;;\;t^\prime_n}\}}
 \DisplayProof
 \\
 \vspace{1em}
-% FETCH-CTAG-DUP
-\AxiomC{x$_0$\;\in\;fv(t)}
-\AxiomC{\Gamma$^\prime$\;=\;(\Gamma,\;\{x$_0$\})\;\cap\;fv(t)}
-\noLine
-\UnaryInfC{\Gamma$_d$\;=\;\Gamma\;-\;\Gamma$^\prime$}
-\AxiomC{\jm{\Delta}{\Gamma$^\prime$}{t}{t$^\prime$}}
-\RightLabel{\textsc{\stackanchor{\textsc{fetch-}}{\textsc{ctag-dup}}}}
-\TrinaryInfC{{\jm{\Delta}{\Gamma}{\lstinline{fetch} ctag x$_m$ [n] ; λ → t}{\lstinline|fetch| ctag x$_m$ [n] ; λ → drop \Gamma$_d$ ; dup x$_0$ ; t$^\prime$}}}
-\DisplayProof
-\\
-\vspace{1em}
-% FETCH-CTAG
-\AxiomC{x$_0$\;\not\in\;fv(t)}
-\AxiomC{\Gamma$^\prime$\;=\;\Gamma\;\cap\;fv(t)}
-\noLine
-\UnaryInfC{\Gamma$_d$\;=\;\Gamma\;-\;\Gamma$^\prime$}
-\AxiomC{\jm{\Delta}{\Gamma$^\prime$}{t}{t$^\prime$}}
-\RightLabel{\textsc{fetch-ctag}}
-\TrinaryInfC{\jm{\Delta}{\Gamma}{\lstinline{fetch} ctag x$_m$ [n] ; λ → t}{\lstinline|fetch| ctag x$_m$ [n] ; λ → drop \Gamma$_d$ ; t$^\prime$}}
-\DisplayProof
-\\
-\vspace{1em}
-% FETCH-FTAG TODO merge both FTAG
-\AxiomC{x$_0$\;\in\;fv(t)}
-\AxiomC{\Gamma$^\prime$\;=\;(\Gamma,\;\{x$_0$\})\;\cap\;fv(t)}
-\noLine
-\UnaryInfC{\Gamma$_d$\;=\;\Gamma\;-\;\Gamma$^\prime$}
-\AxiomC{\jm{\Delta}{\Gamma$^\prime$}{t}{t$^\prime$}}
-\RightLabel{\textsc{fetch-ftag}}
-\TrinaryInfC{\jm{\Delta}{\Gamma}{\lstinline{fetch} ftag x$_m$ [n] ; λ → t}{\lstinline|fetch| ftag x$_m$ [n] ; λ → drop \Gamma$_d$ ; t$^\prime$}}
-\DisplayProof
-\\
-\vspace{1em}
-% FETCH-FTAG-DROP
-\AxiomC{x$_0$\;\in\;fv(t)}
-\AxiomC{\Gamma$^\prime$\;=\;\Gamma\;\cap\;fv(t)}
-\noLine
-\UnaryInfC{\Gamma$_d$\;=\;(\Gamma\;-\;\Gamma$^\prime$),\;\{x$_0$\}}
-\AxiomC{\jm{\Delta}{\Gamma$^\prime$}{t}{t$^\prime$}}
-\RightLabel{\textsc{fetch-ftag-drop}}
-\TrinaryInfC{\jm{\Delta}{\Gamma}{\lstinline{fetch} ftag x$_m$ [n] ; λ → t}{\lstinline|fetch| ftag x$_m$ [n] ; λ → drop \Gamma$_d$ ; t$^\prime$}}
-\DisplayProof
-\\
-\vspace{1em}
-% ⊥-CASE 
-% FIXME 
-\axLet{k}{arity(tag_i)}
-\noLine
-\uiLet{\Gamma_i}{(\sequence{\Gamma,\{\sequence{x_1,...,x_k}\}})\;\cap\;fv(t_i)}
-\noLine
-\uiLet{\Gamma^\prime}{(\Gamma\;\cap\;ov(t))\;-\;(\sequence{\Gamma_1,...,\Gamma_n})}
-\noLine
-\uiLet{\Gamma_{di}}{(\sequence{\Gamma,\{\sequence{x_1,...,x_k}\}})\;-\;\sequence{\Gamma^\prime,\Gamma_i}}
-\axJudgment{\sequence{\Delta,\Gamma_{d1},...,\Gamma_{dn},\Gamma_1,...,\Gamma_n}}{\Gamma^\prime}{t}{t^\prime_1}
-\noLine
-\uiJudgment{\Delta}{\Gamma_i}{t_i}{t^\prime_i}
-\RightLabel{\textsc{bind-case}}
-\biJudgmentDouble{\Delta}{\Gamma}{% 
-  t\;\:;\;\lambda^m\rightarrow\mbox{\lstinline|case|}\;x_{m-1}\;\bot\;\{tag_1\rightarrow\,t_1,...,tag_n\rightarrow\:t_n\}%
-  }{%
-    t^\prime\;;\;\lambda^m\rightarrow\mbox{\lstinline|case|}\;x_{m-1}\;\bot\;\{\sequence{tag_1\rightarrow\,drop\;\Gamma_{d1}\;;\;t^\prime_1,...,tag_n\rightarrow\,drop\;\Gamma_{dn}\;;\;t^\prime_n\}}%
+% UPDATE
+\axJudgmentV{\Delta}{\Gamma}{v}{\Gamma_d}
+\axLet{k}{arity(tag)}
+\RightLabel{\textsc{update}}
+\biJudgmentAlignRight{\Delta}{\Gamma}%
+  {\mbox{\lstinline|update|}\;[tag^\prime/tag]\;x_n\;v}%
+  {%
+    {dup\;\Gamma_d\;;} % 
+    {\mbox{\lstinline|fetch|}\;tag\;x_n\;[2]\;;\;\lambda\rightarrow} % 
+    {drop\;x_0\;;} %
+    {\dots} %
+    {\mbox{\lstinline|fetch|}\;tag\;x_{n+k-1}\;[k+1]\;;\;\lambda\rightarrow} % 
+    {drop\;x_0\;;} %
+    {\mbox{\lstinline|update|}\;[tag^\prime/tag]\;x_{n+k}\;v}%
   }
+\DisplayProof
+\\
+\vspace{1em}
+% BIND-FETCH-DUP
+\Axiom$x_0\in\fCenter\;fv(t)$
+\axLet{\Gamma^\prime}{\sequence{(\Gamma\;\cap\;fv(t)),\{x_0\}}}
+\noLine
+\uiLet{\Gamma_d}{\Gamma\;-\;fv(t)}
+\axJudgment{\Delta}{\Gamma^\prime}{t}{t^\prime}
+\RightLabel{\textsc{bind-fetch-dup}}
+\triJudgment{\Delta}{\Gamma}%
+  {\mbox{\lstinline|fetch|\;tag\;[i]}\;;\;\lambda\rightarrow\;t}%
+  {\mbox{\lstinline|fetch|}\;tag\;[i]\;;\;\lambda\rightarrow\;dup\;x_0\;;\;drop\;\Gamma_d\;;\;t^\prime}
+\DisplayProof
+\\
+\vspace{1em}
+% BIND-FETCH
+\Axiom$x_0\not\in\fCenter\;fv(t)$
+\axLet{\Gamma_d}{\Gamma\;-\;fv(t)}
+\axJudgment{\sequence{\Delta,\{x_0\}}}{\Gamma\;\cap\;fv(t)}{t}{t^\prime}
+\RightLabel{\textsc{bind-fetch}}
+\triJudgment{\Delta}{\Gamma}%
+  {\mbox{\lstinline|fetch|}\;tag\;x_n\;[i]\;;\;\lambda\rightarrow\;t}%
+  {\mbox{\lstinline|fetch|}\;tag\;x_n\;[i]\;;\;\lambda\rightarrow\;drop\;\Gamma_d\;;\;t^\prime}
 \DisplayProof
 \\
 \vspace{1em}

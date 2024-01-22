@@ -133,7 +133,7 @@ countMultiplicities def = evalState (go def.gr_term) def.gr_args where
   go (Unit v) = goVal v
   go (App v vs) = goVal v <> foldrM (\v m -> pure m <> goVal v) mempty vs
   go (Fetch' _ n _) = gets $ (!! n) <&> \abs -> Multiplicities $ Map.singleton abs 1
-  go (Update _ n v) = do
+  go (Update _ _ n v) = do
     m <- gets $ (!! n) <&> \abs -> Multiplicities $ Map.singleton abs 1
     pure m <> goVal v
   go (Error _) = pure mempty

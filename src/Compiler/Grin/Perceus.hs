@@ -6,13 +6,14 @@
 module Compiler.Grin.Perceus (mkDrop, mkDup, perceus, specializeDrop, pushDownDup, fuseDupDrop) where
 
 import           Control.Applicative          (Applicative (liftA2), (<|>))
-import           Control.Monad                (filterM, mapAndUnzipM, (<=<))
+import           Control.Monad                (filterM, forM, mapAndUnzipM,
+                                               (<=<))
 import           Control.Monad.IO.Class       (liftIO)
 import           Control.Monad.Reader         (MonadIO, MonadReader (ask),
                                                Reader, ReaderT (runReaderT),
                                                asks, local, runReader)
 import           Data.Bool                    (bool)
-import           Data.Foldable                (fold, foldrM)
+import           Data.Foldable                (fold, foldlM, foldrM)
 import           Data.Function                (on)
 import           Data.List                    (partition, singleton, (\\))
 import           Data.Map                     (Map)
@@ -27,7 +28,7 @@ import           Agda.Compiler.Backend        (Definition (theDef), MonadFresh,
 import           Agda.Syntax.Common.Pretty
 import           Agda.Syntax.Literal          (Literal (LitNat))
 import           Agda.TypeChecking.Substitute
-import           Agda.Utils.Function          (applyUnless, applyWhen)
+import           Agda.Utils.Function          (applyUnless, applyWhen, iterate')
 import           Agda.Utils.Functor
 import           Agda.Utils.Impossible        (__IMPOSSIBLE__)
 import           Agda.Utils.List
@@ -58,18 +59,18 @@ data Context = Context
  , gamma :: Set Abs }
 
 data Cxt = PerceusCxt
-  { pc_vars      :: [Abs]
-  , pc_pointers  :: Set Abs -- ^ Variables which are pointers
-  , pc_returning :: Bool
-  , pc_bottoms   :: Set Abs
+  { pc_vars           :: [Abs]
+  , pc_pointers       :: Set Abs -- ^ Variables which are pointers
+  , pc_returning      :: Bool
+  , pc_tag_dependency :: Map Abs [Abs]
   }
 
 initPerceusCxt :: GrinDefinition -> Cxt
 initPerceusCxt def = PerceusCxt
-  { pc_vars      = mempty
-  , pc_pointers  = Set.fromList def.gr_args <> gatherPointers def.gr_term
-  , pc_returning = True
-  , pc_bottoms   = mempty
+  { pc_vars           = mempty
+  , pc_pointers       = Set.fromList def.gr_args <> gatherPointers def.gr_term
+  , pc_returning      = True
+  , pc_tag_dependency = mempty
   }
 
 varsLocal :: MonadReader Cxt m => [Abs] -> m a -> m a
@@ -87,19 +88,18 @@ deBruijnOf x = genericElemIndex x . reverse
 isPointer :: MonadReader Cxt m => Abs -> m Bool
 isPointer x = asks $ Set.member x . pc_pointers
 
--- bottomsLocal :: MonadReader PerceusCxt m => Set Abs -> m a -> m a
--- bottomsLocal xs = local $ \cxt -> cxt{pc_bottoms = xs <> cxt.pc_bottoms}
+tagDependencyLocal :: MonadReader Cxt m => Abs -> [Abs] -> m a -> m a
+tagDependencyLocal x xs = local $ \cxt -> cxt{pc_tag_dependency = Map.insert x xs cxt.pc_tag_dependency}
 
-perceus :: MonadIO m => GrinDefinition -> m GrinDefinition
+perceus :: (MonadIO m, MonadFresh Int m) => GrinDefinition -> m GrinDefinition
 perceus def = do
-  t <- liftIO $ runReaderT (perceusDef def.gr_args def.gr_term) (initPerceusCxt def)
+  t <- runReaderT (perceusDef def.gr_args def.gr_term) (initPerceusCxt def)
   pure $ setGrTerm t def
-  where
 
 -- ∅ | Γ ⊢ t ⟿  t′   Γ = fv(t)   Γ′ = {x}∗ - Γ
 -- -------------------------------------------
 -- ø ⊢ f {x}∗ = t ⟿  f {x}∗ = drop Γ′; t′
-perceusDef :: [Abs] -> Term -> ReaderT Cxt IO Term
+perceusDef :: (MonadReader Cxt m, MonadFresh Int m, MonadIO m) => [Abs] -> Term -> m Term
 perceusDef xs t = do
   -- Γ = fv(t)
   gamma <- varsLocal xs $ fvTerm t
@@ -109,104 +109,134 @@ perceusDef xs t = do
     -- ∅ | Γ ⊢ t ⟿  t′
     t' <- perceusTerm (Context mempty gamma) t
     -- drop Γ′; t′
-    dropSet gammad t'
+    dropSetL gammad t'
 
--- Δ | Γ ⊢ t ⟿  t′
-perceusTerm :: Context -> Term -> ReaderT Cxt IO Term
 
--- Rule: FETCH-OPAQUE
-perceusTerm _ (FetchOpaqueOffset n offset) = pure (FetchOpaqueOffset n offset)
+-- Rule: STORE
+perceusStore 
+  :: (MonadReader Cxt m, MonadFresh Int m, MonadIO m) 
+  => Context 
+  -> Loc 
+  -> Val
+  -> m Term
+perceusStore c loc v = foldr BindEmpty (Store loc v) <$> perceusVal c v
 
--- Rule: UNREACHABLE
-perceusTerm _ (Error e) = pure (Error e)
+-- Rule: UNIT
+perceusUnit 
+  :: (MonadReader Cxt m, MonadFresh Int m, MonadIO m) 
+  => Context 
+  -> Val
+  -> m Term
+perceusUnit c v = foldr BindEmpty (Unit v) <$> perceusVal c v
 
 -- Rule: APP
-perceusTerm c (App v vs) = do
+perceusApp 
+  :: (MonadReader Cxt m, MonadFresh Int m, MonadIO m) 
+  => Context 
+  -> Val 
+  -> [Val]
+  -> m Term
+perceusApp c v vs = do
   -- FIXME GRIN.hs should use List1
   let vs' = List1.fromListSafe __IMPOSSIBLE__ vs
   cs <- splitContext c vs'
   dups <- fold <$> List1.zipWithM perceusVal cs vs'
   pure (foldr BindEmpty (App v vs) dups)
 
--- Rule: UPDATE
-perceusTerm c (Update tag n v) = foldr BindEmpty (Update tag n v) <$> perceusVal c v
-
--- Rule: STORE
-perceusTerm c (Store loc v) = foldr BindEmpty (Store loc v) <$> perceusVal c v
-
--- Rule: UNIT
-perceusTerm c (Unit v) = foldr BindEmpty (Unit v) <$> perceusVal c v
-
 -- Rule: CASE
-perceusTerm c (Case v t alts) = do
-  t' <- step t
-  alts' <- mapM (\(splitCalt -> (mkAlt, t)) -> mkAlt <$> step t) alts
-  pure (Case v t' alts')
+perceusCase 
+  :: (MonadReader Cxt m, MonadFresh Int m, MonadIO m) 
+  => Context 
+  -> Int
+  -> Term 
+  -> [CAlt]
+  -> m Term
+perceusCase c n t alts = do
+  -- Lookup the variables that depend on the scrutinee
+  x <- fromMaybe __IMPOSSIBLE__ <$> deBruijnLookup n
+  xs <- asks $ fromMaybe mempty . Map.lookup x . pc_tag_dependency
+
+  t' <- step (Set.fromList xs) t
+
+  alts' <- forM alts \case
+    CAltTag tag t -> CAltTag tag <$> step (Set.fromList $ drop tag.tArity xs) t
+    CAltLit lit t -> CAltLit lit <$> step mempty t
+    _             -> __IMPOSSIBLE__
+  pure (Case (Var n) t' alts')
   where
-  -- Δ | Γᵢ ⊢ tᵢ ⟿  drop Γᵢ′ ; tᵢ′
-  step t = do
+  step bottoms t = do
       gammai <- Set.intersection c.gamma <$> fvTerm t
-
-      -- Δ | Γᵢ ⊢ tᵢ ⟿  tᵢ′
       t' <- perceusTerm (Context c.delta gammai) t
+      let gammadi = c.gamma `Set.difference` (gammai `Set.union` bottoms)
+      dropSetL gammadi t'
 
-      -- Γᵢ′ = Γ - {⊥} - Γᵢ ∗
-      let gammai' = c.gamma Set.\\ gammai
-
-      -- drop Γᵢ′ ; tᵢ′
-      dropSet gammai' t'
-
--- Rules: FETCH-CTAG-DUP and FETCH-CTAG
--- TODO split into two
-perceusTerm c (FetchOffset tag@CTag{} n i `Bind` LAltVar x t) = do
-  fv <- varLocal x (fvTerm t)
-  let gamma' = applyWhen (Set.member x fv) (Set.insert x) (Set.intersection c.gamma fv)
-      gammad = Set.difference c.gamma gamma'
-  t' <- varLocal x $ dropSet gammad =<< perceusTerm (Context c.delta gamma') t
-  let t'' = applyWhen (Set.member x fv) (Dup 0 `BindEmpty`) t'
-  pure $ FetchOffset tag n i `Bind` LAltVar x t''
-
--- Rules: FETCH-FTAG and FETCH-FTAG-DROP
--- TODO merge better
-perceusTerm c (FetchOffset tag@FTag{} n i `Bind` LAltVar x t) = do
-  fv <- varLocal x (fvTerm t)
-  let gamma' = applyWhen (Set.member x fv) (Set.insert x) (Set.intersection c.gamma fv)
-      gammad = applyUnless (Set.member x fv) (Set.insert x) (c.gamma Set.\\ gamma')
-  t' <- varLocal x $ dropSet gammad  =<< perceusTerm (Context c.delta gamma') t
-  pure (FetchOffset tag n i `Bind` LAltVar x t')
-
--- Rule: BIND-CASE
-perceusTerm c (t `Bind` LAltVariableNode x xs (Case (Var n) Unreachable alts))  = do
-  ov_t <- ov t
-  rec
-    (gammais, gammaids) <- mapAndUnzipM (mkGammai gamma') alts
-    let gamma' = (c.gamma `Set.intersection` ov_t) `Set.difference` fold gammais
-
-  t' <- perceusTerm
-          do Context (fold [c.delta, fold gammaids, fold gammais]) gamma'
-          do t
-
-  alts' <- zipWith3M step gammais gammaids alts
-
-  pure $ t' `Bind` LAltVariableNode x xs (Case (Var n) Unreachable alts')
+-- Rule: UPDATE
+perceusUpdate
+  :: (MonadReader Cxt m, MonadFresh Int m, MonadIO m) 
+  => Context 
+  -> Tag
+  -> Tag
+  -> Int
+  -> Val 
+  -> m Term
+perceusUpdate c tag' tag n v = do
+  t <- foldrM step (Update tag' tag n v) [2 .. tag.tArity + 1]
+  foldr BindEmpty t <$> perceusVal c v
   where
-  step gammai gammaid (CAltTag tag ti) =
-    fmap (CAltTag tag)
-      $ varsLocal (x : xs)
-      $ dropSet gammaid =<< perceusTerm (Context c.delta gammai) ti
-  step _ _ _ = __IMPOSSIBLE__
+  -- TODO replace with a proper check using a lookup table or types
+  isPointer _ = tag /= NatTag
 
-  mkGammai' gamma' tag fv_t = (gammai, gammaid)
-    where
-    xs' = Set.fromList $ take (tagArity tag) xs
-    gammai = (c.gamma `Set.union` xs') `Set.intersection` fv_t
-    gammaid = (c.gamma `Set.union` xs') `Set.difference` (gamma' `Set.union` gammai)
+  step i t
+    | isPointer n = FetchOffset tag n i `bindVar` Drop 0 `BindEmpty` raise 1 t
+    | otherwise   = pure t
 
-  mkGammai gamma' (CAltTag tag t) = mkGammai' gamma' tag <$> varsLocal (x : xs) (fvTerm t)
-  mkGammai _      _               = __IMPOSSIBLE__
+
+-- Rule: BIND-FETCH-DUP
+perceusBindFetchDup 
+  :: (MonadReader Cxt m, MonadFresh Int m, MonadIO m) 
+  => Context 
+  -> Tag
+  -> Int
+  -> Int
+  -> Abs
+  -> Term 
+  -> m Term
+perceusBindFetchDup c tag n offset x t = do
+  fv_t <- varLocal x (fvTerm t)
+  let gamma' = Set.insert x (c.gamma `Set.intersection` fv_t)
+      gammad = c.gamma `Set.difference` fv_t
+  t' <- varLocal x $ 
+    perceusTerm (Context c.delta gamma') t >>= (`dropSetR` gammad)
+  pure (FetchOffset tag n offset `Bind` LAltVar x 
+       (Dup 0 `BindEmpty` t'))
+  
+-- Rule: BIND-FETCH
+perceusBindFetch
+  :: (MonadReader Cxt m, MonadFresh Int m, MonadIO m) 
+  => Context 
+  -> Tag
+  -> Int
+  -> Int
+  -> Abs
+  -> Term 
+  -> m Term
+perceusBindFetch c tag n offset x t = do
+  fv_t <- varLocal x (fvTerm t)
+  let gamma' = c.gamma `Set.intersection` fv_t
+      gammad = c.gamma `Set.difference` fv_t
+      delta' = Set.insert x c.delta
+  t' <- varLocal x $ 
+    perceusTerm (Context delta' gamma') t >>= (`dropSetR` gammad)
+  pure (FetchOffset tag n offset `Bind` LAltVar x t')
 
 -- Rule: BIND
-perceusTerm c (t1 `Bind` alt) = do
+perceusBind
+  :: (MonadReader Cxt m, MonadFresh Int m, MonadIO m) 
+  => Context 
+  -> Term
+  -> LAlt 
+  -> m Term
+perceusBind c t1 alt = do
   let (mkAlt, t2, xs) = splitLaltWithVars alt
   bv_p <- Set.fromList <$> filterM isPointer xs
 
@@ -228,16 +258,41 @@ perceusTerm c (t1 `Bind` alt) = do
            do Context (c.delta `Set.union` gammad `Set.union` gamma2) gamma1
            do t1
 
-  t2' <- varsLocal xs $ dropSet gammad =<< perceusTerm (Context c.delta gamma2) t2
+  -- Add the the tag dependency x to the arguments xs, so when we pattern match on x
+  -- we can determine how many of xs are defined.
+  let withTagDependency = case alt of
+        LAltVariableNode x xs _ -> tagDependencyLocal x xs
+        _                       -> id
 
+  t2' <- withTagDependency $ varsLocal xs $ dropSetL gammad =<< perceusTerm (Context c.delta gamma2) t2
   pure (t1' `Bind` mkAlt t2')
 
+
+-- Δ | Γ ⊢ t ⟿  t′
+perceusTerm :: (MonadReader Cxt m, MonadFresh Int m, MonadIO m) => Context -> Term -> m Term
+-- Rule: FETCH-OPAQUE
+perceusTerm _ (FetchOpaqueOffset n offset) = pure (FetchOpaqueOffset n offset) 
+-- Rule: UNREACHABLE 
+perceusTerm _ (Error e) = pure (Error e) 
+perceusTerm c (Store loc v) = perceusStore c loc v
+perceusTerm c (Unit v) = perceusUnit c v
+perceusTerm c (App v vs) = perceusApp c v vs
+perceusTerm c (Case (Var n) t alts) = perceusCase c n t alts
+perceusTerm c (Update tag' tag n v) = perceusUpdate c tag' tag n v
+perceusTerm c (FetchOffset tag n offset `Bind` LAltVar x t) = 
+  ifM do elem x <$> varLocal x (fvTerm t) 
+      do perceusBindFetchDup c tag n offset x t
+      do perceusBindFetch c tag n offset x t
+perceusTerm c (t `Bind` alt) = perceusBind c t alt
 -- Only allowed in dup and drop
 perceusTerm _ UpdateOffset{} = __IMPOSSIBLE__
 -- Fetch entire nodes are not allowed in lower-level GRIN.
 -- P-tags are not yet implemented. All other matches should
 -- be handled by the other rules.
 perceusTerm _ Fetch'{} = __IMPOSSIBLE__
+-- Case must scrutinize variables otherwise they should be
+-- simplified by constant propagation.
+perceusTerm _ Case{} = __IMPOSSIBLE__
 
 
 type Dups = [Term]
@@ -247,9 +302,7 @@ perceusVal :: MonadReader Cxt m => Context -> Val -> m Dups
 perceusVal c (Var n) = do
   x <- fromMaybe __IMPOSSIBLE__ <$> deBruijnLookup n
   p <- isPointer x
-  bottoms <- asks pc_bottoms
-  let is_bottom = boolToMaybe (Set.member x bottoms) []
-      not_ptr = boolToMaybe (not p) []
+  let not_ptr = boolToMaybe (not p) []
       svar = boolToMaybe (p && c.gamma == Set.singleton x) []
       svar_dup = boolToMaybe (p && Set.member x c.delta) [Dup n]
 
@@ -260,7 +313,7 @@ perceusVal c (Var n) = do
         , text "c.gamma" <+> pretty c.gamma
         ]
 
-  pure $ fromMaybe (error s) (is_bottom <|> not_ptr <|> svar <|> svar_dup)
+  pure $ fromMaybe (error s) (not_ptr <|> svar <|> svar_dup)
 
 perceusVal c (ConstantNode _ (v : vs)) = do
   contexts <- splitContext c (v :| vs)
@@ -306,14 +359,25 @@ splitContext c vs = List1.scanr' step (Context c.delta) <$> gammas
 
 
 -- | drop Γ; t = drop x₁; ..; drop xₙ ; t   where |Γ| = n
-dropSet :: MonadReader Cxt m => Set Abs -> Term -> m Term
-dropSet gammad t = asks \ cxt ->
-  foldr (step cxt.pc_vars) t (gammad `Set.difference` cxt.pc_bottoms)
+dropSetL :: MonadReader Cxt m => Set Abs -> Term -> m Term
+dropSetL gammad t = asks \ cxt ->
+  foldr (step cxt.pc_vars) t gammad
   where
   step xs x t =
     caseMaybe do deBruijnOf x xs
-              do error $ unwords ["dropSet: Cannot find", prettyShow x, "in", prettyShow xs]
+              do error $ unwords ["dropSetL: Cannot find", prettyShow x, "in", prettyShow xs]
               do \ n -> Drop n `BindEmpty` t
+
+-- | drop Γ; t = t ; drop x₁ ; ... ; drop xₙ    where |Γ| = n
+dropSetR :: MonadReader Cxt m => Term -> Set Abs -> m Term
+dropSetR t gammad = asks \ cxt ->
+  foldr (step cxt.pc_vars) t gammad
+  where
+  step xs x t =
+    caseMaybe do deBruijnOf x xs
+              do error $ unwords ["dropSetR: Cannot find", prettyShow x, "in", prettyShow xs]
+              do \ n -> Drop n `BindEmpty` t
+
 
 -- | Returns the free variables that the term want to own.
 -- ov :: Term -> Reader Cxt (Set Abs)
@@ -321,7 +385,7 @@ ov :: MonadReader Cxt m => Term -> m (Set Abs)
 ov (App _ vs) = foldMapM fvVal vs
 ov (Store _ (ConstantNode _ vs)) = foldMapM fvVal vs
 ov (Unit (ConstantNode _ vs)) = foldMapM fvVal vs
-ov (Update _ _ (ConstantNode _ vs)) = foldMapM fvVal vs
+ov (Update _ _ _ (ConstantNode _ vs)) = foldMapM fvVal vs
 ov (Case _ t alts) =
   liftA2 Set.union (ov t) $ foldMapM (ov . snd . splitCalt) alts
 ov (t1 `Bind` (splitLaltWithVars -> (_, t2, xs))) = do
@@ -350,13 +414,14 @@ fvTerm (Fetch' _ n (Just _)) = do
   x <- fromMaybe __IMPOSSIBLE__ <$> deBruijnLookup n
   unlessM (isPointer x) __IMPOSSIBLE__
   pure (Set.singleton x)
-fvTerm t@(Update _ n v) = do
+fvTerm t@(Update _ _ n v) = do
   xs <- asks pc_vars
   x <- fromMaybe (error $ unwords ["can't find", show n, "in", prettyShow xs, "\nTerm:", prettyShow t]) <$> deBruijnLookup n
   unlessM (isPointer x) __IMPOSSIBLE__
   Set.insert x <$> fvVal v
 fvTerm Error{} = pure mempty
-fvTerm _ = __IMPOSSIBLE__
+fvTerm t = error $ "missing " ++ show t
+-- fvTerm _ = __IMPOSSIBLE__
 
 -- Only returns free variables that are pointers
 fvVal :: MonadReader Cxt m => Val -> m (Set Abs)
@@ -419,15 +484,10 @@ specializeDrop def = lensGrTerm (go $ replicate def.gr_arity Nothing) def
   go :: [Maybe (Tag, [Int])] -> Term -> mf Term
 
 
-  go xs (Update tag n (Cnat v) `BindEmpty` t) =
-    BindEmpty (Update tag n (Cnat v)) <$> go xs' t
+  go xs (Update tag' tag n (Cnat v) `BindEmpty` t) =
+    BindEmpty (Update tag' tag n (Cnat v)) <$> go xs' t
     where
     xs' = updateAt n (const $ Just (NatTag, [])) xs
-
-  go xs (Update tag n (ConstantNodeVect tag' ns) `BindEmpty` t) =
-    BindEmpty (Update tag n (ConstantNodeVect tag' ns)) <$> go xs' t
-    where
-    xs' = updateAt n (const $ Just (tag, map (\n0 -> n0 - n) ns)) xs
 
   go xs (Drop n `BindEmpty` t)
     | Just (tag, map (n +) -> ns) <- xs !! n = do
@@ -466,13 +526,13 @@ pushDownDup :: Term -> Term
 pushDownDup (Dup n1 `BindEmpty` (pushDownDup -> t1)) =
   fromMaybe (Dup n1 `BindEmpty` t1) (go t1)
   where
-  go (Update tag n2 v `BindEmpty`
-           (FetchOffset tag' n2' 0 `Bind` LAltVar x
+  go (Update tag' tag n2 v `BindEmpty`
+           (FetchOffset tag'' n2' 0 `Bind` LAltVar x
            (Case (Var 0) t2 alts `BindEmpty` t3)))
     | n2 == n2'
-    , tag == tag' =
-      Just (Update tag n2 v `BindEmpty`
-           (FetchOffset tag' n2' 0 `Bind` LAltVar x
+    , tag' == tag'' =
+      Just (Update tag' tag n2 v `BindEmpty`
+           (FetchOffset tag'' n2' 0 `Bind` LAltVar x
            (Case (Var 0) t2' alts' `BindEmpty` t3)))
     where
     t2' = Dup (n1 + 1) `BindEmpty` t2

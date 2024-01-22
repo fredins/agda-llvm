@@ -73,7 +73,7 @@ data Term = Bind Term LAlt
           | Error TError
           | Store Loc Val
           | Fetch' (Maybe Tag) Int (Maybe Int)
-          | Update Tag Int Val
+          | Update Tag Tag Int Val
           | UpdateOffset Int Int Val
             deriving (Show, Eq, Ord)
 
@@ -342,8 +342,8 @@ applySubstTerm rho term = case term of
   Fetch' mtag n mn
     | Var n' <- lookupS rho n -> Fetch' mtag n' mn
     | otherwise -> __IMPOSSIBLE__
-  Update tag n v 
-    | Var n' <- lookupS rho n -> Update tag n' (applySubst rho v)
+  Update tag' tag n v 
+    | Var n' <- lookupS rho n -> Update tag' tag n' (applySubst rho v)
     | otherwise -> error $ prettyShow term ++ " " ++ show (lookupS rho n)
   UpdateOffset (lookupS rho -> Var n') offset v -> UpdateOffset n' offset (applySubst rho v)
   UpdateOffset{} -> __IMPOSSIBLE__
@@ -456,10 +456,9 @@ instance Pretty Term where
     docOffset = maybe mempty (brackets . pretty) moffset
     docTag = maybe mempty pretty mtag
 
-  pretty (Update tag v1 v2)
-    | ConstantNode{} <- v2 = (text "update" <> pretty tag) <+> pretty v1 <+> parens (pretty v2)
-    | VariableNode{} <- v2 = (text "update" <> pretty tag) <+> pretty v1 <+> parens (pretty v2)
-    | otherwise = (text "update" <> pretty tag) <+> pretty v1 <+> pretty v2
+  pretty (Update tag' tag v1 v2)
+    | ConstantNode{} <- v2 = (text "update" <> brackets (pretty tag' <> text "/" <> pretty tag)) <+> pretty v1 <+> parens (pretty v2)
+    | otherwise = __IMPOSSIBLE__
   pretty (Error TUnreachable) = text "unreachable"
   pretty (Error (TMeta _)) = __IMPOSSIBLE__
   pretty (UpdateOffset n1 n2 v) = text "update" <+> pretty n1  <+> brackets (pretty n2) <+> pretty v
