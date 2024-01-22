@@ -308,15 +308,18 @@ fetchRest mtag n xs t = foldr (uncurry fetch) t (zip [2 ..] xs)
   fetch offset x t = Fetch' mtag (n + offset - 2) (Just offset) `Bind` LAltVar x t
 
 -- | Split fetch operations using offsets (Boquist 1999, ch. 4.2.7)
--- <t1>
--- fetch n ; λ x₁ x₂ x₃ x₄ →
--- <t2>
--- >>>
--- <t1>
--- fetch n [1]; λ x₂ →
--- fetch n [2]; λ x₃ →
--- fetch n [3]; λ x₄ →
--- <t2>
+--
+-- @
+--     〈m1 〉
+--     fetch n ; λ x₁ x₂ x₃ →
+--     〈m2 〉
+--     >>>
+--     〈m1 〉
+--     fetch n [1]; λ x₁ →
+--     fetch n [2]; λ x₂ →
+--     fetch n [3]; λ x₃ →
+--     〈m2 〉
+-- @
 -- TODO returning fetch [Boquist 1999, p. 105]
 splitFetchOperations :: Term -> Term
 splitFetchOperations (Fetch' mtag n Nothing `Bind` LAltConstantNode _ xs t) = fetchRest mtag n xs (splitFetchOperations t)
@@ -464,8 +467,6 @@ copyPropagation (Case n t alts) = Case n (copyPropagation t) (map step alts)
   where
   step (splitCalt -> (mkAlt, t)) = mkAlt (copyPropagation t)
 copyPropagation t = t
-
-
 
 -- | Constant propagation uses tag information to replace variables which have only one possible 
 --   tag with tag itself. It also eliminates _known_ case expressions. (Boquist 1999, ch. 4.3.12)
