@@ -310,15 +310,15 @@ fetchRest mtag n xs t = foldr (uncurry fetch) t (zip [2 ..] xs)
 -- | Split fetch operations using offsets (Boquist 1999, ch. 4.2.7)
 --
 -- @
---     〈m1 〉
+--     〈 m1 〉
 --     fetch n ; λ x₁ x₂ x₃ →
---     〈m2 〉
+--     〈 m2 〉
 --     >>>
---     〈m1 〉
+--     〈 m1 〉
 --     fetch n [1]; λ x₁ →
 --     fetch n [2]; λ x₂ →
 --     fetch n [3]; λ x₃ →
---     〈m2 〉
+--     〈 m2 〉
 -- @
 -- TODO returning fetch [Boquist 1999, p. 105]
 splitFetchOperations :: Term -> Term
@@ -393,7 +393,7 @@ rightHoistFetchOperations (Case v t alts) = do
   pure (Case v t' alts')
 rightHoistFetchOperations t = pure t
 
--- | Specialize fetch operations. Only handles the following case @fetch n ; λ tag xs →@.
+-- | Specialize fetch operations. Only handles the case @fetch n ; λ tag xs →@.
 --   The rest is handled by @rightHoistFetchOperations@.
 fetchSpecialisation :: Term -> Term
 fetchSpecialisation (FetchOpaque n `Bind` LAltConstantNode tag xs t) = 
@@ -410,35 +410,40 @@ fetchSpecialisation term = term
 -- * Optimizing transformations
 ------------------------------------------------------------------------
 
--- | (Boquist 1999, ch. 4.3.2)
-copyPropagation :: Term -> Term
-
--- | Left unit law
+-- | Remove unecessary copies using the monad laws (Boquist 1999, ch. 4.3.2).
 --
--- unit v ; λ x →
--- <m>
--- >>>
--- <m> [x / v]
+--   Left unit law
+--
+-- @
+--     unit v ; λ x →
+--     〈 m 〉
+--     >>>
+--     〈 m 〉[v / x]
+-- @
+-- @
+--     unit (tag v₁ v₂) ; λ tag x₁ x₂ →
+--     〈 m 〉
+--     >>>
+--     〈 m 〉[v₁ / x₁, v₂ / x₂]
+-- @
+--
+--   Right unit law
+--
+-- @
+--     〈 m 〉 ; λ x → 
+--     unit x
+--     >>>
+--     〈 m 〉
+-- @
+copyPropagation :: Term -> Term
 copyPropagation (Unit (Var n) `Bind` LAltVar _ t) =
   strengthen impossible (applySubst (inplaceS 0 $ Var $ succ n) $ copyPropagation t)
-
--- -- unit (tag v₁ v₂) ; λ x →
--- -- 〈t 〉
--- -- >>>
--- -- 〈t 〉[(tag v₁ v₂) / 0]
 -- TODO generalise to subsume the former clause
 copyPropagation (Unit (ConstantNode tag vs) `Bind` LAltVar _ t) = t''
   where
   v = raise 1 (ConstantNode tag vs)
   t' = applySubst (inplaceS 0 v) $ copyPropagation t
   t'' = strengthen impossible t'
-
--- | Left unit law
---
--- unit (tag v₁ v₂) ; λ tag x₁ x₂ →
--- 〈t 〉
--- >>>
--- 〈t 〉[v₁ / 1, v₂ / 0]
 copyPropagation (Unit (ConstantNode tag1 vs) `Bind` LAltConstantNode tag2 xs t)
   | tag1 == tag2 = t''
   | otherwise    = __IMPOSSIBLE__
@@ -449,7 +454,6 @@ copyPropagation (Unit (ConstantNode tag1 vs) `Bind` LAltConstantNode tag2 xs t)
   t' = foldr applySubst (copyPropagation t) (zipWith inplaceS [0 ..] vs')
   -- Remove pattern variables by strengthening
   t'' = applySubst (strengthenS impossible numSubst) t'
-
 copyPropagation (Unit (VariableNode v vs) `Bind` LAltVariableNode x xs t) = t''
   where
   numSubst = length (x : xs)
@@ -459,7 +463,6 @@ copyPropagation (Unit (VariableNode v vs) `Bind` LAltVariableNode x xs t) = t''
   -- Remove pattern variables by strengthening
   t'' = applySubst (strengthenS impossible numSubst) t'
 
--- | Right unit law
 copyPropagation (t `Bind` LAltVar _ (Unit (Var 0))) = t
 
 copyPropagation (Bind t1 (splitLalt -> (mkAlt, t2))) = Bind (copyPropagation t1) (mkAlt $ copyPropagation t2)
