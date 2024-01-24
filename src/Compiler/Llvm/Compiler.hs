@@ -500,8 +500,17 @@ llvmPostCompile env _ mods = do
     putStrLn "------------------------------------------------------------------------\n"
     putStrLn $ intercalate "\n\n" (map prettyShow defs_bindNormalisation) ++ "\n"
 
-  when env.envLlvmOpts.flagLlvmInterpret $ printInterpretGrin (defs_bindNormalisation ++ defs_mem)
 
+  let defs_fetchReuse = map (updateGrTerm fetchReuse) defs_bindNormalisation
+  liftIO $ do
+    putStrLn "\n------------------------------------------------------------------------"
+    putStrLn "-- * Fetch Reuse"
+    putStrLn "------------------------------------------------------------------------\n"
+    putStrLn $ intercalate "\n\n" (map prettyShow defs_fetchReuse) ++ "\n"
+
+  when env.envLlvmOpts.flagLlvmInterpret $ printInterpretGrin (defs_fetchReuse ++ defs_mem)
+
+  -- TODO specializeDrop should use tagInfo
   -- defs_specializeDrop <- mapM specializeDrop defs_bindNormalisation
   -- liftIO $ do
   --   putStrLn "\n------------------------------------------------------------------------"

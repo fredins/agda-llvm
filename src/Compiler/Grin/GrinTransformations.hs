@@ -38,6 +38,7 @@ import           Compiler.Grin.Grin             as G
 import           Compiler.Grin.HeapPointsToType
 import qualified Utils.List1                    as List1
 import           Utils.Utils
+import Debug.Trace (trace)
 
 newtype TagInfo = TagInfo{unTagInfo :: Map Abs (Set Tag)}
 
@@ -111,10 +112,8 @@ evalInlining
   -> TagInfo
   -> GrinDefinition
   -> mf (TagInfo, Term)
-
 evalInlining cxt returnVars tagInfo def = go tagInfo (reverse def.gr_args) def.gr_term
   where
-
   fetchTagSet :: Abs -> Maybe (Set Tag)
   fetchTagSet x = do
     vs <- valueToList <$> lookup x (unAbsEnv cxt.fEnv)
@@ -201,7 +200,6 @@ evalInlining cxt returnVars tagInfo def = go tagInfo (reverse def.gr_args) def.g
         Map.lookup returnVar tagInfo.unTagInfo
     generateCaseBody _ PTag{} = __IMPOSSIBLE__
 
-
   go :: forall mf. MonadFresh Int mf
      => TagInfo
      -> [Abs]
@@ -227,8 +225,6 @@ evalInlining cxt returnVars tagInfo def = go tagInfo (reverse def.gr_args) def.g
     pure (tagInfo'', t1' `Bind` mkAlt t2')
   go tagInfo _ t = pure (tagInfo, t)
 
-
-
 -- | Replace all node variables by explicit nodes (Boquist 1999, ch.4.2.4).
 --
 -- <t1> ; λ x₁ →
@@ -236,7 +232,7 @@ evalInlining cxt returnVars tagInfo def = go tagInfo (reverse def.gr_args) def.g
 -- >>>
 -- <t1> ; λ tag x₂ x₃ →
 -- <t2> [tag x₂ x₃ / x₁]
-vectorization :: forall mf. MonadFresh Int mf => TagInfo -> Term -> mf (TagInfo, Term)
+vectorization :: MonadFresh Int mf => TagInfo -> Term -> mf (TagInfo, Term)
 vectorization tagInfo (t1 `Bind` LAltVar x1@(lookupMaxArity tagInfo -> Just arity) t2) = do
   (tagInfo', t1') <- vectorization tagInfo t1
   (tagInfo'', t2') <- vectorization tagInfo' t2
@@ -498,6 +494,33 @@ constantPropagation tagInfo (t1 `Bind` LAltVariableNode (singletonTag tagInfo ->
 constantPropagation tagInfo (t1 `Bind` (splitLalt -> (mkAlt, t2))) = 
   constantPropagation tagInfo t1 `Bind` mkAlt (constantPropagation tagInfo t2)
 constantPropagation _ t = t
+
+under :: Int -> Map (Tag, Int, Int) Int -> Map (Tag, Int, Int) Int
+under n = Map.fromList . map step . Map.toList
+  where
+  step ((tag, m, offset), k) = ((tag, m + n, offset), k + n)
+
+fetchReuse' :: Map (Tag, Int, Int) Int -> Term -> Term
+fetchReuse' fetches (FetchOffset tag n offset `Bind` LAltVar _ t) 
+  | Just m <- Map.lookup (tag, n, offset) fetches = 
+    fetchReuse' fetches $ subst 0 (Var m) t
+fetchReuse' fetches (FetchOffset tag n offset `Bind` LAltVar x t) =
+  FetchOffset tag n offset `Bind` LAltVar x (fetchReuse' fetches' t)
+  where
+  fetches' = Map.insert (tag, n + 1, offset) 0 (under 1 fetches)
+fetchReuse' fetches (t1 `Bind` (splitLaltWithVars -> (mkAlt, t2, xs))) =
+ fetchReuse' fetches t1 `Bind` mkAlt (fetchReuse' fetches' t2)
+  where
+  fetches' = under (length xs) fetches
+fetchReuse' fetches (Case v t alts) =
+  Case v (fetchReuse' fetches t) (map step alts)
+  where
+  step (splitCaltWithVars -> (mkAlt, t2, xs)) = 
+    mkAlt $ fetchReuse' (under (length xs) fetches) t2
+fetchReuse' _ t = t
+
+fetchReuse :: Term -> Term
+fetchReuse = fetchReuse' mempty
 
 ------------------------------------------------------------------------
 -- * Miscellaneous transformations

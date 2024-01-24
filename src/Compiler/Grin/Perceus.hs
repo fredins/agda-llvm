@@ -112,6 +112,7 @@ perceusDef xs t = do
     dropSetL gammad t'
 
 
+
 -- Rule: STORE
 perceusStore 
   :: (MonadReader Cxt m, MonadFresh Int m, MonadIO m) 
@@ -140,8 +141,8 @@ perceusApp c v vs = do
   -- FIXME GRIN.hs should use List1
   let vs' = List1.fromListSafe __IMPOSSIBLE__ vs
   cs <- splitContext c vs'
-  dups <- fold <$> List1.zipWithM perceusVal cs vs'
-  pure (foldr BindEmpty (App v vs) dups)
+  gammad <- fold <$> List1.zipWithM perceusVal cs vs'
+  pure (foldr BindEmpty (App v vs) gammad)
 
 -- Rule: CASE
 perceusCase 
@@ -269,7 +270,11 @@ perceusBind c t1 alt = do
 
 
 -- Δ | Γ ⊢ t ⟿  t′
-perceusTerm :: (MonadReader Cxt m, MonadFresh Int m, MonadIO m) => Context -> Term -> m Term
+perceusTerm 
+  :: (MonadReader Cxt m, MonadFresh Int m, MonadIO m) 
+  => Context 
+  -> Term 
+  -> m Term
 -- Rule: FETCH-OPAQUE
 perceusTerm _ (FetchOpaqueOffset n offset) = pure (FetchOpaqueOffset n offset) 
 -- Rule: UNREACHABLE 
@@ -476,6 +481,7 @@ gatherPointersLalt (LAltEmpty t) = gatherPointers t
 gatherPointersCalt :: CAlt -> Set Abs
 gatherPointersCalt (snd . splitCalt -> t) = gatherPointers t
 
+-- FIXME specializeDrop should use tagInfo instead
 specializeDrop :: forall mf. MonadFresh Int mf =>  GrinDefinition -> mf GrinDefinition
 specializeDrop def = lensGrTerm (go $ replicate def.gr_arity Nothing) def
   where
