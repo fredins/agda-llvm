@@ -7,7 +7,7 @@ module Compiler.Grin.GrinTransformations
 
 import           Control.Applicative            (liftA2)
 import           Control.Arrow                  (Arrow (first), second)
-import           Control.Monad                  (forM, when, (<=<), replicateM)
+import           Control.Monad                  (forM, when, (<=<), replicateM, mapAndUnzipM)
 import           Control.Monad.Reader           (MonadReader (local),
                                                  ReaderT (runReaderT), asks)
 import           Control.Monad.State            (StateT (runStateT), modify)
@@ -15,7 +15,7 @@ import           Control.Monad.Trans.Maybe      (MaybeT (..), hoistMaybe)
 import           Data.Foldable                  (find, fold, foldrM, toList)
 import           Data.Function                  (on)
 import Data.List (delete)
-import           Data.List.Extra                (list, mapAccumR)
+import           Data.List.Extra                (list, mapAccumR, allSame)
 import           Data.Map                       (Map)
 import qualified Data.Map                       as Map
 import           Data.Set                       (Set)
@@ -526,9 +526,16 @@ fetchReuse :: Term -> Term
 fetchReuse = fetchReuse' mempty
 
 dropRaising :: Term -> Term
-dropRaising (App f vs `Bind` (splitLaltWithVars -> (mkAlt, Drop n `BindEmpty` t, xs))) 
-  | n >= length xs = 
+dropRaising (App f vs `Bind` (splitLaltWithVars -> (mkAlt, dropRaising -> Drop n `BindEmpty` t, xs))) 
+  | f `notElem` map Def ["drop", "dup"], n >= length xs = 
   Drop (n - length xs) `BindEmpty` dropRaising (App f vs `Bind` mkAlt t)
+dropRaising (Case v Unreachable alts `Bind` (splitLalt -> (mkAlt, dropRaising -> t))) 
+  | Just (n : ns, alts') <- mapAndUnzipM step alts, allSame (n : ns) = 
+  Drop n `BindEmpty` dropRaising (Case v Unreachable alts' `Bind` mkAlt t)
+  where
+  step (splitCalt -> (mkAlt, dropRaising -> Drop n `BindEmpty` t)) = 
+    Just (n, mkAlt t)
+  step _ = Nothing
 dropRaising (t1 `Bind` (splitLalt -> (mkAlt, t2))) = 
   dropRaising t1 `Bind` mkAlt (dropRaising t2)
 dropRaising (Case v t alts) = Case v (dropRaising t) (map step alts)

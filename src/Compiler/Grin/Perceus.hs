@@ -13,7 +13,7 @@ import           Control.Monad.Reader         (MonadIO, MonadReader (ask),
                                                Reader, ReaderT (runReaderT),
                                                asks, local, runReader)
 import           Data.Bool                    (bool)
-import           Data.Foldable                (fold, foldlM, foldrM)
+import           Data.Foldable                (fold, foldlM, foldrM, foldl')
 import           Data.Function                (on)
 import           Data.List                    (partition, singleton, (\\))
 import           Data.Map                     (Map)
@@ -181,8 +181,8 @@ perceusUpdate
   -> Val 
   -> m Term
 perceusUpdate c tag' tag n v = do
-  t <- foldrM step (Update tag' tag n v) [2 .. tag.tArity + 1]
-  foldr BindEmpty t <$> perceusVal c v
+  t <- foldr BindEmpty (Update tag' tag n v) <$> perceusVal c v
+  foldrM step t [2 .. tag.tArity + 1]
   where
   -- TODO replace with a proper check using a lookup table or types
   isPointer _ = tag /= NatTag

@@ -662,12 +662,12 @@ We can promote an element from the borrowed environment to the owned environment
 \biJudgmentAlignRight{\Delta}{\Gamma}%
   {\mbox{\lstinline|update|}\;[tag^\prime/tag]\;x_n\;v}%
   {%
-    {dup\;\Gamma_d\;;} % 
     {\mbox{\lstinline|fetch|}\;tag\;x_n\;[2]\;;\;\lambda\rightarrow} % 
     {drop\;x_0\;;} %
     {\dots} %
     {\mbox{\lstinline|fetch|}\;tag\;x_{n+k-1}\;[k+1]\;;\;\lambda\rightarrow} % 
     {drop\;x_0\;;} %
+    {dup\;\Gamma_d\;;} % 
     {\mbox{\lstinline|update|}\;[tag^\prime/tag]\;x_{n+k}\;v}%
   }
 \DisplayProof

@@ -500,6 +500,7 @@ llvmPostCompile env _ mods = do
     putStrLn "------------------------------------------------------------------------\n"
     putStrLn $ intercalate "\n\n" (map prettyShow defs_bindNormalisation) ++ "\n"
 
+  when env.envLlvmOpts.flagLlvmInterpret $ printInterpretGrin (defs_bindNormalisation ++ defs_mem)
 
   let defs_fetchReuse = map (updateGrTerm fetchReuse) defs_bindNormalisation
   liftIO $ do
@@ -509,12 +510,16 @@ llvmPostCompile env _ mods = do
     putStrLn $ intercalate "\n\n" (map prettyShow defs_fetchReuse) ++ "\n"
 
 
+  when env.envLlvmOpts.flagLlvmInterpret $ printInterpretGrin (defs_fetchReuse ++ defs_mem)
+
   let defs_dropRaising = map (updateGrTerm dropRaising) defs_fetchReuse
   liftIO $ do
     putStrLn "\n------------------------------------------------------------------------"
     putStrLn "-- * Drop Raising"
     putStrLn "------------------------------------------------------------------------\n"
     putStrLn $ intercalate "\n\n" (map prettyShow defs_dropRaising) ++ "\n"
+
+  when env.envLlvmOpts.flagLlvmInterpret $ printInterpretGrin (defs_dropRaising ++ defs_mem)
 
   let defs_dupLowering = map (updateGrTerm dupLowering) defs_dropRaising
   liftIO $ do
