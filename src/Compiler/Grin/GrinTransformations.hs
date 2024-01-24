@@ -14,7 +14,8 @@ import           Control.Monad.State            (StateT (runStateT), modify)
 import           Control.Monad.Trans.Maybe      (MaybeT (..), hoistMaybe)
 import           Data.Foldable                  (find, fold, foldrM, toList)
 import           Data.Function                  (on)
-import           Data.List.Extra                (list)
+import Data.List (delete)
+import           Data.List.Extra                (list, mapAccumR)
 import           Data.Map                       (Map)
 import qualified Data.Map                       as Map
 import           Data.Set                       (Set)
@@ -39,6 +40,8 @@ import           Compiler.Grin.HeapPointsToType
 import qualified Utils.List1                    as List1
 import           Utils.Utils
 import Debug.Trace (trace)
+import Data.Bifunctor (Bifunctor(bimap))
+import Data.Tuple.Extra (first3, second3)
 
 newtype TagInfo = TagInfo{unTagInfo :: Map Abs (Set Tag)}
 
@@ -521,6 +524,53 @@ fetchReuse' _ t = t
 
 fetchReuse :: Term -> Term
 fetchReuse = fetchReuse' mempty
+
+dropRaising :: Term -> Term
+dropRaising (App f vs `Bind` (splitLaltWithVars -> (mkAlt, Drop n `BindEmpty` t, xs))) 
+  | n >= length xs = 
+  Drop (n - length xs) `BindEmpty` dropRaising (App f vs `Bind` mkAlt t)
+dropRaising (t1 `Bind` (splitLalt -> (mkAlt, t2))) = 
+  dropRaising t1 `Bind` mkAlt (dropRaising t2)
+dropRaising (Case v t alts) = Case v (dropRaising t) (map step alts)
+  where
+  step (splitCalt -> (mkAlt, t)) = mkAlt (dropRaising t)
+dropRaising t = t
+
+dupLowering :: Term -> Term
+dupLowering (Dup n `BindEmpty` FetchOffset m tag offset `Bind` LAltVar x t) = 
+  FetchOffset m tag offset `Bind` LAltVar x (Dup (n + 1) `BindEmpty` t)
+dupLowering (t1 `Bind` (splitLalt -> (mkAlt, t2))) = 
+  dupLowering t1 `Bind` mkAlt (dupLowering t2)
+dupLowering (Case v t alts) = Case v (dupLowering t) (map step alts)
+  where
+  step (splitCalt -> (mkAlt, t)) = mkAlt (dupLowering t)
+dupLowering t = t
+
+
+gatherDupDrops :: Term -> ([Int], [Int], Term)
+gatherDupDrops (Dup n `BindEmpty` t)  = first3 (n :) (gatherDupDrops t)
+gatherDupDrops (Drop n `BindEmpty` t) = second3 (n :) (gatherDupDrops t)
+gatherDupDrops t = ([], [], t)
+
+fuseDupDrop :: List1 Int -> List1 Int -> Term -> Term
+fuseDupDrop dups drops t = foldr BindEmpty t (dups' ++ drops')
+  where
+  (drops', dups') = 
+    bimap (map Drop) (map Dup . catMaybes) $ 
+      forAccumR (List1.toList drops) (List1.toList dups) \ drops dup -> 
+        if dup `elem` drops 
+            then (delete dup drops, Nothing) 
+            else (drops, Just dup)
+
+dupDropFusion :: Term -> Term
+dupDropFusion (gatherDupDrops -> (dup : dups, drop : drops, t)) = 
+  fuseDupDrop (dup :| dups) (drop :| drops) (dupDropFusion t)
+dupDropFusion (t1 `Bind` (splitLalt -> (mkAlt, t2))) = 
+  dupDropFusion t1 `Bind` mkAlt (dupDropFusion t2)
+dupDropFusion (Case v t alts) = Case v (dupDropFusion t) (map step alts)
+  where
+  step (splitCalt -> (mkAlt, t)) = mkAlt (dupDropFusion t)
+dupDropFusion t = t
 
 ------------------------------------------------------------------------
 -- * Miscellaneous transformations

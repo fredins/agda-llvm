@@ -508,7 +508,31 @@ llvmPostCompile env _ mods = do
     putStrLn "------------------------------------------------------------------------\n"
     putStrLn $ intercalate "\n\n" (map prettyShow defs_fetchReuse) ++ "\n"
 
-  when env.envLlvmOpts.flagLlvmInterpret $ printInterpretGrin (defs_fetchReuse ++ defs_mem)
+
+  let defs_dropRaising = map (updateGrTerm dropRaising) defs_fetchReuse
+  liftIO $ do
+    putStrLn "\n------------------------------------------------------------------------"
+    putStrLn "-- * Drop Raising"
+    putStrLn "------------------------------------------------------------------------\n"
+    putStrLn $ intercalate "\n\n" (map prettyShow defs_dropRaising) ++ "\n"
+
+  let defs_dupLowering = map (updateGrTerm dupLowering) defs_dropRaising
+  liftIO $ do
+    putStrLn "\n------------------------------------------------------------------------"
+    putStrLn "-- * Dup Lowering"
+    putStrLn "------------------------------------------------------------------------\n"
+    putStrLn $ intercalate "\n\n" (map prettyShow defs_dupLowering) ++ "\n"
+
+  when env.envLlvmOpts.flagLlvmInterpret $ printInterpretGrin (defs_dupLowering ++ defs_mem)
+
+  let defs_dupDropFusion = map (updateGrTerm dupDropFusion) defs_dupLowering
+  liftIO $ do
+    putStrLn "\n------------------------------------------------------------------------"
+    putStrLn "-- * Dup/Drop Fusion"
+    putStrLn "------------------------------------------------------------------------\n"
+    putStrLn $ intercalate "\n\n" (map prettyShow defs_dupDropFusion) ++ "\n"
+
+  when env.envLlvmOpts.flagLlvmInterpret $ printInterpretGrin (defs_dupDropFusion ++ defs_mem)
 
   -- TODO specializeDrop should use tagInfo
   -- defs_specializeDrop <- mapM specializeDrop defs_bindNormalisation
