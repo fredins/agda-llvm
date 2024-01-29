@@ -20,6 +20,126 @@ css: Agda.css
 
   ```
 
+### W.3 W.4
+
+
+- Reworked how updates are done throughout the compiler:
+
+  1. For the Perceus algorithm to be sound we need to know  
+     the current tag when performing an update. Hence,  
+     we move all updates into the case expression inlined by  
+     eval. Another benlefit of this is that we avoid all  
+     unecessary updates (when there is already an C-tag).
+
+  2. If the function can return multiple tags, then we   
+     insert another case expression to determine the new  
+     tag. 
+
+  Example: 
+ 
+  ```markdown
+  sum x1 = 
+    fetch 0 [1] ; λ x2 → 
+    (case 0 o
+      C[]  → unit (C[])
+      C_∷_ → 
+        fetch 1 [2] ; λ x3 →
+        fetch 2 [3] ; λ x4 →
+        unit (C_∷_ 1 0)
+      FdownFrom → 
+        fetch 1 [1] ; λ x5 →
+        downFrom 0  ; λ x6 x7 x8 →
+        (case 2 of
+           C[]  → update 4 (C[]) 
+           C_∷_ → update 4 (C_∷_ 1 0) 
+        ) ; λ () → 
+        unit (2 1 0)
+    ) λ x9 x10 x11 → 
+    case 2 of
+      C[] → 
+        ...
+      C_∷_ → 
+        ...
+  ```
+
+  Previously updates looked like this:
+
+  ```markdown
+  sum x1 = 
+    fetch 0 [1] λ x2 → 
+    (case 0 o
+      C[]  → unit (C[])
+      C_∷_ → 
+        fetch 1 [2] λ x3 →
+        fetch 2 [3] λ x4 →
+        unit (C_∷_ 1 0)
+      FdownFrom → 
+        fetch 1 [1] λ x5 →
+        downFrom 0 λ x6 x7 x8 →
+        unit (2 1 0)
+    ) λ x9 x10 x11 → 
+    case 2 of
+      C[] → 
+        update 4 (C[]) λ () → 
+        ...
+      C_∷_ → 
+        update 4 (C_∷_ 1 0) λ () → 
+        ...
+  ```
+
+- Updated the Perceus rules to reflect the new update approach.  
+  The new rules are fewer and not as ad hoc.
+
+- Refactored many of the previous GRIN transformations, and added 5 new  
+  transformations: _constant propagation_, _fetch_reuse_, _drop raising_,  
+  _dup_lowering_, and a new _dup/drop fusion_.
+
+- Started working on an new LLVM IR codegen.
+
+- Experimented with "trees-that-grow".
+
+- How to demonstrate correctness of the Perceus algorihm?
+
+  Option 1: Prove some properties of the algorihm in Agda  
+            and use agda2hs to derive the normal haskell  
+            function. 
+
+    ```txt
+    + Cool  
+    + Mechanically and statically verified  
+    + Only have to prove the Perceus algorithm  
+    + Can postulate necessary invariants  
+    - Hard and tedious to prove things  
+    - I've little experience writing big proofs
+    ```
+  
+  Option 2: Property-based testing using QuickCheck.  
+            Generate the initial GRIN code and then  
+            run the points-to analysis and all the  
+            transformations.
+
+    ```txt
+    + Tests the the whole compiler
+    - Tests the the whole compiler
+    - GRIN is untyped, so how do we create valid GRIN programs?  
+    ```
+  
+  Option 3: Write manual proofs.  
+
+    ```txt
+    - High likelihood of making a mistake
+    - Little experience writing complex proofs
+    ```
+
+
+### W.47-50 
+
+Did the following:
+
+ - Finished the course report.
+
+ - Some fixes to the compiler.
+
 ### W.46
 
 Read the following: 
