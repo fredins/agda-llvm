@@ -165,6 +165,7 @@ perceusCase c n t alts = do
     _             -> __IMPOSSIBLE__
   pure (Case (Var n) t' alts')
   where
+  step _ Unreachable = pure Unreachable
   step bottoms t = do
       gammai <- Set.intersection c.gamma <$> fvTerm t
       t' <- perceusTerm (Context c.delta gammai) t

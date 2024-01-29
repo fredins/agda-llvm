@@ -530,7 +530,7 @@ llvmPostCompile env _ mods = do
 
   -- liftIO $ putStrLn $ "\nTag Info:\n" ++ prettyShow tagInfo_vectorization
 
-  let (llvm_ir, tagsToInt) = grinToLlvm (defs_dupDropFusion ++ defs_mem) -- defs_rightHoistFetchOperations 
+  let (llvm_ir, tagsToInt) = grinToLlvm (defs_bindNormalisation ++ defs_mem) -- defs_rightHoistFetchOperations 
       header =
         unlines
           [ "target triple = \"x86_64-unknown-linux-gnu\""
@@ -1006,9 +1006,24 @@ definitionToLlvm def = do
   let args = zip argsTy $ map L.mkLocalId def.gr_args
   L.Define L.Fastcc returnTy f args <$> termToLlvm def.gr_term
 
--- TODO make it so that unit is the only term which calls to continuation. And make
---      both main and drop return `unit ()`
+-- TODO Refactor
+--  • Need some sort of continuations. We have three continuations variants: 
+--      1. Set register and branch to another block (%alt_res = instruction; br label %continue)
+--      2. Branch to another block (br label %continue)
+--      3. Return value (Ret val)
+--  • Switch-Phi combinations need to be able to handle multiple labels in the alternatives.
+--    Idea: altToLlvm returns its switch label and the last label (and maybe the result register).
+--  • Remove returningLocal
+--  • Better handling of builtin functions and main
 termToLlvm :: Term -> LlvmGen (List1 L.Instruction)
+termToLlvm (Case (Var n) t1 alts `BindEmpty` t2) = do
+  alt_num <- freshAltNum
+  let continue = "continue_" ++ show alt_num
+  let cont = const $ pure $ L.Br (L.mkLocalId continue) :| []
+  instructions1 <- continuationLocal cont $ returningLocal True $ termToLlvm (Case (Var n) t1 alts)
+  instructions2 <- termToLlvm t2
+  pure (instructions1 |> L.Label continue instructions2)
+
 -- FIXME ugly
 termToLlvm (Case (Var n) t alts `Bind` alt) = do
     alt_num <- freshAltNum
@@ -1200,6 +1215,28 @@ termToLlvm (Update _ _ n v `BindEmpty` t) = do
         , instruction_store
         ]
   pure $ instructions1 `List1.prependList` (instructions <> instructions2)
+
+
+-- Important to fetch the reference count and combine it with the rest of the node
+-- before updating.
+termToLlvm (Update _ _ n v) = do
+  x <- fromMaybe __IMPOSSIBLE__ <$> varLookup n
+  (instructions1, v') <- valToLlvm v
+  (x_unnamed_ptr, instruction_inttoptr) <- setVar (L.inttoptr x)
+  (x_unnamed_ptr', instruction_getelementptr) <- setVar (L.getelementptr x_unnamed_ptr 0)
+  (x_unnamed, instruction_load) <- first L.LocalId <$> setVar (L.load L.I64 x_unnamed_ptr')
+  (x_unnamed', instruction_insertvalue) <- first L.LocalId <$> setVar (L.insertvalue v' x_unnamed 0)
+  let instruction_store = L.store L.nodeTySyn x_unnamed' x_unnamed_ptr
+  let instructions =
+        [ instruction_inttoptr
+        , instruction_getelementptr
+        , instruction_load
+        , instruction_insertvalue
+        , instruction_store
+        ]
+  instructions2 <- ($ __IMPOSSIBLE__) =<< view continuationLens
+  pure $ instructions1 `List1.prependList` (instructions <> instructions2)
+
 
 
 termToLlvm (UpdateOffset n offset v) = do

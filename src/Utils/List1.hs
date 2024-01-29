@@ -45,3 +45,17 @@ lookup k = List.lookup k . List1.toList
 
 forMaybe :: List1 a -> (a -> Maybe b) -> [b]
 forMaybe = flip List1.mapMaybe
+
+foldl' :: (b -> a -> b) -> (a -> b) -> List1 a -> b
+foldl' f g (x :| xs) = loop (g x) xs
+  where
+  loop !x []       = x
+  loop !x (y : ys) = loop (f x y) ys
+
+foldlM :: Monad m => (b -> a -> m b) -> (a -> m b) -> List1 a -> m b
+foldlM f g (x :| xs) = loop xs =<< g x
+  where
+  loop []       !x = pure x
+  loop (y : ys) !x = loop ys =<< f x y
+
+

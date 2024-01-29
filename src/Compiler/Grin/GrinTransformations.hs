@@ -503,6 +503,7 @@ under n = Map.fromList . map step . Map.toList
   where
   step ((tag, m, offset), k) = ((tag, m + n, offset), k + n)
 
+-- TODO should filter out previous fetches if there is an update inbetween.
 fetchReuse' :: Map (Tag, Int, Int) Int -> Term -> Term
 fetchReuse' fetches (FetchOffset tag n offset `Bind` LAltVar _ t) 
   | Just m <- Map.lookup (tag, n, offset) fetches = 

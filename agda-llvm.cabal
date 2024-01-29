@@ -65,6 +65,7 @@ library
     Compiler.Grin.HeapPointsToType
     Compiler.Grin.Perceus
     Compiler.Grin.SolveEquations
+    Compiler.Llvm.Codegen
     Compiler.Llvm.Compiler
     Compiler.Llvm.Llvm
     Compiler.Treeless.TreelessTransform
@@ -79,6 +80,10 @@ library
   default-extensions:
     LambdaCase
     PatternSynonyms
+    OverloadedRecordDot      
+    BlockArguments        
+    PatternSynonyms
+    LexicalNegation
 
   build-depends:    
     , Agda         >= 2.6.4
@@ -107,6 +112,10 @@ executable agda-llvm
   default-extensions:
     LambdaCase
     PatternSynonyms
+    OverloadedRecordDot      
+    BlockArguments        
+    PatternSynonyms
+    LexicalNegation
 
   default-language: GHC2021
 
