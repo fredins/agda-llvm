@@ -14,6 +14,7 @@ import           Agda.Utils.Impossible     (__IMPOSSIBLE__)
 import           Agda.Utils.List
 import           Agda.Utils.List1          (List1, pattern (:|), (<|))
 import qualified Agda.Utils.List1          as List1
+import Agda.Utils.Maybe (fromMaybe)
 
 data Instruction =
     Define CallingConvention Type GlobalId [(Type, LocalId)] [Instruction]
@@ -40,7 +41,7 @@ data Instruction =
     deriving Show
 
 data AltInfo = MkAltInfo
-  { alt_num          :: !Int
+  { alt_num          :: !(Maybe Int)
   , alt_first_label  :: !LocalId
   , alt_recent_label :: !LocalId
   , alt_result       :: !LocalId
@@ -225,7 +226,7 @@ instance Pretty Tail where
 
 instance Pretty AltInfo where
   pretty altInfo =
-    pretty I64 <+> text (prettyShow altInfo.alt_num ++ ", label") <+> pretty altInfo.alt_first_label
+    pretty I64 <+> text (prettyShow (fromMaybe __IMPOSSIBLE__ altInfo.alt_num) ++ ", label") <+> pretty altInfo.alt_first_label
 
 prettyArgs :: (Foldable t, Pretty a) => t (Type, a) -> Doc
 prettyArgs as = text $ intercalate ", " (map go $ toList as)

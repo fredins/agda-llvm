@@ -25,7 +25,6 @@ import           System.IO.Unsafe             (unsafePerformIO)
 import           Agda.Syntax.Common.Pretty
 import           Agda.TypeChecking.Substitute
 import           Agda.Utils.CallStack
-import           Compiler.Llvm.Llvm           (surroundWithQuotes)
 
 -- TODO migrate rest of the functions to new modules
 

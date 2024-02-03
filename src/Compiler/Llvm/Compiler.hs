@@ -545,17 +545,17 @@ llvmPostCompile env _ mods = do
           ]
          ++ "@\"%d\" = private constant [4 x i8] c\"%d\\0A\\00\", align 1"
 
-         -- -- debug
-         -- ++ unlines
-         -- [ "\n@\"sum\" = private constant [9 x i8] c\"sum: %d\\0A\\00\", align  1"
-         -- , "@\"downFrom\" = private constant [14 x i8] c\"downFrom: %d\\0A\\00\", align 1"
-         -- , "@\"_-_\" = private constant [9 x i8] c\"_-_: %d\\0A\\00\", align 1"
-         -- , "@\"_+_\" = private constant [9 x i8] c\"_+_: %d\\0A\\00\", align 1"
-         --
-         --    @"rc: %d" = private constant [8 x i8] c"rc: %d\0A\00", align 1
-         --    @"tag: %d" = private constant [9 x i8] c"tag: %d\0A\00", align 1
-         --
-         -- ]
+         -- debug
+         ++ unlines
+         [ "\n@\"HERE\" = private constant [9 x i8] c\"HERE %d\\0A\\00\", align  1"
+         , "@\"sum\" = private constant [9 x i8] c\"sum: %d\\0A\\00\", align  1"
+         , "@\"downFrom\" = private constant [14 x i8] c\"downFrom: %d\\0A\\00\", align 1"
+         , "@\"_-_\" = private constant [9 x i8] c\"_-_: %d\\0A\\00\", align 1"
+         , "@\"_+_\" = private constant [9 x i8] c\"_+_: %d\\0A\\00\", align 1"
+
+         , "@\"rc: %d\" = private constant [9 x i8] c\"rc: %d\0A\00\", align 1"
+         , "@\"tag: %d\" = private constant [10 x i8] c\"tag: %d\0A\00\", align 1"
+         ]
 
       tags_table = "; Tag numbering table:\n" ++ prettyShow (align 20 (map (bimap ((++) "; " . show) pretty . swap) (sortOn snd (Map.toList tagsToInt))))
       render200 = renderStyle Style{ribbonsPerLine = 1.5, mode = PageMode, lineLength = 200}

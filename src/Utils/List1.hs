@@ -8,7 +8,7 @@ import           Agda.Utils.List1 (List1, pattern (:|), (<|))
 import qualified Agda.Utils.List1 as List1
 
 -- | Breaks up a string into substrings. Returns every maximal
--- subsequence of zero or more characters distinct from @'.'@.
+--   subsequence of zero or more characters distinct from @'.'@.
 --
 -- > splitOnDots ""         == [""]
 -- > splitOnDots "foo.bar"  == ["foo", "bar"]

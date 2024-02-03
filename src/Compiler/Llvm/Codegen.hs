@@ -16,17 +16,18 @@ import           Data.Bifunctor             (bimap)
 import           Data.Foldable              (foldlM)
 import           Data.List                  (singleton)
 import           Data.List.Extra            (list, snoc, zipWith4)
+import qualified Data.List.NonEmpty.Extra   as List1
 import           Data.Map                   (Map)
 import qualified Data.Map                   as Map
 import           Prelude                    hiding ((!!))
 
 import           Agda.Syntax.Common.Pretty
+import           Agda.Syntax.Literal        (Literal (LitNat))
 import           Agda.Utils.Function        (applyUnless)
 import           Agda.Utils.Functor         (for)
 import           Agda.Utils.Impossible      (__IMPOSSIBLE__)
-import           Agda.Utils.List            ((!!))
+import           Agda.Utils.List            (caseList, (!!))
 import           Agda.Utils.List1           (pattern (:|))
-import qualified Agda.Utils.List1           as List1
 import           Agda.Utils.Maybe           (fromMaybe, fromMaybeM)
 import           Agda.Utils.Monad           (tell1)
 
@@ -46,12 +47,9 @@ type MonadCodegen m = (MonadReader Cxt m,  MonadWriter [Instruction] m, MonadSta
 type Codegen = ReaderT Cxt (WriterT [Instruction] (State Env))
 type Continuation a = Env -> ((a, [Instruction]), Env)
 
--- TODO It is never possible to assign something and return.
---      Is it possible to express this without dependent pattern matching?
-
 data Assignment
   = AEmpty
-  | AVar LocalId
+  | AVar LocalId -- ^ Need to be lazy.
   | AConstantNode [LocalId] -- FIXME List1
   | AVariableNode LocalId [LocalId] -- FIXME List1
     deriving Show
@@ -109,11 +107,11 @@ lookupTag :: MonadState Env m => Tag -> m Int
 lookupTag tag = fromMaybeM (freshTag tag) (gets $ Map.lookup tag . env_tags)
   where
   freshTag tag = do
-    tag' <- gets env_fresh_tag
+    n <- gets env_fresh_tag
     modify \ env -> env { env_fresh_tag = env.env_fresh_tag + 1
-                        , env_tags      = Map.insert tag tag' env.env_tags
+                        , env_tags      = Map.insert tag n env.env_tags
                         }
-    pure tag'
+    pure n
 
 recentLabel :: MonadState Env m => LocalId -> m ()
 recentLabel label = modify \ env -> env{env_recent_label = Just label}
@@ -210,12 +208,12 @@ emitBind ass fin t1 (G.LAltVariableNode x xs t2) = do
   ass' = AVariableNode (mkLocalId $ prettyShow x) $ map (mkLocalId . prettyShow) xs
   m = localVars (x : xs) (emitTerm ass fin t2)
 
-emitAlt :: Assignment -> Finally -> String -> Term -> Codegen AltInfo
-emitAlt ass fin desc t = do
-  alt_num <- freshLabelNum
-  let label = surroundWithQuotes $ show alt_num ++ "-" ++ desc
-  let alt_first_label = mkLocalId $ surroundWithQuotes $ show alt_num ++ "-" ++ desc
-  let alt_result = mkLocalId $ surroundWithQuotes $  show alt_num ++ "-result-" ++ desc
+emitAlt :: Assignment -> Finally -> Maybe Int -> String -> Term -> Codegen AltInfo
+emitAlt ass fin malt_num desc t = do
+  label_num <- freshLabelNum
+  let label = surroundWithQuotes $ show label_num ++ "-" ++ desc
+  let alt_first_label = mkLocalId $ surroundWithQuotes $ show label_num ++ "-" ++ desc
+  let alt_result = mkLocalId $ surroundWithQuotes $ show label_num ++ "-result-" ++ desc
 
   censor do singleton . Label label
          do recentLabel alt_first_label
@@ -224,24 +222,26 @@ emitAlt ass fin desc t = do
   alt_recent_label <- gets $ fromMaybe alt_first_label . env_recent_label
 
   pure MkAltInfo
-    { alt_num          = alt_num
+    { alt_num          = malt_num
     , alt_first_label  = alt_first_label
     , alt_recent_label = alt_recent_label
     , alt_result       = alt_result
     }
 
 emitCAlt :: Assignment -> Finally -> G.CAlt -> Codegen AltInfo
-emitCAlt ass fin (G.CAltTag tag t)    = emitAlt ass fin (prettyShow tag) t
-emitCAlt ass fin (G.CAltLit lit t)    = emitAlt ass fin (prettyShow lit) t
-emitCAlt _   _   G.CAltConstantNode{} = __IMPOSSIBLE__
-emitCAlt _   _   G.CAltGuard{}        = __IMPOSSIBLE__
+emitCAlt ass fin (G.CAltTag tag t)    = do
+  alt_num <- lookupTag tag
+  emitAlt ass fin (Just alt_num) (prettyShow tag) t
+emitCAlt ass fin (G.CAltLit (LitNat n) t)    =
+  emitAlt ass fin (Just $ fromInteger n) (show $ fromInteger n) t
+emitCAlt ass fin alt = error $ render $ text "emitCalt: Missing pattern" <+> pshow ass <+>  pshow fin <+> pshow alt
 
 emitCase :: Assignment -> Finally -> G.Val -> G.Term -> [G.CAlt] -> Codegen ()
 emitCase AEmpty (FFallthrough c) (G.Var n) t alts = do
   label_num <- freshLabelNum
   let label = surroundWithQuotes $ "continue-" ++ show label_num
   let fin = FBranch (mkLocalId label)
-  (altInfo, instructions) <- run $ emitAlt AEmpty fin "default" t
+  (altInfo, instructions) <- run $ emitAlt AEmpty fin Nothing "default" t
   (instructions, altInfos) <-
     forAccumM instructions alts \ instructions1  alt -> do
       (altInfo, instructions2) <- run $ emitCAlt AEmpty fin alt
@@ -252,7 +252,7 @@ emitCase AEmpty (FFallthrough c) (G.Var n) t alts = do
     recentLabel (mkLocalId label)
     continuation c
 emitCase AEmpty (FBranch label) (G.Var n) t alts = do
-  rec (altInfo, instructions) <- run $ emitAlt AEmpty (FBranch label) "default" t
+  rec (altInfo, instructions) <- run $ emitAlt AEmpty (FBranch label) Nothing "default" t
   (instructions, altInfos) <- forAccumM instructions alts \ instructions1 alt -> mdo
         (altInfo, instructions2) <- run $ emitCAlt AEmpty (FBranch label) alt
         pure (instructions1 ++ instructions2, altInfo)
@@ -261,7 +261,7 @@ emitCase AEmpty (FBranch label) (G.Var n) t alts = do
 emitCase (AVar x) (FFallthrough c) (G.Var n) t alts = do
   label_num <- freshLabelNum
   let label = surroundWithQuotes $ "continue-" ++ show label_num
-  rec (altInfo, instructions) <- run $ emitAlt (AVar altInfo.alt_result) (FBranch $ mkLocalId label) "default" t
+  rec (altInfo, instructions) <- run $ emitAlt (AVar altInfo.alt_result) (FBranch $ mkLocalId label) Nothing "default" t
   (instructions, altInfos) <- forAccumM instructions alts \ instructions1 alt -> mdo
     (altInfo, instructions2) <- run $ emitCAlt (AVar altInfo.alt_result) (FBranch $ mkLocalId label) alt
     pure (instructions1 ++ instructions2, altInfo)
@@ -276,7 +276,7 @@ emitCase (AVar x) (FFallthrough c) (G.Var n) t alts = do
 emitCase (AConstantNode xs) (FFallthrough c) (G.Var n) t alts = do
   alt_num <- freshLabelNum
   let label = surroundWithQuotes $ "continue-" ++ show alt_num
-  rec (altInfo, instructions) <- run $ emitAlt (AVar altInfo.alt_result) (FBranch $ mkLocalId label) "default" t
+  rec (altInfo, instructions) <- run $ emitAlt (AVar altInfo.alt_result) (FBranch $ mkLocalId label) Nothing "default" t
   (instructions, altInfos) <- forAccumM instructions alts \ instructions1 alt -> mdo
     (altInfo, instructions2) <- run $ emitCAlt (AVar altInfo.alt_result) (FBranch $ mkLocalId label) alt
     pure (instructions1 ++ instructions2, altInfo)
@@ -341,7 +341,7 @@ emitApp (AVar x) (FFallthrough c) (G.Prim prim) [v1, v2] =do
   operand = case prim of
               G.PAdd -> add64
               G.PSub -> sub64
-              _      -> __IMPOSSIBLE__
+              _TODO  -> __IMPOSSIBLE__
 emitApp ass fin f v = error $ render $ text "emitApp: Missing pattern" <+> pshow ass <+>  pshow fin <+> pshow f <+> pshow v
 
 emitFetchOpaqueOffset :: Assignment -> Finally -> Int -> Int -> Codegen ()
@@ -445,11 +445,11 @@ initCxt def = MkCxt {cxt_vars = map (mkLocalId . prettyShow) (reverse def.gr_arg
 
 initEnv :: Map Tag Int -> Env
 initEnv tags = MkEnv
-  { env_fresh_unnamed = 1
-  , env_fresh_tag     = 0
+  { env_fresh_unnamed   = 1
+  , env_fresh_tag       = caseList (Map.elems tags) 0  $ (+1) . List1.maximum1 .: (:|)
   , env_fresh_label_num = 0
-  , env_tags          = tags
-  , env_recent_label  = Nothing
+  , env_tags            = tags
+  , env_recent_label    = Nothing
   }
 
 grinToLlvm :: Map Tag Int -> GrinDefinition -> (Map Tag Int, Instruction)
@@ -465,5 +465,3 @@ grinToLlvm tags def = (tags', definition)
 
   globalId = mkGlobalId $ applyUnless def.gr_isMain surroundWithQuotes def.gr_name
   definition = Define Fastcc returnTy globalId args instructions
-
-
