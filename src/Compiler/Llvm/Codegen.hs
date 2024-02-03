@@ -211,9 +211,9 @@ emitBind ass fin t1 (G.LAltVariableNode x xs t2) = do
 emitAlt :: Assignment -> Finally -> Maybe Int -> String -> Term -> Codegen AltInfo
 emitAlt ass fin malt_num desc t = do
   label_num <- freshLabelNum
-  let label = surroundWithQuotes $ show label_num ++ "-" ++ desc
-  let alt_first_label = mkLocalId $ surroundWithQuotes $ show label_num ++ "-" ++ desc
-  let alt_result = mkLocalId $ surroundWithQuotes $ show label_num ++ "-result-" ++ desc
+  let label = surroundWithQuotes $  "L" ++ show label_num ++ "-" ++ desc
+  let alt_first_label = mkLocalId $ surroundWithQuotes $  "L" ++ show label_num ++ "-" ++ desc
+  let alt_result = mkLocalId $ surroundWithQuotes $  "L" ++ show label_num ++ "-result-" ++ desc
 
   censor do singleton . Label label
          do recentLabel alt_first_label
@@ -239,7 +239,7 @@ emitCAlt ass fin alt = error $ render $ text "emitCalt: Missing pattern" <+> psh
 emitCase :: Assignment -> Finally -> G.Val -> G.Term -> [G.CAlt] -> Codegen ()
 emitCase AEmpty (FFallthrough c) (G.Var n) t alts = do
   label_num <- freshLabelNum
-  let label = surroundWithQuotes $ "continue-" ++ show label_num
+  let label = surroundWithQuotes $ "L" ++ show label_num ++ "-continue"
   let fin = FBranch (mkLocalId label)
   (altInfo, instructions) <- run $ emitAlt AEmpty fin Nothing "default" t
   (instructions, altInfos) <-
@@ -260,7 +260,7 @@ emitCase AEmpty (FBranch label) (G.Var n) t alts = do
   tell $ switch scrutinee altInfo altInfos : instructions
 emitCase (AVar x) (FFallthrough c) (G.Var n) t alts = do
   label_num <- freshLabelNum
-  let label = surroundWithQuotes $ "continue-" ++ show label_num
+  let label = surroundWithQuotes $  "L" ++ show label_num ++ "-continue"
   rec (altInfo, instructions) <- run $ emitAlt (AVar altInfo.alt_result) (FBranch $ mkLocalId label) Nothing "default" t
   (instructions, altInfos) <- forAccumM instructions alts \ instructions1 alt -> mdo
     (altInfo, instructions2) <- run $ emitCAlt (AVar altInfo.alt_result) (FBranch $ mkLocalId label) alt
@@ -274,8 +274,8 @@ emitCase (AVar x) (FFallthrough c) (G.Var n) t alts = do
     tell1 $ SetVar x (phi nodeTySyn pairs)
     continuation c
 emitCase (AConstantNode xs) (FFallthrough c) (G.Var n) t alts = do
-  alt_num <- freshLabelNum
-  let label = surroundWithQuotes $ "continue-" ++ show alt_num
+  label_num <- freshLabelNum
+  let label = surroundWithQuotes $  "L" ++ show label_num ++ "-continue"
   rec (altInfo, instructions) <- run $ emitAlt (AVar altInfo.alt_result) (FBranch $ mkLocalId label) Nothing "default" t
   (instructions, altInfos) <- forAccumM instructions alts \ instructions1 alt -> mdo
     (altInfo, instructions2) <- run $ emitCAlt (AVar altInfo.alt_result) (FBranch $ mkLocalId label) alt
@@ -289,6 +289,23 @@ emitCase (AConstantNode xs) (FFallthrough c) (G.Var n) t alts = do
     let pairs = for altInfos' \ altInfo -> (altInfo.alt_result, altInfo.alt_recent_label)
     tell $ SetVar unnamed (phi nodeTySyn pairs)
          : zipWith (\ x -> SetVar x . extractvalue unnamed) xs [2 ..]
+    continuation c
+emitCase (AVariableNode x xs) (FFallthrough c) (G.Var n) t alts = do
+  label_num <- freshLabelNum
+  let label = surroundWithQuotes $  "L" ++ show label_num ++ "-continue"
+  rec (altInfo, instructions) <- run $ emitAlt (AVar altInfo.alt_result) (FBranch $ mkLocalId label) Nothing "default" t
+  (instructions, altInfos) <- forAccumM instructions alts \ instructions1 alt -> mdo
+    (altInfo, instructions2) <- run $ emitCAlt (AVar altInfo.alt_result) (FBranch $ mkLocalId label) alt
+    pure (instructions1 ++ instructions2, altInfo)
+  scrutinee <- lookupVar n
+  tell $ switch scrutinee altInfo altInfos : instructions
+  censor (singleton . Label label) do
+    recentLabel (mkLocalId label)
+    unnamed <- freshUnnamed
+    let altInfos' = list __IMPOSSIBLE__ (:|) $ applyUnless (t == G.Unreachable) (altInfo :) altInfos
+    let pairs = for altInfos' \ altInfo -> (altInfo.alt_result, altInfo.alt_recent_label)
+    tell $ SetVar unnamed (phi nodeTySyn pairs)
+         : zipWith (\ x -> SetVar x . extractvalue unnamed) (x : xs) [1 ..]
     continuation c
 emitCase ass fin v t _ = error $ render $ text "emitCase: Missing pattern" <+> pshow ass <+>  pshow fin <+> pshow v <+> pshow t
 
