@@ -405,6 +405,17 @@ fetchSpecialisation (Case v t alts) =
   step (splitCalt -> (mkAlt, t)) = mkAlt (fetchSpecialisation t)
 fetchSpecialisation term = term
 
+bindingReturningCase :: MonadFresh Int m => GrinDefinition -> m GrinDefinition
+bindingReturningCase def = do 
+  t <- go def.gr_term
+  pure (setGrTerm t def)
+  where
+  go (Case v t alts) 
+    | isNothing def.gr_type = pure $ Case v t alts `BindEmpty` Unit Empty
+    | otherwise             = Case v t alts `bindVar` Unit (Var 0)
+  go (t1 `Bind` (splitLalt -> (mkAlt, t2))) = Bind t1 . mkAlt <$> go t2
+  go t = pure t
+
 ------------------------------------------------------------------------
 -- * Optimizing transformations
 ------------------------------------------------------------------------
@@ -528,7 +539,7 @@ fetchReuse = fetchReuse' mempty
 
 dropRaising :: Term -> Term
 dropRaising (App f vs `Bind` (splitLaltWithVars -> (mkAlt, dropRaising -> Drop n `BindEmpty` t, xs))) 
-  | f `notElem` map Def ["drop", "dup"], n >= length xs = 
+  | f /= Def "drop", n >= length xs = 
   Drop (n - length xs) `BindEmpty` dropRaising (App f vs `Bind` mkAlt t)
 dropRaising (Case v Unreachable alts `Bind` (splitLalt -> (mkAlt, dropRaising -> t))) 
   | Just (n : ns, alts') <- mapAndUnzipM step alts, allSame (n : ns) = 

@@ -5,7 +5,10 @@
 {-# LANGUAGE ViewPatterns        #-}
 
 
-module Compiler.Grin.Grin (module Compiler.Grin.Grin) where
+module Compiler.Grin.Grin
+  ( TPrim(..)
+  , module Compiler.Grin.Grin
+  ) where
 
 import           Control.Monad                (replicateM)
 import           Data.Function                (on)
@@ -23,7 +26,6 @@ import           Agda.Utils.Impossible
 import           Agda.Utils.Lens
 import           Agda.Utils.List
 import qualified Agda.Utils.List1             as List1
-import           Agda.Utils.Maybe
 
 import qualified Utils.List1                  as List1
 import           Utils.Utils
@@ -74,7 +76,8 @@ data Term = Bind Term LAlt
           | Store Loc Val
           | Fetch' (Maybe Tag) Int (Maybe Int)
           | Update Tag Tag Int Val
-          | UpdateOffset Int Int Val
+          | Dup Int
+          | Decref Int
             deriving (Show, Eq, Ord)
 
 data Val = ConstantNode Tag [Val]
@@ -107,8 +110,6 @@ pattern FetchOffset :: Tag -> Int -> Int -> Term
 pattern FetchOffset tag n1 n2 = Fetch' (Just tag) n1 (Just n2)
 
 pattern Drop n = App (Def "drop") [Var n]
-pattern Dup n = App (Def "dup") [Var n]
-pattern Decref n = App (Def "decref") [Var n]
 
 store :: MonadFresh Int m => Val -> m Term
 store t = (`Store` t) <$> freshLoc
@@ -171,12 +172,6 @@ data CAlt = CAltConstantNode Tag [Abs] Term
 infixr 2 `BindEmpty`, `Bind`
 pattern BindEmpty :: Term -> Term -> Term
 pattern t1 `BindEmpty` t2 = Bind t1 (LAltEmpty t2)
-
---  term ; λ alt →
-type BindView = (Term, Term -> LAlt)
-bindView :: Term -> Maybe BindView
-bindView (t `Bind` alt) = Just (t, fst $ splitLalt alt)
-bindView _              = Nothing
 
 newtype Abs = MkAbs{unAbs :: Gid} deriving (Show, Eq, Ord)
 newtype Loc = MkLoc{unLoc :: Gid} deriving (Show, Eq, Ord, Enum)
@@ -342,11 +337,15 @@ applySubstTerm rho term = case term of
   Fetch' mtag n mn
     | Var n' <- lookupS rho n -> Fetch' mtag n' mn
     | otherwise -> __IMPOSSIBLE__
-  Update tag' tag n v 
+  Update tag' tag n v
     | Var n' <- lookupS rho n -> Update tag' tag n' (applySubst rho v)
     | otherwise -> error $ prettyShow term ++ " " ++ show (lookupS rho n)
-  UpdateOffset (lookupS rho -> Var n') offset v -> UpdateOffset n' offset (applySubst rho v)
-  UpdateOffset{} -> __IMPOSSIBLE__
+  Dup n
+    | Var n' <- lookupS rho n -> Dup n'
+    | otherwise -> __IMPOSSIBLE__
+  Decref n
+    | Var n' <- lookupS rho n -> Decref n'
+    | otherwise -> __IMPOSSIBLE__
   Error{} -> term
 
 instance Subst LAlt where
@@ -462,7 +461,8 @@ instance Pretty Term where
     | otherwise = __IMPOSSIBLE__
   pretty (Error TUnreachable) = text "unreachable"
   pretty (Error (TMeta _)) = __IMPOSSIBLE__
-  pretty (UpdateOffset n1 n2 v) = text "update" <+> pretty n1  <+> brackets (pretty n2) <+> pretty v
+  pretty (Dup n) = text "dup" <+> pretty n
+  pretty (Decref n) = text "decref" <+> pretty n
 
 instance Pretty Val where
   pretty (VariableNode n vs)   = sep (pretty n : map pretty vs)

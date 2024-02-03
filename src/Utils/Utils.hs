@@ -1,6 +1,7 @@
 module Utils.Utils
   ( (??)
   , (.:)
+  , (.:.)
   , caseEither
   , swap01'
   , printPretty
@@ -24,12 +25,19 @@ import           System.IO.Unsafe             (unsafePerformIO)
 import           Agda.Syntax.Common.Pretty
 import           Agda.TypeChecking.Substitute
 import           Agda.Utils.CallStack
+import           Compiler.Llvm.Llvm           (surroundWithQuotes)
 
 -- TODO migrate rest of the functions to new modules
 
-infixr 8 .:
 (.:) :: (c -> d) -> (a -> b -> c) -> a -> b -> d
 (f .: g) x y = f (g x y)
+
+infixr 8 .:
+
+(.:.) :: (d -> e) -> (a -> b -> c -> d) -> a -> b -> c -> e
+(f .:. g) x y z = f (g x y z)
+
+infixr 8 .:.
 
 (??) :: Functor f => f (a -> b) -> a -> f b
 fab ?? a = fmap ($ a) fab

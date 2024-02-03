@@ -358,30 +358,24 @@ eval (Update tag' tag n (ConstantNode _ vs)) = do
     lensHeap %= Map.insert loc (HeapNode count tag' vs')
     traceHeap $ text "update" <+> pretty loc <+> brackets (pretty (VNode tag vs) <+> text "→" <+> pretty (VNode tag' vs'))
 
-eval (UpdateOffset n 0 v) = do
-  v' <- evalVal v
-  i <- case v' of
-    BasNat i -> pure i
-    v'       -> throw (ExpectedNat v')
-
-  v' <- stackFrameLookup n
-  case v' of
-    Loc loc -> updateReferenceCount loc i
-    v'      -> throw (ExpectedHeapPointer v')
+eval (Dup n) = do
+  v <- stackFrameLookup n
+  loc <- case v of Loc loc -> pure loc
+                   v'      -> throw (ExpectedHeapPointer v')
+  HeapNode count tag vs <- heapLookup loc
+  lensHeap %= Map.insert loc (HeapNode (count + 1) tag vs)
+  traceHeap (text "dup" <+> pretty (HeapNode count tag vs) <+> pretty (HeapNode (count + 1) tag vs))
   pure VEmpty
-  where
-  updateReferenceCount
-    :: ( HasCallStack, MonadError InterpreterError m
-       , MonadState Env m, MonadReader Ctx m, MonadIO m )
-    => Loc
-    -> Integer
-    -> m ()
-  updateReferenceCount loc count' = do
-    name <- view lensName
-    HeapNode count tag vs <- heapLookup loc
-    lensActions %= toActions loc name (count' - count)
-    lensHeap %= Map.insert loc (HeapNode count' tag vs)
-    traceHeap (text "updateOffset" <+> pretty (HeapNode count tag vs) <+> pretty (HeapNode count' tag vs))
+
+
+eval (Decref n) = do
+  v <- stackFrameLookup n
+  loc <- case v of Loc loc -> pure loc
+                   v'      -> throw (ExpectedHeapPointer v')
+  HeapNode count tag vs <- heapLookup loc
+  lensHeap %= Map.insert loc (HeapNode (count - 1) tag vs)
+  traceHeap (text "decref" <+> pretty (HeapNode count tag vs) <+> pretty (HeapNode (count - 1) tag vs))
+  pure VEmpty
 
 eval (t1 `Bind` LAltVar x t2) = do
   v <- eval t1
@@ -480,9 +474,6 @@ eval (Case v def alts) = do
       CAltLit (LitNat n2) t -> boolToMaybe (n2 == n1) t
       _                     -> __IMPOSSIBLE__ -- TODO
   selAlt v _ _ = error $ show v
-
-
-eval t@UpdateOffset{} = error $ "TODO: " ++ show t
 
 eval (Unit v) = do
   v' <- evalVal v

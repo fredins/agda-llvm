@@ -1,248 +1,469 @@
-{-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE RecursiveDo #-}
 
 module Compiler.Llvm.Codegen (grinToLlvm) where
 
-import           Control.Monad.Reader.Class (MonadReader (local))
-import           Control.Monad.State.Class  (MonadState (get, state))
-import           Control.Monad.Trans.Class  (lift)
-import           Control.Monad.Writer.Class ()
-
-
 import           Control.Applicative        (liftA2)
-import           Control.Arrow              (first)
-import           Control.Monad              (liftM2, zipWithM, zipWithM_)
-import           Control.Monad.Reader       (MonadReader, ReaderT (runReaderT),
-                                             asks, runReader)
-import           Control.Monad.State        (MonadState, State, StateT,
-                                             evalStateT, execStateT, gets,
-                                             modify, runState, runStateT)
-import           Control.Monad.Writer       (MonadWriter (tell), Writer,
-                                             WriterT (runWriterT), runWriter)
+import           Control.Monad              (replicateM, (<=<))
+import           Control.Monad.Reader       (ReaderT, asks, runReaderT)
+import           Control.Monad.Reader.Class (MonadReader (ask, local, reader))
+import           Control.Monad.State        (MonadState, State, gets, modify,
+                                             runState)
+import           Control.Monad.State.Class  (state)
+import           Control.Monad.Trans.Class  (lift)
+import           Control.Monad.Writer       (WriterT, runWriterT, tell)
+import           Control.Monad.Writer.Class (MonadWriter (writer), censor)
 import           Data.Bifunctor             (bimap)
-import           Data.Foldable              (foldl', foldlM)
-import           Data.Functor               (($>))
-import           Data.List.Extra            (list)
+import           Data.Foldable              (foldlM)
+import           Data.List                  (singleton)
+import           Data.List.Extra            (list, snoc, zipWith4)
 import           Data.Map                   (Map)
 import qualified Data.Map                   as Map
 import           Prelude                    hiding ((!!))
 
+import           Agda.Syntax.Common.Pretty
+import           Agda.Utils.Function        (applyUnless)
+import           Agda.Utils.Functor         (for)
 import           Agda.Utils.Impossible      (__IMPOSSIBLE__)
-import           Agda.Utils.List            (caseList, (!!))
-import           Agda.Utils.List1           (List1, pattern (:|), (<|))
+import           Agda.Utils.List            ((!!))
+import           Agda.Utils.List1           (pattern (:|))
 import qualified Agda.Utils.List1           as List1
+import           Agda.Utils.Maybe           (fromMaybe, fromMaybeM)
+import           Agda.Utils.Monad           (tell1)
 
-import           Agda.Utils.Maybe           (boolToMaybe, fromMaybe)
-import           Agda.Utils.Monad           ((==<<), tell1)
-
-import           Agda.Syntax.Literal        (Literal (LitNat))
-import           Compiler.Grin.Grin         (CAlt, GrinDefinition (..), LAlt,
-                                             Tag, Term)
+import           Compiler.Grin.Grin         (GrinDefinition (..), Tag, Term)
 import qualified Compiler.Grin.Grin         as G
 import           Compiler.Llvm.Llvm
-import           Control.Monad.Identity     (Identity)
-import qualified Utils.List1                as List1
 import           Utils.Utils
-
-
-
 
 typeOfDef :: String -> Int -> ([Type], Type)
 typeOfDef "free"    1     = ([Ptr], Void)
 typeOfDef "drop"    1     = ([I64], Void)
-typeOfDef "dup"     1     = ([I64], Void)
 typeOfDef "printf"  2     = ([Ptr, I64], Void)
+typeOfDef "main"    0     = ([], Void)
 typeOfDef _         arity = (replicate arity I64, nodeTySyn)
 
+type MonadCodegen m = (MonadReader Cxt m,  MonadWriter [Instruction] m, MonadState Env m)
+type Codegen = ReaderT Cxt (WriterT [Instruction] (State Env))
+type Continuation a = Env -> ((a, [Instruction]), Env)
 
+-- TODO It is never possible to assign something and return.
+--      Is it possible to express this without dependent pattern matching?
 
-data Continuation
-  = Return
-  | Branch LocalId
-  | Assign -- (Instruction -> Env -> (Instruction, Env))
-  | AssignAndBranch (Instruction -> Env -> (Instruction, Env)) LocalId
+data Assignment
+  = AEmpty
+  | AVar LocalId
+  | AConstantNode [LocalId] -- FIXME List1
+  | AVariableNode LocalId [LocalId] -- FIXME List1
+    deriving Show
 
-contLocal :: MonadReader Cxt m => Continuation -> m a -> m a
-contLocal cont = local \ cxt -> cxt{cxt_cont = cont}
+data Finally
+  = FFallthrough (Continuation ())
+  | FReturn
+  | FBranch LocalId
+    deriving Show
 
-data Cxt = MkCxt
-  { cxt_vars :: [LocalId]
-  , cxt_cont :: Continuation
-  }
+-- | Embed a continuation into the monad
+continuation :: Continuation a -> Codegen a
+continuation = (writer <=< state <=< reader) . const
 
-initCxt :: GrinDefinition -> Cxt
-initCxt def = MkCxt
-  { cxt_vars = map mkLocalId (reverse def.gr_args)
-  , cxt_cont = Return
-  }
+runCodegen :: Codegen a -> Cxt -> Continuation a
+runCodegen f cxt env = flip runState env $ runWriterT $ runReaderT f cxt
 
-varLookup :: MonadReader Cxt m => Int -> m LocalId
-varLookup n = asks $ (!! n) . cxt_vars
+-- FIXME name
+run :: Codegen a -> Codegen (a, [Instruction])
+run m = lift . lift . runWriterT . runReaderT m =<< ask
 
-type Instructions = [Instruction]
+newtype Cxt = MkCxt{cxt_vars :: [LocalId]}
+
+lookupVar :: MonadReader Cxt m => Int -> m LocalId
+lookupVar n = asks $ (!! n) . cxt_vars
 
 data Env = MkEnv
-  { env_fresh_unnamed :: Int
-  , env_fresh_tag     :: Int
-  , env_fresh_alt     :: Int
-  , env_tags          :: Map Tag Int
+  { env_fresh_unnamed   :: !Int
+  , env_fresh_tag       :: !Int
+  , env_fresh_label_num :: !Int
+  , env_tags            :: Map Tag Int
+  , env_recent_label    :: Maybe LocalId
   }
 
-initEnv :: Env
-initEnv = MkEnv
-  { env_fresh_unnamed = 1
-  , env_fresh_tag     = 0
-  , env_fresh_alt     = 0
-  , env_tags          = mempty
-  }
-
-tagLookup :: MonadState Env m => Tag -> m Int
-tagLookup tag = gets $ fromMaybe __IMPOSSIBLE__ . Map.lookup tag . env_tags
 
 freshUnnamed :: MonadState Env m => m LocalId
-freshUnnamed  = do
-  unnamed <- gets $ mkLocalId . env_fresh_unnamed
+freshUnnamed = do
+  unnamed <- gets $ mkLocalId . prettyShow . env_fresh_unnamed
   modify \ env -> env{env_fresh_unnamed = env.env_fresh_unnamed + 1}
   pure unnamed
 
-setVar :: (MonadState Env m, MonadWriter Instructions m) => Instruction -> m LocalId
+freshLabelNum :: MonadState Env m => m Int
+freshLabelNum = do
+  alt_num <- gets env_fresh_label_num
+  modify \ env -> env{env_fresh_label_num = env.env_fresh_label_num + 1}
+  pure alt_num
+
+setVar :: (MonadState Env m, MonadWriter [Instruction] m) => Instruction -> m LocalId
 setVar instruction = do
   unnamed <- freshUnnamed
   tell1 (SetVar unnamed instruction)
   pure unnamed
 
-type MonadCodegen m = (MonadReader Cxt m, MonadState Env m, MonadWriter Instructions m)
+lookupTag :: MonadState Env m => Tag -> m Int
+lookupTag tag = fromMaybeM (freshTag tag) (gets $ Map.lookup tag . env_tags)
+  where
+  freshTag tag = do
+    tag' <- gets env_fresh_tag
+    modify \ env -> env { env_fresh_tag = env.env_fresh_tag + 1
+                        , env_tags      = Map.insert tag tag' env.env_tags
+                        }
+    pure tag'
+
+recentLabel :: MonadState Env m => LocalId -> m ()
+recentLabel label = modify \ env -> env{env_recent_label = Just label}
 
 emitVal :: MonadCodegen m => G.Val -> m Val
-emitVal (G.Var n)               = LocalId <$> varLookup n
+emitVal (G.Var n)               = LocalId <$> lookupVar n
 emitVal (G.Def f)               = pure $ GlobalId (mkGlobalId f)
 emitVal G.Prim{}                = __IMPOSSIBLE__
 emitVal (G.Lit lit)             = pure (Lit lit)
-emitVal (G.Tag tag)             = mkLit <$> tagLookup tag
+emitVal (G.Tag tag)             = mkLit <$> lookupTag tag
 emitVal (G.ConstantNode tag vs) = do
-  vs' <- liftA2 (:) (mkLit <$> tagLookup tag) (mapM emitVal vs)
+  vs' <- (:) <$> (mkLit <$> lookupTag tag) <*> mapM emitVal vs
   foldlM step Undef $ zip vs' [1 .. length vs' + 1]
   where
   step unnamed (v, index) = LocalId <$> setVar (insertvalue unnamed v index)
 emitVal (G.VariableNode n vs)   = do
-  vs' <- liftA2 (:) (LocalId <$> varLookup n) (mapM emitVal vs)
+  vs' <- liftA2 (:) (LocalId <$> lookupVar n) (mapM emitVal vs)
   foldlM step Undef $ zip vs' [1 .. length vs' + 1]
   where
   step unnamed (v, index) = LocalId <$> setVar (insertvalue unnamed v index)
 emitVal G.Empty                 = __IMPOSSIBLE__
 
+--------------------------------------------------------------------------------
+-- * Emitting terms
+--------------------------------------------------------------------------------
 
-emitCalt :: MonadCodegen m => Term -> m (String, String, Instruction)
-emitCalt = undefined
-
-emitLalt :: MonadCodegen m => Instruction -> G.LAlt -> m Instruction
-emitLalt instruction (G.LAltEmpty t) = do
-  tell1 instruction
-  emitTerm t
-emitLalt instruction (G.LAltVar x t) = do
-  tell1 (SetVar (mkLocalId x) instruction)
-  emitTerm t
-emitLalt instruction (G.LAltConstantNode _ xs t) = do
+mkUnnamedNode :: (MonadWriter [Instruction] m, MonadState Env m) => Val -> [Val] -> m LocalId
+mkUnnamedNode v vs = do
+  unnameds <- replicateM (length vs) freshUnnamed
   unnamed <- freshUnnamed
-  tell1 (SetVar unnamed instruction)
-  let step x i = SetVar (mkLocalId x) $ extractvalue (LocalId unnamed) i
-  tell $ zipWith step xs [2 ..]
-  emitTerm t
-emitLalt instruction (G.LAltVariableNode x xs t) = do
-  unnamed <- freshUnnamed
-  tell1 (SetVar unnamed instruction)
-  let step x i = SetVar (mkLocalId x) $ extractvalue (LocalId unnamed) i
-  tell $ zipWith step (x : xs) [1 ..]
-  emitTerm t
+  let ins  = Undef : map LocalId unnameds
+      outs = unnameds `snoc` unnamed
+  tell $ zipWith4 (\ out -> SetVar out .:. insertvalue) outs ins (v : vs) [1 ..]
+  pure unnamed
 
-emitUnitNode :: MonadCodegen m => Val -> List1 Val -> m Instruction
-emitUnitNode v vs = do
-  let (vs', v') = first (v :|) (List1.initLast vs)
-      indices = 1 :| [2 .. length vs']
-      index = length vs' + 1
-  unnamed <- List1.foldlM step step' $ List1.zip vs' indices
-  asks cxt_cont >>= \case
-    Return -> do
-      unnamed' <- freshUnnamed
-      tell [SetVar unnamed' $ insertvalue (LocalId unnamed) v' index]
-      pure $ RetNode (LocalId unnamed')
-    Branch{} -> __IMPOSSIBLE__
-    Assign -> pure $ insertvalue (LocalId unnamed) v' index
-    AssignAndBranch setVar label -> do
-      tell1 =<< state (setVar $ insertvalue (LocalId unnamed) v' index)
-      pure (Br label)
-  where
-  step unnamed (v, index) = setVar (Insertvalue nodeTySyn (LocalId unnamed) I64 v index)
-  step' (v, index) = setVar (Insertvalue nodeTySyn Undef I64 v index)
+mkNode :: (MonadWriter [Instruction] m, MonadState Env m) => LocalId -> Val -> [Val] -> m ()
+mkNode x v vs = do
+  unnameds <- replicateM (length vs) freshUnnamed
+  let ins  = Undef : map LocalId unnameds
+      outs = unnameds `snoc` x
+  tell $ zipWith4 (\ out -> SetVar out .:. insertvalue) outs ins (v : vs) [1 ..]
+  pure ()
 
-emitApp :: MonadCodegen m => G.Val -> [G.Val] -> m Instruction
-emitApp (G.Def f) vs = do
+emitUnit :: Assignment -> Finally -> G.Val -> Codegen ()
+emitUnit AEmpty FReturn (G.Var n) = tell1 . RetNode . LocalId =<< lookupVar n
+emitUnit AEmpty FReturn G.Empty   = tell1 RetVoid
+emitUnit AEmpty FReturn (G.ConstantNode tag vs) = do
+  v <- mkLit <$> lookupTag tag
   vs' <- mapM emitVal vs
-  let mkCall tail = Call tail Fastcc returnTy (mkGlobalId f) (zip argsTys vs')
-  asks cxt_cont >>= \case
-    Return -> pure $ mkCall (Just Tail)
-    Branch label -> tell1 (mkCall Nothing) $> Br label
-    Assign -> pure (mkCall Nothing)
-    AssignAndBranch setVar label -> do
-      tell1 =<< state (setVar $ mkCall Nothing)
-      pure (Br label)
+  x <- mkUnnamedNode v vs'
+  tell1 $ RetNode (LocalId x)
+emitUnit (AVar x) (FBranch label) (G.ConstantNode tag vs) = do
+  v <- mkLit <$> lookupTag tag
+  vs' <- mapM emitVal vs
+  mkNode x v vs'
+  tell1 (Br label)
+emitUnit AEmpty FReturn (G.VariableNode n vs) = do
+  v <- LocalId <$> lookupVar n
+  vs' <- mapM emitVal vs
+  x <- mkUnnamedNode v vs'
+  tell1 $ RetNode (LocalId x)
+emitUnit (AVar x) (FBranch label) (G.VariableNode n vs) = do
+  v <- LocalId <$> lookupVar n
+  vs' <- mapM emitVal vs
+  mkNode x v vs'
+  tell1 (Br label)
+emitUnit ass fin v = error $ render $ text "emitUnit: Missing pattern" <+> pshow ass <+>  pshow fin <+> pshow v
+
+localVars :: MonadReader Cxt m => [G.Abs] -> m a -> m a
+localVars xs = local \ cxt -> cxt{cxt_vars = reverse (map (mkLocalId . prettyShow) xs) ++ cxt.cxt_vars}
+
+localVar :: MonadReader Cxt m => G.Abs -> m a -> m a
+localVar = localVars . singleton
+
+emitBind :: Assignment -> Finally -> G.Term -> G.LAlt -> Codegen ()
+emitBind ass fin t1 (G.LAltEmpty t2) = do
+  fin' <- FFallthrough . runCodegen (emitTerm ass fin t2) <$> ask
+  emitTerm AEmpty fin' t1
+emitBind ass fin t1 (G.LAltVar x t2) = do
+  fin' <- FFallthrough . runCodegen m <$> ask
+  emitTerm (AVar $ mkLocalId $ prettyShow x) fin' t1
+  where
+  m = localVar x (emitTerm ass fin t2)
+emitBind ass fin t1 (G.LAltConstantNode _ xs t2) = do
+  fin' <- FFallthrough . runCodegen m <$> ask
+  emitTerm ass' fin' t1
+  where
+  ass' = AConstantNode $ map (mkLocalId . prettyShow) xs
+  m = localVars xs (emitTerm ass fin t2)
+emitBind ass fin t1 (G.LAltVariableNode x xs t2) = do
+  fin' <- FFallthrough . runCodegen m <$> ask
+  emitTerm ass' fin' t1
+  where
+  ass' = AVariableNode (mkLocalId $ prettyShow x) $ map (mkLocalId . prettyShow) xs
+  m = localVars (x : xs) (emitTerm ass fin t2)
+
+emitAlt :: Assignment -> Finally -> String -> Term -> Codegen AltInfo
+emitAlt ass fin desc t = do
+  alt_num <- freshLabelNum
+  let label = surroundWithQuotes $ show alt_num ++ "-" ++ desc
+  let alt_first_label = mkLocalId $ surroundWithQuotes $ show alt_num ++ "-" ++ desc
+  let alt_result = mkLocalId $ surroundWithQuotes $  show alt_num ++ "-result-" ++ desc
+
+  censor do singleton . Label label
+         do recentLabel alt_first_label
+            emitTerm ass fin t
+
+  alt_recent_label <- gets $ fromMaybe alt_first_label . env_recent_label
+
+  pure MkAltInfo
+    { alt_num          = alt_num
+    , alt_first_label  = alt_first_label
+    , alt_recent_label = alt_recent_label
+    , alt_result       = alt_result
+    }
+
+emitCAlt :: Assignment -> Finally -> G.CAlt -> Codegen AltInfo
+emitCAlt ass fin (G.CAltTag tag t)    = emitAlt ass fin (prettyShow tag) t
+emitCAlt ass fin (G.CAltLit lit t)    = emitAlt ass fin (prettyShow lit) t
+emitCAlt _   _   G.CAltConstantNode{} = __IMPOSSIBLE__
+emitCAlt _   _   G.CAltGuard{}        = __IMPOSSIBLE__
+
+emitCase :: Assignment -> Finally -> G.Val -> G.Term -> [G.CAlt] -> Codegen ()
+emitCase AEmpty (FFallthrough c) (G.Var n) t alts = do
+  label_num <- freshLabelNum
+  let label = surroundWithQuotes $ "continue-" ++ show label_num
+  let fin = FBranch (mkLocalId label)
+  (altInfo, instructions) <- run $ emitAlt AEmpty fin "default" t
+  (instructions, altInfos) <-
+    forAccumM instructions alts \ instructions1  alt -> do
+      (altInfo, instructions2) <- run $ emitCAlt AEmpty fin alt
+      pure (instructions1 ++ instructions2, altInfo)
+  scrutinee <- lookupVar n
+  tell $ switch scrutinee altInfo altInfos : instructions
+  censor (singleton . Label label) do
+    recentLabel (mkLocalId label)
+    continuation c
+emitCase AEmpty (FBranch label) (G.Var n) t alts = do
+  rec (altInfo, instructions) <- run $ emitAlt AEmpty (FBranch label) "default" t
+  (instructions, altInfos) <- forAccumM instructions alts \ instructions1 alt -> mdo
+        (altInfo, instructions2) <- run $ emitCAlt AEmpty (FBranch label) alt
+        pure (instructions1 ++ instructions2, altInfo)
+  scrutinee <- lookupVar n
+  tell $ switch scrutinee altInfo altInfos : instructions
+emitCase (AVar x) (FFallthrough c) (G.Var n) t alts = do
+  label_num <- freshLabelNum
+  let label = surroundWithQuotes $ "continue-" ++ show label_num
+  rec (altInfo, instructions) <- run $ emitAlt (AVar altInfo.alt_result) (FBranch $ mkLocalId label) "default" t
+  (instructions, altInfos) <- forAccumM instructions alts \ instructions1 alt -> mdo
+    (altInfo, instructions2) <- run $ emitCAlt (AVar altInfo.alt_result) (FBranch $ mkLocalId label) alt
+    pure (instructions1 ++ instructions2, altInfo)
+  scrutinee <- lookupVar n
+  tell $ switch scrutinee altInfo altInfos : instructions
+  censor (singleton . Label label) do
+    recentLabel (mkLocalId label)
+    let altInfos' = list __IMPOSSIBLE__ (:|) $ applyUnless (t == G.Unreachable) (altInfo :) altInfos
+    let pairs = for altInfos' \ altInfo -> (altInfo.alt_result, altInfo.alt_recent_label)
+    tell1 $ SetVar x (phi nodeTySyn pairs)
+    continuation c
+emitCase (AConstantNode xs) (FFallthrough c) (G.Var n) t alts = do
+  alt_num <- freshLabelNum
+  let label = surroundWithQuotes $ "continue-" ++ show alt_num
+  rec (altInfo, instructions) <- run $ emitAlt (AVar altInfo.alt_result) (FBranch $ mkLocalId label) "default" t
+  (instructions, altInfos) <- forAccumM instructions alts \ instructions1 alt -> mdo
+    (altInfo, instructions2) <- run $ emitCAlt (AVar altInfo.alt_result) (FBranch $ mkLocalId label) alt
+    pure (instructions1 ++ instructions2, altInfo)
+  scrutinee <- lookupVar n
+  tell $ switch scrutinee altInfo altInfos : instructions
+  censor (singleton . Label label) do
+    recentLabel (mkLocalId label)
+    unnamed <- freshUnnamed
+    let altInfos' = list __IMPOSSIBLE__ (:|) $ applyUnless (t == G.Unreachable) (altInfo :) altInfos
+    let pairs = for altInfos' \ altInfo -> (altInfo.alt_result, altInfo.alt_recent_label)
+    tell $ SetVar unnamed (phi nodeTySyn pairs)
+         : zipWith (\ x -> SetVar x . extractvalue unnamed) xs [2 ..]
+    continuation c
+emitCase ass fin v t _ = error $ render $ text "emitCase: Missing pattern" <+> pshow ass <+>  pshow fin <+> pshow v <+> pshow t
+
+mkCall :: Maybe Tail -> String -> [G.Val] -> Codegen Instruction
+mkCall tail "free" [G.Var n] = do
+  x <- lookupVar n
+  unnamed <- freshUnnamed
+  tell1 $ SetVar unnamed (inttoptr x)
+  pure $ Call tail Fastcc Void (mkGlobalId "free") [(Ptr, LocalId unnamed)]
+mkCall tail f vs = do
+  vs' <- mapM emitVal vs
+  pure $ Call tail Fastcc returnTy (mkGlobalId $ surroundWithQuotes f) (zip argsTys vs')
   where
   (argsTys, returnTy) = typeOfDef f (length vs)
-emitApp (G.Prim prim) vs = undefined
-emitApp _ _ = __IMPOSSIBLE__
 
-emitTerm :: MonadCodegen m => Term -> m Instruction
-emitTerm (G.App f vs) = emitApp f vs
-emitTerm (G.Unit (G.ConstantNode tag vs)) = do
-  let vs1 = caseList vs __IMPOSSIBLE__ (:|) -- FIXME ConstantNode should use List1
-  emitUnitNode ==<< (mkLit <$> tagLookup tag, mapM emitVal vs1)
-emitTerm (G.Unit (G.VariableNode n vs)) = do
-  let vs1 = caseList vs __IMPOSSIBLE__ (:|) -- FIXME VariableNode should use List1
-  emitUnitNode ==<< (LocalId <$> varLookup n, mapM emitVal vs1)
-emitTerm (G.Store _ v `G.Bind` G.LAltVar x t) = do
+emitApp :: Assignment -> Finally -> G.Val -> [G.Val] -> Codegen ()
+emitApp AEmpty FReturn (G.Def "printf") [v] = do
   v' <- emitVal v
-  tell [malloc nodeSize, store nodeTySyn v' (mkLocalId x)]
-  emitTerm t
-emitTerm (t1 `G.Bind` alt) = do
-  instruction <- contLocal Assign (emitTerm t1)
-  emitLalt instruction alt
-emitTerm (G.FetchOpaqueOffset n offset) | offset `elem` [0, 1] = do
-  x <- varLookup n
-  unnamed <- setVar (inttoptr x)
+  tell [ Call (Just Tail) Fastcc Void (mkGlobalId "printf") [(Ptr, fmt), (I64, v')]
+       , RetVoid
+       ]
+  where
+  fmt = GlobalId (mkGlobalId "\"%d\"")
+emitApp AEmpty (FFallthrough c) (G.Def f) vs = do
+  tell1 =<< mkCall Nothing f vs
+  continuation c
+emitApp AEmpty FReturn (G.Def f) vs =
+  tell1 =<< mkCall (Just Tail) f vs
+emitApp AEmpty (FBranch label) (G.Def f) vs = do
+  call <- mkCall Nothing f vs
+  tell [call, Br label]
+emitApp (AVar x) (FBranch label) (G.Def f) vs = do
+  call <- mkCall Nothing f vs
+  tell [SetVar x call, Br label]
+emitApp (AConstantNode xs) (FFallthrough c) (G.Def f) vs = do
+  unnamed <- freshUnnamed
+  call <- mkCall Nothing f vs
+  tell $ SetVar unnamed call : zipWith (\ x -> SetVar x . extractvalue unnamed) xs [2 ..]
+  continuation c
+emitApp (AVariableNode x xs) (FFallthrough c) (G.Def f) vs = do
+  unnamed <- freshUnnamed
+  call <- mkCall Nothing f vs
+  tell $ SetVar unnamed call : zipWith (\ x -> SetVar x . extractvalue unnamed) (x : xs) [1 ..]
+  continuation c
+emitApp (AVar x) (FFallthrough c) (G.Prim prim) [v1, v2] =do
+  operation <- operand <$> emitVal v1 <*> emitVal v2
+  tell1 (SetVar x operation)
+  continuation c
+  where
+  operand = case prim of
+              G.PAdd -> add64
+              G.PSub -> sub64
+              _      -> __IMPOSSIBLE__
+emitApp ass fin f v = error $ render $ text "emitApp: Missing pattern" <+> pshow ass <+>  pshow fin <+> pshow f <+> pshow v
+
+emitFetchOpaqueOffset :: Assignment -> Finally -> Int -> Int -> Codegen ()
+emitFetchOpaqueOffset (AVar x) (FFallthrough c) n offset | offset `elem` [0, 1] = do
+  unnamed <- setVar . inttoptr =<< lookupVar n
   unnamed' <- setVar (getelementptr unnamed offset)
-  pure (load I64 unnamed')
-emitTerm (G.FetchOffset tag n offset) = do
-  -- TODO need to lookup tag to get node structure
-  x <- varLookup n
-  unnamed <- setVar (inttoptr x)
+  tell1 (SetVar x $ load I64 unnamed')
+  continuation c
+emitFetchOpaqueOffset ass fin n offset = error $ render $ text "emitFetchOpaqueOffset: Missing pattern" <+> pshow ass <+>  pshow fin <+> pshow n <+> pshow offset
+
+-- TODO need to lookup tag to get node structure
+emitFetchOffset :: Assignment -> Finally -> Tag -> Int -> Int -> Codegen ()
+emitFetchOffset (AVar x) (FFallthrough c) _ n offset = do
+  unnamed <- setVar . inttoptr =<< lookupVar n
   unnamed' <- setVar (getelementptr unnamed offset)
-  pure (load I64 unnamed')
-emitTerm (G.Update tag' tag n offset) = undefined
-emitTerm (G.UpdateOffset n 0 v) = do
-  -- TODO replace UpdateOffset by Dup and Decref
-  undefined
-emitTerm (G.Case v t alts) = undefined
-emitTerm G.Unreachable = pure Unreachable
+  tell1 (SetVar x $ load I64 unnamed')
+  continuation c
+emitFetchOffset ass fin tag n offset = error $ render $ text "emitFetchOpaqueOffset: Missing pattern" <+> pshow ass <+>  pshow fin <+> pretty tag <+> pshow n <+> pshow offset
 
-emitTerm G.Error{} = __IMPOSSIBLE__
-emitTerm G.Unit{} = __IMPOSSIBLE__
-emitTerm G.Fetch'{} = __IMPOSSIBLE__
-emitTerm G.UpdateOffset{} = __IMPOSSIBLE__
-emitTerm G.Store{} = __IMPOSSIBLE__
+-- TODO need to lookup tag to get node structure
+emitUpdate :: Assignment -> Finally -> Tag -> Tag -> Int -> G.Val -> Codegen ()
+emitUpdate AEmpty (FBranch label) _ _ n v = do
+  x <- lookupVar n
+  v' <- emitVal v
+  x_ptr <- setVar (inttoptr x)
+  rc_ptr <- setVar (getelementptr x_ptr 0)
+  rc <- setVar (load I64 rc_ptr)
+  node <- setVar (insertvalue v' (LocalId rc) 0)
+  tell [store nodeTySyn (LocalId node) x_ptr, Br label]
+emitUpdate AEmpty (FFallthrough c) _ _ n v = do
+  x <- lookupVar n
+  v' <- emitVal v
+  x_ptr <- setVar (inttoptr x)
+  rc_ptr <- setVar (getelementptr x_ptr 0)
+  rc <- setVar (load I64 rc_ptr)
+  node <- setVar (insertvalue v' (LocalId rc) 0)
+  tell [store nodeTySyn (LocalId node) x_ptr]
+  continuation c
+emitUpdate ass fin tag' tag n v = error $ render $ text "emitUpdate: Missing pattern" <+> pshow ass <+>  pshow fin <+> pretty tag' <+> pretty tag <+> pshow n <+> pshow v
 
+emitStore :: Assignment -> Finally -> G.Val -> Codegen ()
+emitStore (AVar x) (FFallthrough c) v = do
+  v' <- emitVal v
+  unnamed <- freshUnnamed
+  tell [ SetVar unnamed (malloc nodeSize)
+       , store nodeTySyn v' unnamed
+       , SetVar x (ptrtoint unnamed)
+       ]
+  continuation c
+emitStore ass fin v = error $ render $ text "emitStore: Missing pattern" <+> pshow ass <+>  pshow fin <+> pshow v
 
-grinToLlvm :: GrinDefinition -> (Map Tag Int, Instruction)
-grinToLlvm def = (tags, definition)
+emitDup :: Assignment -> Finally -> Int -> Codegen ()
+emitDup AEmpty (FFallthrough c) n = do
+  x <- lookupVar n
+  x_ptr <- setVar (inttoptr x)
+  rc_ptr <- setVar (getelementptr x_ptr 0)
+  rc <- setVar (load I64 rc_ptr)
+  rc' <- setVar $ add64 (LocalId rc) (mkLit 1)
+  tell1 (store I64 (LocalId rc') rc_ptr)
+  continuation c
+emitDup ass fin v = error $ render $ text "emitDup: Missing pattern" <+> pshow ass <+>  pshow fin <+> pshow v
+
+emitDecref :: Assignment -> Finally -> Int -> Codegen ()
+emitDecref AEmpty FReturn n = do
+  x <- lookupVar n
+  x_ptr <- setVar (inttoptr x)
+  rc_ptr <- setVar (getelementptr x_ptr 0)
+  rc <- setVar (load I64 rc_ptr)
+  rc' <- setVar $ sub64 (LocalId rc) (mkLit 1)
+  tell [store I64 (LocalId rc') rc_ptr, RetVoid]
+emitDecref AEmpty (FBranch label) n = do
+  x <- lookupVar n
+  x_ptr <- setVar (inttoptr x)
+  rc_ptr <- setVar (getelementptr x_ptr 0)
+  rc <- setVar (load I64 rc_ptr)
+  rc' <- setVar $ sub64 (LocalId rc) (mkLit 1)
+  tell [store I64 (LocalId rc') rc_ptr, Br label]
+emitDecref ass fin v = error $ render $ text "emitDecref: Missing pattern" <+> pshow ass <+>  pshow fin <+> pshow v
+
+emitTerm :: Assignment -> Finally -> Term -> Codegen ()
+emitTerm ass fin (t1 `G.Bind` alt)              = emitBind ass fin t1 alt
+emitTerm ass fin (G.Case v t alts)              = emitCase ass fin v t alts
+emitTerm ass fin (G.App f vs)                   = emitApp ass fin f vs
+emitTerm ass fin (G.Unit v)                     = emitUnit ass fin v
+emitTerm ass fin (G.FetchOpaqueOffset n offset) = emitFetchOpaqueOffset ass fin n offset
+emitTerm ass fin (G.FetchOffset tag n offset)   = emitFetchOffset ass fin tag n offset
+emitTerm ass fin (G.Update tag' tag n v)        = emitUpdate ass fin tag' tag n v
+emitTerm ass fin (G.Store _ v)                  = emitStore ass fin v
+emitTerm ass fin (G.Dup n)                      = emitDup ass fin n
+emitTerm ass fin (G.Decref n)                   = emitDecref ass fin n
+emitTerm _   _   G.Unreachable                  = tell1 Unreachable
+emitTerm _   _   G.Error{}                      = __IMPOSSIBLE__
+emitTerm _   _   G.Fetch'{}                     = __IMPOSSIBLE__
+
+--------------------------------------------------------------------------------
+-- * Interface
+--------------------------------------------------------------------------------
+
+initCxt :: GrinDefinition -> Cxt
+initCxt def = MkCxt {cxt_vars = map (mkLocalId . prettyShow) (reverse def.gr_args)}
+
+initEnv :: Map Tag Int -> Env
+initEnv tags = MkEnv
+  { env_fresh_unnamed = 1
+  , env_fresh_tag     = 0
+  , env_fresh_label_num = 0
+  , env_tags          = tags
+  , env_recent_label  = Nothing
+  }
+
+grinToLlvm :: Map Tag Int -> GrinDefinition -> (Map Tag Int, Instruction)
+grinToLlvm tags def = (tags', definition)
   where
   (argsTys, returnTy) = typeOfDef def.gr_name def.gr_arity
-  args = zip argsTys (map mkLocalId def.gr_args)
-  (instructions, tags) = bimap (uncurry (:|)) env_tags
-                       $ flip runState initEnv
-                       $ runWriterT
-                       $ flip runReaderT (initCxt def)
-                       $ emitTerm def.gr_term
+  args = zip argsTys (map (mkLocalId . prettyShow) def.gr_args)
 
+  (instructions, tags') = bimap snd env_tags
+                        $ runCodegen do emitTerm AEmpty FReturn def.gr_term
+                                     do initCxt def
+                                     do initEnv tags
 
-  definition = Define Fastcc returnTy (mkGlobalId def.gr_name) args instructions
-
+  globalId = mkGlobalId $ applyUnless def.gr_isMain surroundWithQuotes def.gr_name
+  definition = Define Fastcc returnTy globalId args instructions
 
 

@@ -5,7 +5,6 @@
 {-# LANGUAGE OverloadedRecordDot      #-}
 {-# LANGUAGE OverloadedStrings        #-}
 {-# LANGUAGE ScopedTypeVariables      #-}
-{-# LANGUAGE ViewPatterns             #-}
 module Compiler.Llvm.Compiler (module Compiler.Llvm.Compiler) where
 
 import           Control.DeepSeq                     (NFData)
@@ -22,9 +21,9 @@ import           Data.Bifunctor                      (Bifunctor (bimap, first))
 import           Data.Bool                           (bool)
 import           Data.Foldable                       (foldrM, toList)
 import           Data.Function                       (on)
-import           Data.List                           (intercalate, mapAccumL,
-                                                      mapAccumR, singleton,
-                                                      sortOn, unzip4)
+import           Data.List                           (intercalate, isSuffixOf,
+                                                      mapAccumL, mapAccumR,
+                                                      singleton, sortOn, unzip4)
 import           Data.List.NonEmpty.Extra            ((|:), (|>))
 import           Data.Map                            (Map)
 import qualified Data.Map                            as Map
@@ -67,6 +66,7 @@ import           Compiler.Grin.Perceus
 import qualified Compiler.Llvm.Llvm                  as L
 import           Compiler.Treeless.TreelessTransform
 
+import           Compiler.Llvm.Codegen               (grinToLlvm)
 import qualified Utils.List1                         as List1
 import           Utils.Utils
 
@@ -418,7 +418,7 @@ llvmPostCompile env _ mods = do
 
   liftIO $ putStrLn $ "\nTag Info:\n" ++ prettyShow tagInfo_evalInlining
 
-  (tagInfo_vectorization, defs_vectorization) <- 
+  (tagInfo_vectorization, defs_vectorization) <-
     forAccumM tagInfo_evalInlining defs_copyPropagation \ tagInfo def -> do
       (tagInfo', t) <- vectorization tagInfo def.gr_term
       pure (tagInfo', setGrTerm t def)
@@ -479,17 +479,14 @@ llvmPostCompile env _ mods = do
     putStrLn "------------------------------------------------------------------------\n"
     putStrLn $ intercalate "\n\n" $ map prettyShow defs_rightHoistFetchOperations
 
-  defs_mem <- do
-    drop <- mkDrop defs_fetchSpecialisation
-    dup <- mkDup
-    pure [drop, dup]
+  def_drop <- bindingReturningCase =<< mkDrop defs_fetchSpecialisation
 
   defs_perceus <- mapM perceus defs_rightHoistFetchOperations
   liftIO $ do
     putStrLn "\n------------------------------------------------------------------------"
     putStrLn "-- * Perceus"
     putStrLn "------------------------------------------------------------------------\n"
-    putStrLn $ intercalate "\n\n" (map prettyShow $ defs_perceus ++ defs_mem) ++ "\n"
+    putStrLn $ intercalate "\n\n" (map prettyShow $ defs_perceus ++ [def_drop]) ++ "\n"
 
   let defs_bindNormalisation = map (updateGrTerm bindNormalisation) defs_perceus
   liftIO $ do
@@ -501,36 +498,42 @@ llvmPostCompile env _ mods = do
   let defs_fetchReuse = map (updateGrTerm fetchReuse) defs_bindNormalisation
   liftIO $ do
     putStrLn "\n------------------------------------------------------------------------"
-    putStrLn "-- * Fetch Reuse"
+    putStrLn "-- * Fetch reuse"
     putStrLn "------------------------------------------------------------------------\n"
     putStrLn $ intercalate "\n\n" (map prettyShow defs_fetchReuse) ++ "\n"
 
   let defs_dropRaising = map (updateGrTerm dropRaising) defs_fetchReuse
   liftIO $ do
     putStrLn "\n------------------------------------------------------------------------"
-    putStrLn "-- * Drop Raising"
+    putStrLn "-- * Drop raising"
     putStrLn "------------------------------------------------------------------------\n"
     putStrLn $ intercalate "\n\n" (map prettyShow defs_dropRaising) ++ "\n"
 
   let defs_dupLowering = map (updateGrTerm dupLowering) defs_dropRaising
   liftIO $ do
     putStrLn "\n------------------------------------------------------------------------"
-    putStrLn "-- * Dup Lowering"
+    putStrLn "-- * Dup lowering"
     putStrLn "------------------------------------------------------------------------\n"
     putStrLn $ intercalate "\n\n" (map prettyShow defs_dupLowering) ++ "\n"
 
   let defs_dupDropFusion = map (updateGrTerm dupDropFusion) defs_dupLowering
   liftIO $ do
     putStrLn "\n------------------------------------------------------------------------"
-    putStrLn "-- * Dup/Drop Fusion"
+    putStrLn "-- * Dup/Drop fusion"
     putStrLn "------------------------------------------------------------------------\n"
-    putStrLn $ intercalate "\n\n" (map prettyShow defs_dupDropFusion) ++ "\n"
+    putStrLn $ intercalate "\n\n" (map prettyShow $ defs_dupDropFusion ++ [def_drop]) ++ "\n"
 
-  when env.envLlvmOpts.flagLlvmInterpret $ printInterpretGrin (defs_dupDropFusion ++ defs_mem)
 
-  -- liftIO $ putStrLn $ "\nTag Info:\n" ++ prettyShow tagInfo_vectorization
+  defs_bindingReturningCase <- mapM bindingReturningCase defs_dupDropFusion
+  liftIO $ do
+    putStrLn "\n------------------------------------------------------------------------"
+    putStrLn "-- * Binding returning case"
+    putStrLn "------------------------------------------------------------------------\n"
+    putStrLn $ intercalate "\n\n" (map prettyShow $ defs_bindingReturningCase ++ [def_drop]) ++ "\n"
 
-  let (llvm_ir, tagsToInt) = grinToLlvm (defs_bindNormalisation ++ defs_mem) -- defs_rightHoistFetchOperations 
+  when env.envLlvmOpts.flagLlvmInterpret $ printInterpretGrin (defs_bindingReturningCase ++ [def_drop])
+
+  let (tagsToInt, llvm_ir) = mapAccumL grinToLlvm mempty (defs_bindingReturningCase ++ [def_drop])
       header =
         unlines
           [ "target triple = \"x86_64-unknown-linux-gnu\""
@@ -539,7 +542,6 @@ llvmPostCompile env _ mods = do
           , "declare void @free(ptr)"
           -- FIXME data layout
           , "%Node = type [4 x i64]"
-          -- , "%HeapNode = type {i64, %Node}"
           ]
          ++ "@\"%d\" = private constant [4 x i8] c\"%d\\0A\\00\", align 1"
 
@@ -568,6 +570,7 @@ llvmPostCompile env _ mods = do
     putStrLn $ "Writing file " ++ file_ll
     writeFile file_ll program
 
+    {-
 
     -- -O3 -flto
     let opt = unwords
@@ -591,7 +594,7 @@ llvmPostCompile env _ mods = do
     putStrLn "Linking program"
     putStrLn cmd
     void $ readCreateProcess (shell cmd) ""
-
+    -}
 
 
 -----------------------------------------------------------------------
@@ -704,7 +707,7 @@ treelessToGrin def = do
     gr_return <- boolToMaybe (not def.tl_isMain) <$> freshAbs
 
     pure $ GrinDefinition
-      { gr_name = def.tl_name
+      { gr_name = if "main" `isSuffixOf` def.tl_name then "main" else def.tl_name
       , gr_isMain = def.tl_isMain
       , gr_primitive = def.tl_primitive
       , gr_arity = def.tl_arity
@@ -970,446 +973,446 @@ printf = App (Def "printf") . singleton . Var
 -- * LLVM code generation
 -----------------------------------------------------------------------
 
-grinToLlvm :: [GrinDefinition] -> ([L.Instruction], Map Tag Int)
-grinToLlvm defs = second cg_tagNums $ runState (mapM step defs) initLlvmGenEnv
-  where
-  step def =
-    (freshUnnamedLens .= 1) *>
-    runReaderT (runLlvmGen $ definitionToLlvm def) (initLlvmGenCxt defs def)
-
-
-mkGlobalTys :: [GrinDefinition] -> Map L.GlobalId ([L.Type], L.Type)
-mkGlobalTys defs =
-  Map.insert "@free" ([L.Ptr], L.Void) $ Map.fromList $ map go defs
-  where
-  go def = (L.mkGlobalId def.gr_name, types)
-    where
-    types
-      | getShortName def == "main" = ([], L.Void)
-      | getShortName def == "drop" = ([L.I64], L.Void)
-      | getShortName def == "dup"  = ([L.I64], L.Void)
-      -- | getShortName def == "decref"  = ([L.I64], L.Void)
-      | otherwise = (replicate def.gr_arity L.I64, L.nodeTySyn)
-
-mkCont :: GrinDefinition -> Continuation
-mkCont (getShortName -> "drop") instruction = pure [instruction, L.RetVoid]
-mkCont (getShortName -> "dup")  instruction = pure [instruction, L.RetVoid]
--- mkCont (getShortName -> "decref")  instruction = pure [instruction, L.RetVoid]
-mkCont _ i = do
-  (x_unnamed, i_setVar) <- first L.LocalId <$> setVar i
-  pure [i_setVar, L.RetNode x_unnamed]
-
-definitionToLlvm :: GrinDefinition -> LlvmGen L.Instruction
-definitionToLlvm def = do
-  let f = L.mkGlobalId def.gr_name
-  (argsTy, returnTy) <- fromMaybe (error $ "CANT FIND " ++ prettyShow f) <$> globalLookup f
-  let args = zip argsTy $ map L.mkLocalId def.gr_args
-  L.Define L.Fastcc returnTy f args <$> termToLlvm def.gr_term
-
--- TODO Refactor
---  • Need some sort of continuations. We have three continuations variants: 
---      1. Set register and branch to another block (%alt_res = instruction; br label %continue)
---      2. Branch to another block (br label %continue)
---      3. Return value (Ret val)
---  • Switch-Phi combinations need to be able to handle multiple labels in the alternatives.
---    Idea: altToLlvm returns its switch label and the last label (and maybe the result register).
---  • Remove returningLocal
---  • Better handling of builtin functions and main
-termToLlvm :: Term -> LlvmGen (List1 L.Instruction)
-termToLlvm (Case (Var n) t1 alts `BindEmpty` t2) = do
-  alt_num <- freshAltNum
-  let continue = "continue_" ++ show alt_num
-  let cont = const $ pure $ L.Br (L.mkLocalId continue) :| []
-  instructions1 <- continuationLocal cont $ returningLocal True $ termToLlvm (Case (Var n) t1 alts)
-  instructions2 <- termToLlvm t2
-  pure (instructions1 |> L.Label continue instructions2)
-
--- FIXME ugly
-termToLlvm (Case (Var n) t alts `Bind` alt) = do
-    alt_num <- freshAltNum
-    let def = "default_" ++ show alt_num
-    let x_def = L.mkLocalId def
-    let x_def_res = L.mkLocalId (def ++ "_res")
-    let continue = "continue_" ++ show alt_num
-
-    let
-      go n ((++ '_' : show alt_num) -> s) t = do
-        let label = L.surroundWithQuotes s
-            x_label = L.mkLocalId label
-            alt = L.alt (L.mkLit n) x_label
-            x_res = L.mkLocalId (L.surroundWithQuotes (s ++ "_res"))
-
-        block <- mkBlock label x_res t
-        pure (alt, block, x_label, x_res)
-
-      mkBlock s x t = do
-        t' <- continuationLocal cont $ returningLocal False (termToLlvm t)
-        pure (L.Label s t')
-        where
-        cont i = pure $ L.SetVar x i <|  L.Br (L.mkLocalId continue) :| []
-
-
-    (alts', instruction_blocks, xs_label, xs_res) <- fmap unzip4 $ forM alts $
-      \case
-        CAltTag tag t        -> tagNumLookup tag >>= \n -> go n (prettyShow tag) t
-        CAltLit (LitNat n) t -> go (fromInteger n) (prettyShow n) t
-        _                    -> __IMPOSSIBLE__
-
-
-    x <- fromMaybe __IMPOSSIBLE__ <$> varLookup n
-    let instruction_switch = L.switch x x_def alts'
-    instruction_default <- mkBlock def x_def t
-    let phi_alts
-          | isUnreachable t = caseList (zip xs_res xs_label) __IMPOSSIBLE__ (:|)
-          | otherwise  = zip xs_res xs_label |: (x_def_res, x_def)
-    let instruction_phi = L.phi L.nodeTySyn phi_alts
-    instructions <- laltToContinuation alt instruction_phi
-
-    pure $ (instruction_switch :| instruction_blocks) |> instruction_default |> L.Label continue instructions
-
-
--- FIXME ugly
-termToLlvm (Case (Var n) t alts) = do
-  alt_num <- freshAltNum
-  let def = "default_" ++ show alt_num
-  let x_def = L.mkLocalId def
-  let
-    go n s t = do
-      let s' = L.surroundWithQuotes (s ++ '_' : show alt_num)
-      let  alt = L.alt (L.mkLit n) (L.mkLocalId s')
-      i_block <- mkBlock s' t
-      pure (alt, i_block)
-
-    mkBlock s t = L.Label s <$> termToLlvm t
-  (alts', i_blocks) <- fmap unzip $ forM alts $
-    \case
-        CAltTag tag t        -> tagNumLookup tag >>= \n -> go n (prettyShow tag) t
-        CAltLit (LitNat n) t -> go (fromInteger n) (prettyShow n) t
-        _                    -> __IMPOSSIBLE__
-
-  x <- fromMaybe __IMPOSSIBLE__ <$> varLookup n
-  let i_switch = L.switch x x_def alts'
-  i_default <- mkBlock def t
-  pure $ (i_switch :| i_blocks) |> i_default
-
-termToLlvm (Store _ v `Bind` LAltVar (L.mkLocalId -> x) t) = do
-  (instructions1, v') <- valToLlvm v
-  (x_unnamed, instruction_insertvalue) <- first L.LocalId <$> setVar (L.insertvalue v' (L.mkLit 1) 0)
-  (x_unnamed_ptr, instruction_malloc) <- setVar (L.malloc L.nodeSize)  -- L.alloca
-  let instruction_store = L.store L.nodeTySyn x_unnamed x_unnamed_ptr
-      instruction_ptrtoint = L.SetVar x (L.ptrtoint x_unnamed_ptr)
-  instructions2 <- varLocal x (termToLlvm t)
-  pure $ instructions1 `List1.prependList`
-    ([instruction_insertvalue, instruction_malloc, instruction_store, instruction_ptrtoint] <> instructions2)
-
-termToLlvm (FetchOpaqueOffset n offset `Bind` alt)
-  | elem @[] offset [0, 1] = fetchToLlvm n offset alt
-termToLlvm (FetchOffset _ n offset `Bind` alt)
-  | elem @[] offset [1, 2, 3] = fetchToLlvm n offset alt
-
-
-termToLlvm (FetchOffset _ n 0 `Bind` LAltVar (L.mkLocalId -> x )
-           (Case (Var 0) t1 alts `BindEmpty` t2)) = do
-  continue <- ("continue_" ++) .  show <$> freshAltNum
-
-  x_ptr <- fromMaybe __IMPOSSIBLE__ <$> varLookup n
-
-  (x_unnamed_ptr, instruction_inttoptr) <- setVar (L.inttoptr x_ptr)
-  (x_unnamed, instruction_getelemtptr) <- setVar (L.getelementptr x_unnamed_ptr 0)
-  let instruction_setVar = L.SetVar x (L.load L.I64 x_unnamed)
-
-  instructions1 <- varLocal x $ continuationLocal
-                     (\instruction ->  pure [instruction, L.Br $ L.mkLocalId continue])
-                     (termToLlvm $ Case (Var 0) t1 alts)
-
-  instructions2 <- varLocal x_ptr (termToLlvm t2)
-
-  let instruction_continue = L.Label continue instructions2
-
-  pure $
-    [ instruction_inttoptr
-    , instruction_getelemtptr
-    , instruction_setVar ] <>
-     (instructions1 |>
-      instruction_continue)
-
-
-termToLlvm (App (Prim prim) [v1, v2] `Bind` alt) = do
-  let op = case prim of
-        PAdd -> L.add64
-        PSub -> L.sub64
-        _    -> __IMPOSSIBLE__
-  (is1, v1') <- valToLlvm v1
-  (is2, v2') <- valToLlvm v2
-  List1.prependList (is1 ++ is2) <$> laltToContinuation alt (op v1' v2')
-
-termToLlvm (Unit (VariableNode n vs) `Bind` LAltVar (L.mkLocalId -> x) t) = do
-  tagNum <- maybe __IMPOSSIBLE__ L.LocalId <$> varLookup n
-  instructions1 <- insertValues (pure . List1.singleton . L.SetVar x) tagNum vs
-  instructions2 <- varLocal x (termToLlvm t)
-  pure (instructions1 <> instructions2)
-
--- termToLlvm (Unit (Tag tag)) = do
+-- grinToLlvm :: [GrinDefinition] -> ([L.Instruction], Map Tag Int)
+-- grinToLlvm defs = second cg_tagNums $ runState (mapM step defs) initLlvmGenEnv
+--   where
+--   step def =
+--     (freshUnnamedLens .= 1) *>
+--     runReaderT (runLlvmGen $ definitionToLlvm def) (initLlvmGenCxt defs def)
+--
+--
+-- mkGlobalTys :: [GrinDefinition] -> Map L.GlobalId ([L.Type], L.Type)
+-- mkGlobalTys defs =
+--   Map.insert "@free" ([L.Ptr], L.Void) $ Map.fromList $ map go defs
+--   where
+--   go def = (L.mkGlobalId def.gr_name, types)
+--     where
+--     types
+--       | getShortName def == "main" = ([], L.Void)
+--       | getShortName def == "drop" = ([L.I64], L.Void)
+--       | getShortName def == "dup"  = ([L.I64], L.Void)
+--       -- | getShortName def == "decref"  = ([L.I64], L.Void)
+--       | otherwise = (replicate def.gr_arity L.I64, L.nodeTySyn)
+--
+-- mkCont :: GrinDefinition -> Continuation
+-- mkCont (getShortName -> "drop") instruction = pure [instruction, L.RetVoid]
+-- mkCont (getShortName -> "dup")  instruction = pure [instruction, L.RetVoid]
+-- -- mkCont (getShortName -> "decref")  instruction = pure [instruction, L.RetVoid]
+-- mkCont _ i = do
+--   (x_unnamed, i_setVar) <- first L.LocalId <$> setVar i
+--   pure [i_setVar, L.RetNode x_unnamed]
+--
+-- definitionToLlvm :: GrinDefinition -> LlvmGen L.Instruction
+-- definitionToLlvm def = do
+--   let f = L.mkGlobalId def.gr_name
+--   (argsTy, returnTy) <- fromMaybe (error $ "CANT FIND " ++ prettyShow f) <$> globalLookup f
+--   let args = zip argsTy $ map L.mkLocalId def.gr_args
+--   L.Define L.Fastcc returnTy f args <$> termToLlvm def.gr_term
+--
+-- -- TODO Refactor
+-- --  • Need some sort of continuations. We have three continuations variants:
+-- --      1. Set register and branch to another block (%alt_res = instruction; br label %continue)
+-- --      2. Branch to another block (br label %continue)
+-- --      3. Return value (Ret val)
+-- --  • Switch-Phi combinations need to be able to handle multiple labels in the alternatives.
+-- --    Idea: altToLlvm returns its switch label and the last label (and maybe the result register).
+-- --  • Remove returningLocal
+-- --  • Better handling of builtin functions and main
+-- termToLlvm :: Term -> LlvmGen (List1 L.Instruction)
+-- termToLlvm (Case (Var n) t1 alts `BindEmpty` t2) = do
+--   alt_num <- freshAltNum
+--   let continue = "continue_" ++ show alt_num
+--   let cont = const $ pure $ L.Br (L.mkLocalId continue) :| []
+--   instructions1 <- continuationLocal cont $ returningLocal True $ termToLlvm (Case (Var n) t1 alts)
+--   instructions2 <- termToLlvm t2
+--   pure (instructions1 |> L.Label continue instructions2)
+--
+-- -- FIXME ugly
+-- termToLlvm (Case (Var n) t alts `Bind` alt) = do
+--     alt_num <- freshAltNum
+--     let def = "default_" ++ show alt_num
+--     let x_def = L.mkLocalId def
+--     let x_def_res = L.mkLocalId (def ++ "_res")
+--     let continue = "continue_" ++ show alt_num
+--
+--     let
+--       go n ((++ '_' : show alt_num) -> s) t = do
+--         let label = L.surroundWithQuotes s
+--             x_label = L.mkLocalId label
+--             alt = L.alt (L.mkLit n) x_label
+--             x_res = L.mkLocalId (L.surroundWithQuotes (s ++ "_res"))
+--
+--         block <- mkBlock label x_res t
+--         pure (alt, block, x_label, x_res)
+--
+--       mkBlock s x t = do
+--         t' <- continuationLocal cont $ returningLocal False (termToLlvm t)
+--         pure (L.Label s t')
+--         where
+--         cont i = pure $ L.SetVar x i <|  L.Br (L.mkLocalId continue) :| []
+--
+--
+--     (alts', instruction_blocks, xs_label, xs_res) <- fmap unzip4 $ forM alts $
+--       \case
+--         CAltTag tag t        -> tagNumLookup tag >>= \n -> go n (prettyShow tag) t
+--         CAltLit (LitNat n) t -> go (fromInteger n) (prettyShow n) t
+--         _                    -> __IMPOSSIBLE__
+--
+--
+--     x <- fromMaybe __IMPOSSIBLE__ <$> varLookup n
+--     let instruction_switch = L.switch x x_def alts'
+--     instruction_default <- mkBlock def x_def t
+--     let phi_alts
+--           | isUnreachable t = caseList (zip xs_res xs_label) __IMPOSSIBLE__ (:|)
+--           | otherwise  = zip xs_res xs_label |: (x_def_res, x_def)
+--     let instruction_phi = L.phi L.nodeTySyn phi_alts
+--     instructions <- laltToContinuation alt instruction_phi
+--
+--     pure $ (instruction_switch :| instruction_blocks) |> instruction_default |> L.Label continue instructions
+--
+--
+-- -- FIXME ugly
+-- termToLlvm (Case (Var n) t alts) = do
+--   alt_num <- freshAltNum
+--   let def = "default_" ++ show alt_num
+--   let x_def = L.mkLocalId def
+--   let
+--     go n s t = do
+--       let s' = L.quotes (s ++ '_' : show alt_num)
+--       let  alt = L.alt (L.mkLit n) (L.mkLocalId s')
+--       i_block <- mkBlock s' t
+--       pure (alt, i_block)
+--
+--     mkBlock s t = L.Label s <$> termToLlvm t
+--   (alts', i_blocks) <- fmap unzip $ forM alts $
+--     \case
+--         CAltTag tag t        -> tagNumLookup tag >>= \n -> go n (prettyShow tag) t
+--         CAltLit (LitNat n) t -> go (fromInteger n) (prettyShow n) t
+--         _                    -> __IMPOSSIBLE__
+--
+--   x <- fromMaybe __IMPOSSIBLE__ <$> varLookup n
+--   let i_switch = L.switch x x_def alts'
+--   i_default <- mkBlock def t
+--   pure $ (i_switch :| i_blocks) |> i_default
+--
+-- termToLlvm (Store _ v `Bind` LAltVar (L.mkLocalId -> x) t) = do
+--   (instructions1, v') <- valToLlvm v
+--   (x_unnamed, instruction_insertvalue) <- first L.LocalId <$> setVar (L.insertvalue v' (L.mkLit 1) 0)
+--   (x_unnamed_ptr, instruction_malloc) <- setVar (L.malloc L.nodeSize)  -- L.alloca
+--   let instruction_store = L.store L.nodeTySyn x_unnamed x_unnamed_ptr
+--       instruction_ptrtoint = L.SetVar x (L.ptrtoint x_unnamed_ptr)
+--   instructions2 <- varLocal x (termToLlvm t)
+--   pure $ instructions1 `List1.prependList`
+--     ([instruction_insertvalue, instruction_malloc, instruction_store, instruction_ptrtoint] <> instructions2)
+--
+-- termToLlvm (FetchOpaqueOffset n offset `Bind` alt)
+--   | elem @[] offset [0, 1] = fetchToLlvm n offset alt
+-- termToLlvm (FetchOffset _ n offset `Bind` alt)
+--   | elem @[] offset [1, 2, 3] = fetchToLlvm n offset alt
+--
+--
+-- termToLlvm (FetchOffset _ n 0 `Bind` LAltVar (L.mkLocalId -> x )
+--            (Case (Var 0) t1 alts `BindEmpty` t2)) = do
+--   continue <- ("continue_" ++) .  show <$> freshAltNum
+--
+--   x_ptr <- fromMaybe __IMPOSSIBLE__ <$> varLookup n
+--
+--   (x_unnamed_ptr, instruction_inttoptr) <- setVar (L.inttoptr x_ptr)
+--   (x_unnamed, instruction_getelemtptr) <- setVar (L.getelementptr x_unnamed_ptr 0)
+--   let instruction_setVar = L.SetVar x (L.load L.I64 x_unnamed)
+--
+--   instructions1 <- varLocal x $ continuationLocal
+--                      (\instruction ->  pure [instruction, L.Br $ L.mkLocalId continue])
+--                      (termToLlvm $ Case (Var 0) t1 alts)
+--
+--   instructions2 <- varLocal x_ptr (termToLlvm t2)
+--
+--   let instruction_continue = L.Label continue instructions2
+--
+--   pure $
+--     [ instruction_inttoptr
+--     , instruction_getelemtptr
+--     , instruction_setVar ] <>
+--      (instructions1 |>
+--       instruction_continue)
+--
+--
+-- termToLlvm (App (Prim prim) [v1, v2] `Bind` alt) = do
+--   let op = case prim of
+--         PAdd -> L.add64
+--         PSub -> L.sub64
+--         _    -> __IMPOSSIBLE__
+--   (is1, v1') <- valToLlvm v1
+--   (is2, v2') <- valToLlvm v2
+--   List1.prependList (is1 ++ is2) <$> laltToContinuation alt (op v1' v2')
+--
+-- termToLlvm (Unit (VariableNode n vs) `Bind` LAltVar (L.mkLocalId -> x) t) = do
+--   tagNum <- maybe __IMPOSSIBLE__ L.LocalId <$> varLookup n
+--   instructions1 <- insertValues (pure . List1.singleton . L.SetVar x) tagNum vs
+--   instructions2 <- varLocal x (termToLlvm t)
+--   pure (instructions1 <> instructions2)
+--
+-- -- termToLlvm (Unit (Tag tag)) = do
+-- --   tagNum <- L.mkLit <$> tagNumLookup tag
+-- --   cont <- view continuationLens
+-- --   insertValues cont tagNum [Tag tag]
+--
+-- termToLlvm (Unit (VariableNode n vs)) = do
+--   tagNum <- maybe __IMPOSSIBLE__ L.LocalId <$> varLookup n
+--   cont <- view continuationLens
+--   insertValues cont tagNum vs
+--
+-- termToLlvm (Unit (ConstantNode tag vs)) = do
 --   tagNum <- L.mkLit <$> tagNumLookup tag
 --   cont <- view continuationLens
---   insertValues cont tagNum [Tag tag]
-
-termToLlvm (Unit (VariableNode n vs)) = do
-  tagNum <- maybe __IMPOSSIBLE__ L.LocalId <$> varLookup n
-  cont <- view continuationLens
-  insertValues cont tagNum vs
-
-termToLlvm (Unit (ConstantNode tag vs)) = do
-  tagNum <- L.mkLit <$> tagNumLookup tag
-  cont <- view continuationLens
-  insertValues cont tagNum vs
-
-termToLlvm (App (Def "printf") [v]) = do
-  (is, v') <- valToLlvm v
-  let format = L.GlobalId $ L.mkGlobalId @String "%d"
-      i_call = L.Call Nothing L.Fastcc L.Void "@printf" [(L.Ptr, format), (L.I64, v')]
-  pure $ is `List1.prependList` (i_call <| L.RetVoid :| [])
-
-termToLlvm (App (Def (L.mkGlobalId -> f)) vs `Bind` alt) = do
-  (argsTy, returnTy) <- fromMaybe (error $ "can't find " ++ prettyShow f) <$> globalLookup f
-  (instructions, vs') <- first concat <$> mapAndUnzipM valToLlvm vs
-  let instruction_call = L.Call Nothing L.Fastcc returnTy f $ zip argsTy vs'
-  List1.prependList instructions <$> laltToContinuation alt instruction_call
-
-
-termToLlvm (App (Def "free") [Var n]) = do
-  x <- fromMaybe __IMPOSSIBLE__ <$> varLookup n
-  (x_unnamed, instruction_inttoptr) <- first L.LocalId <$> setVar (L.inttoptr x)
-  let instruction_call = L.Call Nothing L.Fastcc L.Void "@free" [(L.Ptr, x_unnamed)]
-  instructions2 <- ($ instruction_call) =<< view continuationLens
-  pure (instruction_inttoptr <| instructions2)
-
-
-termToLlvm (App (Def (L.mkGlobalId -> f)) vs) = do
-  (argsTy, returnTy) <- fromMaybe __IMPOSSIBLE__ <$> globalLookup f
-  (instructions1, vs') <- first concat . unzip <$> mapM valToLlvm vs
-  -- If the tail call contains are passed references to new alllocations made in
-  -- the current function then Clang is unable to tail call optimize. So, currently
-  -- we only uses the tailcall hint `tail` instead of the garantee `musttail`.
-  tail <- asks $ flip boolToMaybe L.Tail . cg_returning
-  let instruction_call = L.Call tail L.Fastcc returnTy f (zip argsTy vs')
-  instructions2 <- ($ instruction_call) =<< view continuationLens
-  pure (instructions1 `List1.prependList` instructions2)
-
--- Important to fetch the reference count and combine it with the rest of the node
--- before updating.
-termToLlvm (Update _ _ n v `BindEmpty` t) = do
-  x <- fromMaybe __IMPOSSIBLE__ <$> varLookup n
-  (instructions1, v') <- valToLlvm v
-  (x_unnamed_ptr, instruction_inttoptr) <- setVar (L.inttoptr x)
-  (x_unnamed_ptr', instruction_getelementptr) <- setVar (L.getelementptr x_unnamed_ptr 0)
-  (x_unnamed, instruction_load) <- first L.LocalId <$> setVar (L.load L.I64 x_unnamed_ptr')
-  (x_unnamed', instruction_insertvalue) <- first L.LocalId <$> setVar (L.insertvalue v' x_unnamed 0)
-  let instruction_store = L.store L.nodeTySyn x_unnamed' x_unnamed_ptr
-  instructions2 <- termToLlvm t
-  let instructions =
-        [ instruction_inttoptr
-        , instruction_getelementptr
-        , instruction_load
-        , instruction_insertvalue
-        , instruction_store
-        ]
-  pure $ instructions1 `List1.prependList` (instructions <> instructions2)
-
-
--- Important to fetch the reference count and combine it with the rest of the node
--- before updating.
-termToLlvm (Update _ _ n v) = do
-  x <- fromMaybe __IMPOSSIBLE__ <$> varLookup n
-  (instructions1, v') <- valToLlvm v
-  (x_unnamed_ptr, instruction_inttoptr) <- setVar (L.inttoptr x)
-  (x_unnamed_ptr', instruction_getelementptr) <- setVar (L.getelementptr x_unnamed_ptr 0)
-  (x_unnamed, instruction_load) <- first L.LocalId <$> setVar (L.load L.I64 x_unnamed_ptr')
-  (x_unnamed', instruction_insertvalue) <- first L.LocalId <$> setVar (L.insertvalue v' x_unnamed 0)
-  let instruction_store = L.store L.nodeTySyn x_unnamed' x_unnamed_ptr
-  let instructions =
-        [ instruction_inttoptr
-        , instruction_getelementptr
-        , instruction_load
-        , instruction_insertvalue
-        , instruction_store
-        ]
-  instructions2 <- ($ __IMPOSSIBLE__) =<< view continuationLens
-  pure $ instructions1 `List1.prependList` (instructions <> instructions2)
-
-
-
-termToLlvm (UpdateOffset n offset v) = do
-  x <- fromMaybe __IMPOSSIBLE__ <$> varLookup n
-  (instructions1, v') <- valToLlvm v
-  (x_unnamed_ptr, instruction_inttoptr) <- setVar (L.inttoptr x)
-  (x_unnamed_ptr', instruction_getelementptr) <- setVar (L.getelementptr x_unnamed_ptr offset)
-  let instruction_store = L.store L.I64 v' x_unnamed_ptr'
-  instructions2 <- ($ instruction_store) =<< view continuationLens
-  pure $
-    instructions1 `List1.prependList`
-    [ instruction_inttoptr
-    , instruction_getelementptr ]
-    <> instructions2
-
-termToLlvm (Error TUnreachable) = pure $ List1.singleton L.Unreachable
-termToLlvm t = error $ "BAD:\n" ++ show t-- render (nest 4 $ pretty t)
-
-fetchToLlvm :: Int -> Int -> LAlt -> LlvmGen (List1 L.Instruction)
-fetchToLlvm n offset alt = do
-  x <- fromMaybe __IMPOSSIBLE__ <$> varLookup n
-  (x_unnamed_ptr, i_inttoptr) <- setVar (L.inttoptr x)
-  (x_unnamed, i_getelemtptr) <- setVar (L.getelementptr x_unnamed_ptr offset)
-  List1.prependList [i_inttoptr, i_getelemtptr] <$> laltToContinuation alt (L.load L.I64 x_unnamed)
-
-laltToContinuation :: LAlt -> L.Instruction -> LlvmGen (List1 L.Instruction)
-laltToContinuation (LAltVar (L.mkLocalId -> x) t) i = (L.SetVar x i <|) <$> varLocal x (termToLlvm t)
-laltToContinuation (LAltConstantNode _ (map L.mkLocalId -> xs) t) instruction = do
-  (unnamed, instruction_setVar) <- first L.LocalId <$> setVar instruction
-  let instructions_extractvalue = zipWith (\x -> L.SetVar x . L.extractvalue unnamed) xs [2 ..]
-  instructions <- varLocals xs (termToLlvm t)
-  pure $ (instruction_setVar :| instructions_extractvalue) <> instructions
-
-laltToContinuation (LAltVariableNode (L.mkLocalId -> x) (map L.mkLocalId -> xs) t) i = do
-  (unnamed, i_setVar) <- first L.LocalId <$> setVar i
-  let instructions_extractvalue = List1.zipWith (\x -> L.SetVar x . L.extractvalue unnamed) (x :| xs) [1 ..]
-  is <- varLocals (x : xs) (termToLlvm t)
-  pure $ i_setVar <| (instructions_extractvalue <> is)
-laltToContinuation (LAltEmpty t) instruction = (instruction <|) <$> termToLlvm t
-
-valToLlvm :: Val -> LlvmGen ([L.Instruction], L.Val)
-valToLlvm (Var n) = maybe __IMPOSSIBLE__ (([],) . L.LocalId) <$> varLookup n
-valToLlvm (Def s) = pure ([], L.LocalId $ L.mkLocalId s)
-valToLlvm (Prim _) = __IMPOSSIBLE__
-valToLlvm (Lit lit) = pure ([], L.Lit lit)
-valToLlvm (VariableNode n vs) = do
-  tagNum <- maybe __IMPOSSIBLE__ L.LocalId <$> varLookup n
-  let cont instruction = freshUnnamedVar <&> \unnamed -> List1.singleton (L.SetVar unnamed instruction)
-  instructions <- insertValues cont tagNum vs
-  unnamed <- L.LocalId . L.mkLocalId . pred <$> use freshUnnamedLens
-  pure (toList instructions, unnamed)
-valToLlvm (ConstantNode tag vs) = do
-  tagNum <- L.mkLit <$> tagNumLookup tag
-  let cont instruction = freshUnnamedVar <&> \unnamed -> List1.singleton (L.SetVar unnamed instruction)
-  instructions <- insertValues cont tagNum vs
-  unnamed <- L.LocalId . L.mkLocalId . pred <$> use freshUnnamedLens
-  pure (toList instructions, unnamed)
-valToLlvm (Tag tag) = ([], ) . L.Lit <$> tagToLlvm tag
-valToLlvm Empty = __IMPOSSIBLE__
-
--- values should not include tag nor reference count
-insertValues :: Continuation -> L.Val -> [Val] -> LlvmGen (List1 L.Instruction)
-insertValues cont tagNum vs = do
-  (instructions1, vs') <- first concat . unzip <$> mapM valToLlvm vs
-  let (vs, v) = List1.initLast (tagNum :| vs')
-      (offsets, offset) = List1.initLast [1 .. length vs' + 1]
-  -- TODO replace undef with poison (LLVM devs are trying to remove undef)
-  (acc, instructions2) <- mapAccumM insertValue L.Undef (zip vs offsets)
-  instructions3 <- cont (L.insertvalue acc v offset)
-  pure (List1.prependList (instructions1 <> instructions2) instructions3)
-  where
-  insertValue acc (v, offset) = first L.LocalId <$> setVar (L.insertvalue acc v offset)
-
-data LlvmGenEnv = LlvmGenEnv
-  { cg_freshUnnamed :: Int
-  , cg_freshTagNum  :: Int
-  , cg_freshAltNum  :: Int
-  , cg_tagNums      :: Map Tag Int
-  }
-
-initLlvmGenEnv :: LlvmGenEnv
-initLlvmGenEnv = LlvmGenEnv
-  { cg_freshUnnamed = 1
-  , cg_freshTagNum  = 0
-  , cg_freshAltNum  = 0
-  , cg_tagNums      = mempty
-  }
-
-freshUnnamedLens :: Lens' LlvmGenEnv Int
-freshUnnamedLens f cxt = f cxt.cg_freshUnnamed <&> \n -> cxt{cg_freshUnnamed = n}
-
-freshUnnamedVar :: MonadState LlvmGenEnv m => m L.LocalId
-freshUnnamedVar = L.mkUnnamed <$> use freshUnnamedLens <* modify (over freshUnnamedLens succ)
-
-freshTagNumLens :: Lens' LlvmGenEnv Int
-freshTagNumLens f env = f env.cg_freshTagNum <&> \n -> env{cg_freshTagNum = n}
-
-freshTagNum :: MonadState LlvmGenEnv m => Tag -> m Int
-freshTagNum tag = do
-  whenJustM (Map.lookup tag <$> use tagNumsLens) __IMPOSSIBLE__
-  n <- use freshTagNumLens
-  modify $ over freshTagNumLens succ
-  modify $ over tagNumsLens $ Map.insert tag n
-  pure n
-
-freshAltNumLens :: Lens' LlvmGenEnv Int
-freshAltNumLens f env = f env.cg_freshAltNum <&> \n -> env{cg_freshAltNum = n}
-
-freshAltNum :: MonadState LlvmGenEnv m => m Int
-freshAltNum = use freshAltNumLens <* modify (over freshAltNumLens succ)
-
-tagNumsLens :: Lens' LlvmGenEnv (Map Tag Int)
-tagNumsLens f env = f env.cg_tagNums <&> \n -> env{cg_tagNums = n}
-
-tagNumLookup :: MonadState LlvmGenEnv m => Tag -> m Int
-tagNumLookup tag =
-  fromMaybeM (freshTagNum tag) $ gets $ Map.lookup tag . (^. tagNumsLens)
-
-data LlvmGenCxt = LlvmGenCxt
-  { cg_vars         :: [L.LocalId]
-  , cg_globalsTy    :: GlobalsTy
-  , cg_continuation :: Continuation
-  , cg_returning    :: Bool
-  }
-
-type Continuation = L.Instruction -> LlvmGen (List1 L.Instruction)
-
-type GlobalsTy = Map L.GlobalId ([L.Type], L.Type)
-
-initLlvmGenCxt :: [GrinDefinition] -> GrinDefinition -> LlvmGenCxt
-initLlvmGenCxt defs def = LlvmGenCxt
-  { cg_vars         = map L.mkLocalId (reverse def.gr_args)
-  , cg_globalsTy    = mkGlobalTys defs
-  , cg_continuation = mkCont def
-  , cg_returning    = True }
-
-varsLens :: Lens' LlvmGenCxt [L.LocalId]
-varsLens f cxt = f cxt.cg_vars <&> \xs -> cxt{cg_vars = xs}
-
-varLocals :: MonadReader LlvmGenCxt m => [L.LocalId] -> m a -> m a
-varLocals = foldr (\x f -> varLocal x . f) id
-
-varLocal :: MonadReader LlvmGenCxt m => L.LocalId -> m a -> m a
-varLocal x = locally varsLens (x :)
-
-varLookup :: MonadReader LlvmGenCxt m => Int -> m (Maybe L.LocalId)
-varLookup n = asks $ varLookup' n
-
-varLookup' :: Int -> LlvmGenCxt -> Maybe L.LocalId
-varLookup' n cxt = (cxt ^. varsLens) !!! n
-
-globalsTyLens :: Lens' LlvmGenCxt GlobalsTy
-globalsTyLens f cxt = f cxt.cg_globalsTy <&> \ts -> cxt{cg_globalsTy = ts}
-
-globalLookup :: MonadReader LlvmGenCxt m => L.GlobalId -> m (Maybe ([L.Type], L.Type))
-globalLookup f = Map.lookup f <$> view globalsTyLens
-
-continuationLens :: Lens' LlvmGenCxt Continuation
-continuationLens f cxt = f cxt.cg_continuation <&> \cont -> cxt{cg_continuation = cont}
-
-continuationLocal :: MonadReader LlvmGenCxt m => Continuation -> m a -> m a
-continuationLocal cont = locally continuationLens (const cont)
-
-returningLocal :: MonadReader LlvmGenCxt m => Bool -> m a -> m a
-returningLocal x = local $ \cxt -> cxt{cg_returning = x}
-
-newtype LlvmGen a = LlvmGen{runLlvmGen :: ReaderT LlvmGenCxt (State LlvmGenEnv) a}
-  deriving (Functor, Applicative, Monad, MonadState LlvmGenEnv, MonadReader LlvmGenCxt)
-
-tagToLlvm :: Tag -> LlvmGen Literal
-tagToLlvm = fmap (LitNat . toInteger) . tagNumLookup
-
-todoLlvm s = pure $ L.Comment ("TODO: " ++ take 30 (prettyShow s)) :| []
-
-setVar :: L.Instruction -> LlvmGen (L.LocalId, L.Instruction)
-setVar i = freshUnnamedVar <&> \x -> (x, L.SetVar x i)
+--   insertValues cont tagNum vs
+--
+-- termToLlvm (App (Def "printf") [v]) = do
+--   (is, v') <- valToLlvm v
+--   let format = L.GlobalId $ L.mkGlobalId @String "%d"
+--       i_call = L.Call Nothing L.Fastcc L.Void "@printf" [(L.Ptr, format), (L.I64, v')]
+--   pure $ is `List1.prependList` (i_call <| L.RetVoid :| [])
+--
+-- termToLlvm (App (Def (L.mkGlobalId -> f)) vs `Bind` alt) = do
+--   (argsTy, returnTy) <- fromMaybe (error $ "can't find " ++ prettyShow f) <$> globalLookup f
+--   (instructions, vs') <- first concat <$> mapAndUnzipM valToLlvm vs
+--   let instruction_call = L.Call Nothing L.Fastcc returnTy f $ zip argsTy vs'
+--   List1.prependList instructions <$> laltToContinuation alt instruction_call
+--
+--
+-- termToLlvm (App (Def "free") [Var n]) = do
+--   x <- fromMaybe __IMPOSSIBLE__ <$> varLookup n
+--   (x_unnamed, instruction_inttoptr) <- first L.LocalId <$> setVar (L.inttoptr x)
+--   let instruction_call = L.Call Nothing L.Fastcc L.Void "@free" [(L.Ptr, x_unnamed)]
+--   instructions2 <- ($ instruction_call) =<< view continuationLens
+--   pure (instruction_inttoptr <| instructions2)
+--
+--
+-- termToLlvm (App (Def (L.mkGlobalId -> f)) vs) = do
+--   (argsTy, returnTy) <- fromMaybe __IMPOSSIBLE__ <$> globalLookup f
+--   (instructions1, vs') <- first concat . unzip <$> mapM valToLlvm vs
+--   -- If the tail call contains are passed references to new alllocations made in
+--   -- the current function then Clang is unable to tail call optimize. So, currently
+--   -- we only uses the tailcall hint `tail` instead of the garantee `musttail`.
+--   tail <- asks $ flip boolToMaybe L.Tail . cg_returning
+--   let instruction_call = L.Call tail L.Fastcc returnTy f (zip argsTy vs')
+--   instructions2 <- ($ instruction_call) =<< view continuationLens
+--   pure (instructions1 `List1.prependList` instructions2)
+--
+-- -- Important to fetch the reference count and combine it with the rest of the node
+-- -- before updating.
+-- termToLlvm (Update _ _ n v `BindEmpty` t) = do
+--   x <- fromMaybe __IMPOSSIBLE__ <$> varLookup n
+--   (instructions1, v') <- valToLlvm v
+--   (x_unnamed_ptr, instruction_inttoptr) <- setVar (L.inttoptr x)
+--   (x_unnamed_ptr', instruction_getelementptr) <- setVar (L.getelementptr x_unnamed_ptr 0)
+--   (x_unnamed, instruction_load) <- first L.LocalId <$> setVar (L.load L.I64 x_unnamed_ptr')
+--   (x_unnamed', instruction_insertvalue) <- first L.LocalId <$> setVar (L.insertvalue v' x_unnamed 0)
+--   let instruction_store = L.store L.nodeTySyn x_unnamed' x_unnamed_ptr
+--   instructions2 <- termToLlvm t
+--   let instructions =
+--         [ instruction_inttoptr
+--         , instruction_getelementptr
+--         , instruction_load
+--         , instruction_insertvalue
+--         , instruction_store
+--         ]
+--   pure $ instructions1 `List1.prependList` (instructions <> instructions2)
+--
+--
+-- -- Important to fetch the reference count and combine it with the rest of the node
+-- -- before updating.
+-- termToLlvm (Update _ _ n v) = do
+--   x <- fromMaybe __IMPOSSIBLE__ <$> varLookup n
+--   (instructions1, v') <- valToLlvm v
+--   (x_unnamed_ptr, instruction_inttoptr) <- setVar (L.inttoptr x)
+--   (x_unnamed_ptr', instruction_getelementptr) <- setVar (L.getelementptr x_unnamed_ptr 0)
+--   (x_unnamed, instruction_load) <- first L.LocalId <$> setVar (L.load L.I64 x_unnamed_ptr')
+--   (x_unnamed', instruction_insertvalue) <- first L.LocalId <$> setVar (L.insertvalue v' x_unnamed 0)
+--   let instruction_store = L.store L.nodeTySyn x_unnamed' x_unnamed_ptr
+--   let instructions =
+--         [ instruction_inttoptr
+--         , instruction_getelementptr
+--         , instruction_load
+--         , instruction_insertvalue
+--         , instruction_store
+--         ]
+--   instructions2 <- ($ __IMPOSSIBLE__) =<< view continuationLens
+--   pure $ instructions1 `List1.prependList` (instructions <> instructions2)
+--
+--
+--
+-- -- termToLlvm (UpdateOffset n offset v) = do
+-- --   x <- fromMaybe __IMPOSSIBLE__ <$> varLookup n
+-- --   (instructions1, v') <- valToLlvm v
+-- --   (x_unnamed_ptr, instruction_inttoptr) <- setVar (L.inttoptr x)
+-- --   (x_unnamed_ptr', instruction_getelementptr) <- setVar (L.getelementptr x_unnamed_ptr offset)
+-- --   let instruction_store = L.store L.I64 v' x_unnamed_ptr'
+-- --   instructions2 <- ($ instruction_store) =<< view continuationLens
+-- --   pure $
+-- --     instructions1 `List1.prependList`
+-- --     [ instruction_inttoptr
+-- --     , instruction_getelementptr ]
+-- --     <> instructions2
+--
+-- termToLlvm (Error TUnreachable) = pure $ List1.singleton L.Unreachable
+-- termToLlvm t = error $ "BAD:\n" ++ show t-- render (nest 4 $ pretty t)
+--
+-- fetchToLlvm :: Int -> Int -> LAlt -> LlvmGen (List1 L.Instruction)
+-- fetchToLlvm n offset alt = do
+--   x <- fromMaybe __IMPOSSIBLE__ <$> varLookup n
+--   (x_unnamed_ptr, i_inttoptr) <- setVar (L.inttoptr x)
+--   (x_unnamed, i_getelemtptr) <- setVar (L.getelementptr x_unnamed_ptr offset)
+--   List1.prependList [i_inttoptr, i_getelemtptr] <$> laltToContinuation alt (L.load L.I64 x_unnamed)
+--
+-- laltToContinuation :: LAlt -> L.Instruction -> LlvmGen (List1 L.Instruction)
+-- laltToContinuation (LAltVar (L.mkLocalId -> x) t) i = (L.SetVar x i <|) <$> varLocal x (termToLlvm t)
+-- laltToContinuation (LAltConstantNode _ (map L.mkLocalId -> xs) t) instruction = do
+--   (unnamed, instruction_setVar) <- first L.LocalId <$> setVar instruction
+--   let instructions_extractvalue = zipWith (\x -> L.SetVar x . L.extractvalue unnamed) xs [2 ..]
+--   instructions <- varLocals xs (termToLlvm t)
+--   pure $ (instruction_setVar :| instructions_extractvalue) <> instructions
+--
+-- laltToContinuation (LAltVariableNode (L.mkLocalId -> x) (map L.mkLocalId -> xs) t) i = do
+--   (unnamed, i_setVar) <- first L.LocalId <$> setVar i
+--   let instructions_extractvalue = List1.zipWith (\x -> L.SetVar x . L.extractvalue unnamed) (x :| xs) [1 ..]
+--   is <- varLocals (x : xs) (termToLlvm t)
+--   pure $ i_setVar <| (instructions_extractvalue <> is)
+-- laltToContinuation (LAltEmpty t) instruction = (instruction <|) <$> termToLlvm t
+--
+-- valToLlvm :: Val -> LlvmGen ([L.Instruction], L.Val)
+-- valToLlvm (Var n) = maybe __IMPOSSIBLE__ (([],) . L.LocalId) <$> varLookup n
+-- valToLlvm (Def s) = pure ([], L.LocalId $ L.mkLocalId s)
+-- valToLlvm (Prim _) = __IMPOSSIBLE__
+-- valToLlvm (Lit lit) = pure ([], L.Lit lit)
+-- valToLlvm (VariableNode n vs) = do
+--   tagNum <- maybe __IMPOSSIBLE__ L.LocalId <$> varLookup n
+--   let cont instruction = freshUnnamedVar <&> \unnamed -> List1.singleton (L.SetVar unnamed instruction)
+--   instructions <- insertValues cont tagNum vs
+--   unnamed <- L.LocalId . L.mkLocalId . pred <$> use freshUnnamedLens
+--   pure (toList instructions, unnamed)
+-- valToLlvm (ConstantNode tag vs) = do
+--   tagNum <- L.mkLit <$> tagNumLookup tag
+--   let cont instruction = freshUnnamedVar <&> \unnamed -> List1.singleton (L.SetVar unnamed instruction)
+--   instructions <- insertValues cont tagNum vs
+--   unnamed <- L.LocalId . L.mkLocalId . pred <$> use freshUnnamedLens
+--   pure (toList instructions, unnamed)
+-- valToLlvm (Tag tag) = ([], ) . L.Lit <$> tagToLlvm tag
+-- valToLlvm Empty = __IMPOSSIBLE__
+--
+-- -- values should not include tag nor reference count
+-- insertValues :: Continuation -> L.Val -> [Val] -> LlvmGen (List1 L.Instruction)
+-- insertValues cont tagNum vs = do
+--   (instructions1, vs') <- first concat . unzip <$> mapM valToLlvm vs
+--   let (vs, v) = List1.initLast (tagNum :| vs')
+--       (offsets, offset) = List1.initLast [1 .. length vs' + 1]
+--   -- TODO replace undef with poison (LLVM devs are trying to remove undef)
+--   (acc, instructions2) <- mapAccumM insertValue L.Undef (zip vs offsets)
+--   instructions3 <- cont (L.insertvalue acc v offset)
+--   pure (List1.prependList (instructions1 <> instructions2) instructions3)
+--   where
+--   insertValue acc (v, offset) = first L.LocalId <$> setVar (L.insertvalue acc v offset)
+--
+-- data LlvmGenEnv = LlvmGenEnv
+--   { cg_freshUnnamed :: Int
+--   , cg_freshTagNum  :: Int
+--   , cg_freshAltNum  :: Int
+--   , cg_tagNums      :: Map Tag Int
+--   }
+--
+-- initLlvmGenEnv :: LlvmGenEnv
+-- initLlvmGenEnv = LlvmGenEnv
+--   { cg_freshUnnamed = 1
+--   , cg_freshTagNum  = 0
+--   , cg_freshAltNum  = 0
+--   , cg_tagNums      = mempty
+--   }
+--
+-- freshUnnamedLens :: Lens' LlvmGenEnv Int
+-- freshUnnamedLens f cxt = f cxt.cg_freshUnnamed <&> \n -> cxt{cg_freshUnnamed = n}
+--
+-- freshUnnamedVar :: MonadState LlvmGenEnv m => m L.LocalId
+-- freshUnnamedVar = L.mkUnnamed <$> use freshUnnamedLens <* modify (over freshUnnamedLens succ)
+--
+-- freshTagNumLens :: Lens' LlvmGenEnv Int
+-- freshTagNumLens f env = f env.cg_freshTagNum <&> \n -> env{cg_freshTagNum = n}
+--
+-- freshTagNum :: MonadState LlvmGenEnv m => Tag -> m Int
+-- freshTagNum tag = do
+--   whenJustM (Map.lookup tag <$> use tagNumsLens) __IMPOSSIBLE__
+--   n <- use freshTagNumLens
+--   modify $ over freshTagNumLens succ
+--   modify $ over tagNumsLens $ Map.insert tag n
+--   pure n
+--
+-- freshAltNumLens :: Lens' LlvmGenEnv Int
+-- freshAltNumLens f env = f env.cg_freshAltNum <&> \n -> env{cg_freshAltNum = n}
+--
+-- freshAltNum :: MonadState LlvmGenEnv m => m Int
+-- freshAltNum = use freshAltNumLens <* modify (over freshAltNumLens succ)
+--
+-- tagNumsLens :: Lens' LlvmGenEnv (Map Tag Int)
+-- tagNumsLens f env = f env.cg_tagNums <&> \n -> env{cg_tagNums = n}
+--
+-- tagNumLookup :: MonadState LlvmGenEnv m => Tag -> m Int
+-- tagNumLookup tag =
+--   fromMaybeM (freshTagNum tag) $ gets $ Map.lookup tag . (^. tagNumsLens)
+--
+-- data LlvmGenCxt = LlvmGenCxt
+--   { cg_vars         :: [L.LocalId]
+--   , cg_globalsTy    :: GlobalsTy
+--   , cg_continuation :: Continuation
+--   , cg_returning    :: Bool
+--   }
+--
+-- type Continuation = L.Instruction -> LlvmGen (List1 L.Instruction)
+--
+-- type GlobalsTy = Map L.GlobalId ([L.Type], L.Type)
+--
+-- initLlvmGenCxt :: [GrinDefinition] -> GrinDefinition -> LlvmGenCxt
+-- initLlvmGenCxt defs def = LlvmGenCxt
+--   { cg_vars         = map L.mkLocalId (reverse def.gr_args)
+--   , cg_globalsTy    = mkGlobalTys defs
+--   , cg_continuation = mkCont def
+--   , cg_returning    = True }
+--
+-- varsLens :: Lens' LlvmGenCxt [L.LocalId]
+-- varsLens f cxt = f cxt.cg_vars <&> \xs -> cxt{cg_vars = xs}
+--
+-- varLocals :: MonadReader LlvmGenCxt m => [L.LocalId] -> m a -> m a
+-- varLocals = foldr (\x f -> varLocal x . f) id
+--
+-- varLocal :: MonadReader LlvmGenCxt m => L.LocalId -> m a -> m a
+-- varLocal x = locally varsLens (x :)
+--
+-- varLookup :: MonadReader LlvmGenCxt m => Int -> m (Maybe L.LocalId)
+-- varLookup n = asks $ varLookup' n
+--
+-- varLookup' :: Int -> LlvmGenCxt -> Maybe L.LocalId
+-- varLookup' n cxt = (cxt ^. varsLens) !!! n
+--
+-- globalsTyLens :: Lens' LlvmGenCxt GlobalsTy
+-- globalsTyLens f cxt = f cxt.cg_globalsTy <&> \ts -> cxt{cg_globalsTy = ts}
+--
+-- globalLookup :: MonadReader LlvmGenCxt m => L.GlobalId -> m (Maybe ([L.Type], L.Type))
+-- globalLookup f = Map.lookup f <$> view globalsTyLens
+--
+-- continuationLens :: Lens' LlvmGenCxt Continuation
+-- continuationLens f cxt = f cxt.cg_continuation <&> \cont -> cxt{cg_continuation = cont}
+--
+-- continuationLocal :: MonadReader LlvmGenCxt m => Continuation -> m a -> m a
+-- continuationLocal cont = locally continuationLens (const cont)
+--
+-- returningLocal :: MonadReader LlvmGenCxt m => Bool -> m a -> m a
+-- returningLocal x = local $ \cxt -> cxt{cg_returning = x}
+--
+-- newtype LlvmGen a = LlvmGen{runLlvmGen :: ReaderT LlvmGenCxt (State LlvmGenEnv) a}
+--   deriving (Functor, Applicative, Monad, MonadState LlvmGenEnv, MonadReader LlvmGenCxt)
+--
+-- tagToLlvm :: Tag -> LlvmGen Literal
+-- tagToLlvm = fmap (LitNat . toInteger) . tagNumLookup
+--
+-- todoLlvm s = pure $ L.Comment ("TODO: " ++ take 30 (prettyShow s)) :| []
+--
+-- setVar :: L.Instruction -> LlvmGen (L.LocalId, L.Instruction)
+-- setVar i = freshUnnamedVar <&> \x -> (x, L.SetVar x i)

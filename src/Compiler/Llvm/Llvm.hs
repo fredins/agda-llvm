@@ -1,6 +1,5 @@
 {-# LANGUAGE BlockArguments    #-}
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE ViewPatterns      #-}
 
 module Compiler.Llvm.Llvm (module Compiler.Llvm.Llvm) where
 
@@ -16,12 +15,8 @@ import           Agda.Utils.List
 import           Agda.Utils.List1          (List1, pattern (:|), (<|))
 import qualified Agda.Utils.List1          as List1
 
-import qualified Utils.List1               as List1
-
-
-
 data Instruction =
-    Define CallingConvention Type GlobalId [(Type, LocalId)] (List1 Instruction)
+    Define CallingConvention Type GlobalId [(Type, LocalId)] [Instruction]
   | Declare Type LocalId [Type]
   | Getelementptr Type (List1 (Type, Val))
   | Extractvalue Type Val Int
@@ -31,8 +26,8 @@ data Instruction =
   | Store Type Val Type LocalId
   | Load Type Type Val
   | SetVar LocalId Instruction
-  | Switch Type LocalId LocalId [Alt]
-  | Label String (List1 Instruction)
+  | Switch Type LocalId AltInfo [AltInfo]
+  | Label String [Instruction]
   | Comment String
   | Unreachable
   | Alloca Type -- not used
@@ -44,21 +39,23 @@ data Instruction =
   | Sub Type Val Val
     deriving Show
 
+data AltInfo = MkAltInfo
+  { alt_num          :: !Int
+  , alt_first_label  :: !LocalId
+  , alt_recent_label :: !LocalId
+  , alt_result       :: !LocalId
+  } deriving Show
+
 data Tail = Musttail | Tail deriving Show
 
 pattern RetVoid = Ret Void Nothing
 pattern RetNode v = Ret (Alias "%Node") (Just v)
-
-data Alt = Alt Type Val LocalId deriving Show
 
 add64 :: Val -> Val -> Instruction
 add64 = Add I64
 
 sub64 :: Val -> Val -> Instruction
 sub64 = Sub I64
-
-alt :: Val -> LocalId -> Alt
-alt = Alt I64
 
 newtype GlobalId = MkGlobalId String deriving (Show, Eq, Ord, IsString)
 
@@ -67,23 +64,11 @@ newtype LocalId = MkLocalId String deriving (Show, Eq, Ord, IsString)
 surroundWithQuotes :: String -> String
 surroundWithQuotes s = '"' : s `snoc` '"'
 
-mkLocalId :: Pretty a => a -> LocalId
-mkLocalId = MkLocalId . ('%' :) . prettyShow
+mkLocalId :: String -> LocalId
+mkLocalId = MkLocalId . ('%' :)
 
-mkUnnamed :: (Pretty a, Num a) => a -> LocalId
-mkUnnamed = MkLocalId . ("%" ++) . prettyShow
-
-mkGlobalId :: Pretty a => a -> GlobalId
-mkGlobalId (prettyShow -> s) =
-  MkGlobalId $ case shortName of
-    "main"   -> "@main"
-    "free"   -> "@free"
-    "printf" -> "@printf"
-    "malloc" -> "@malloc"
-    _        -> '@' : '"' : s `snoc` '"'
-  where
-  shortName = List1.last (List1.splitOnDots s)
-
+mkGlobalId :: String -> GlobalId
+mkGlobalId = MkGlobalId . ("@" ++)
 
 mkLit :: Int -> Val
 mkLit = Lit . LitNat . toInteger
@@ -130,8 +115,8 @@ size Void             = __IMPOSSIBLE__
 nodeSize :: Int
 nodeSize = size nodeTy
 
-extractvalue :: Val -> Int -> Instruction
-extractvalue = Extractvalue nodeTySyn
+extractvalue :: LocalId -> Int -> Instruction
+extractvalue = Extractvalue nodeTySyn . LocalId
 
 insertvalue :: Val -> Val -> Int -> Instruction
 insertvalue v  = Insertvalue nodeTySyn v I64
@@ -140,7 +125,7 @@ getelementptr :: LocalId -> Int -> Instruction
 getelementptr ptr offset =
   Getelementptr nodeTySyn $ (Ptr, LocalId ptr) :| [(I32, mkLit 0), (I64, mkLit offset)]
 
-switch :: LocalId -> LocalId -> [Alt] -> Instruction
+switch :: LocalId -> AltInfo -> [AltInfo] -> Instruction
 switch = Switch I64
 
 inttoptr :: LocalId -> Instruction
@@ -152,6 +137,7 @@ ptrtoint x = Ptrtoint Ptr (LocalId x) I64
 load :: Type -> LocalId -> Instruction
 load t = Load t Ptr . LocalId
 
+-- TODO remove once custom node layouts
 nodeTySyn :: Type
 nodeTySyn  = Alias "%Node"
 
@@ -189,7 +175,7 @@ instance Pretty Instruction where
     Define cc t n as is -> vcat
       [ text "define" <+> pretty cc <+> pretty t
       , pretty n <> text ("(" ++ render (prettyArgs as) ++ "){")
-      , nest 4 $ vcat $ List1.map pretty is
+      , nest 4 $ vcat $ map pretty is
       , text "}"
       ]
     SetVar x i -> pretty x <+> text "=" <+> pretty i
@@ -203,9 +189,9 @@ instance Pretty Instruction where
       | isPrefixOf "continue" s -> vcat [text (s `snoc` ':'), vcat $ map pretty $ toList is]
       | otherwise               -> nest 4 $ vcat [text (s `snoc` ':'), nest 4 $ vcat $ map pretty $ toList is]
 
-    Switch t x l alts ->
-      (text "switch" <+> pretty t <+> (pretty x <> text ", label") <+> pretty l <+> text "[")
-      <> vcat (map pretty alts) <> text "]"
+    Switch t x alt alts ->
+      (text "switch" <+> pretty t <+> (pretty x <> text ", label") <+> pretty alt.alt_first_label <+> lbrack)
+      <> vcat (map pretty alts) <> rbrack
     RetVoid -> text "ret void"
     Ret t (Just v) -> text "ret" <+> pretty t <+> pretty v
     Ret{} -> __IMPOSSIBLE__
@@ -237,9 +223,9 @@ instance Pretty Tail where
   pretty Musttail = "musttail"
   pretty Tail     = "tail"
 
-instance Pretty Alt where
-  pretty (Alt t v x) =
-    pretty t <+> text (prettyShow v ++ ", label") <+> pretty x
+instance Pretty AltInfo where
+  pretty altInfo =
+    pretty I64 <+> text (prettyShow altInfo.alt_num ++ ", label") <+> pretty altInfo.alt_first_label
 
 prettyArgs :: (Foldable t, Pretty a) => t (Type, a) -> Doc
 prettyArgs as = text $ intercalate ", " (map go $ toList as)

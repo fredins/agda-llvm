@@ -1,9 +1,8 @@
 {-# LANGUAGE BlockArguments      #-}
 {-# LANGUAGE OverloadedRecordDot #-}
-{-# LANGUAGE RecursiveDo         #-}
 {-# LANGUAGE ViewPatterns        #-}
 
-module Compiler.Grin.Perceus (mkDrop, mkDup, perceus, specializeDrop, pushDownDup, fuseDupDrop) where
+module Compiler.Grin.Perceus (mkDrop, perceus, specializeDrop, pushDownDup, fuseDupDrop) where
 
 import           Control.Applicative          (Applicative (liftA2), (<|>))
 import           Control.Monad                (filterM, forM, mapAndUnzipM,
@@ -290,8 +289,9 @@ perceusTerm c (FetchOffset tag n offset `Bind` LAltVar x t) =
       do perceusBindFetchDup c tag n offset x t
       do perceusBindFetch c tag n offset x t
 perceusTerm c (t `Bind` alt) = perceusBind c t alt
--- Only allowed in dup and drop
-perceusTerm _ UpdateOffset{} = __IMPOSSIBLE__
+-- Only allowed after the Perceus algorithm
+perceusTerm _ Dup{} = __IMPOSSIBLE__
+perceusTerm _ Decref{} = __IMPOSSIBLE__
 -- Fetch entire nodes are not allowed in lower-level GRIN.
 -- P-tags are not yet implemented. All other matches should
 -- be handled by the other rules.
@@ -495,15 +495,11 @@ specializeDrop def = lensGrTerm (go $ replicate def.gr_arity Nothing) def
   go xs (Drop n `BindEmpty` t)
     | Just (tag, map (n +) -> ns) <- xs !! n = do
 
-      decref <-
-        App (Prim PSub) [Var 0, mkLit 1] `bindVar`
-        UpdateOffset (n + 2) 0 (Var 0)
-
       let unique = raise 1 $ foldr (BindEmpty . Drop) (free n) (reverse ns)
 
       drop <-
         FetchOffset tag n 0 `bindVar`
-        Case (Var 0) decref [CAltLit (LitNat 1) unique]
+        Case (Var 0) (Decref $ n + 1) [CAltLit (LitNat 1) unique]
 
       drop `bindEmptyR` go xs t
 
@@ -601,15 +597,12 @@ drop x₀ =
 
 mkDrop :: forall mf. MonadFresh Int mf => [GrinDefinition] -> mf GrinDefinition
 mkDrop defs = do
-  decref <-
-    App (Prim PSub) [Var 0, mkLit 1] `bindVar`
-    UpdateOffset 2 0 (Var 0)
   unique <-
     FetchOpaqueOffset 1 1 `bindVarR`
     Case (Var 0) Unreachable <$> mapM mkAlt tags
   term <-
     FetchOpaqueOffset 0 0 `bindVar`
-    Case (Var 0) decref [CAltLit (LitNat 1) unique]
+    Case (Var 0) (Decref 1) [CAltLit (LitNat 1) unique]
 
   arg <- freshAbs
   pure GrinDefinition
@@ -635,27 +628,6 @@ mkDrop defs = do
       FetchOffset tag 2 offset `bindVar`
       Drop 0                   `BindEmpty`
       raise 1 t
-
-mkDup :: forall mf. MonadFresh Int mf => mf GrinDefinition
-mkDup = do
-  term <-
-    FetchOpaqueOffset 0 0            `bindVarR`
-    App (Prim PAdd) [Var 0, mkLit 1] `bindVar`
-    UpdateOffset 2 0 (Var 0)
-  arg <- freshAbs
-  pure GrinDefinition
-    { gr_name = "dup"
-    , gr_isMain = False
-    , gr_primitive = Nothing
-    , gr_arity = 1
-    , gr_type = Nothing
-    , gr_term = term
-    , gr_args = [arg]
-    , gr_return = Nothing }
-
-
-
-
 
 {- Maybe remove. Would be nice to ensure invariants better than the current approach.
 
