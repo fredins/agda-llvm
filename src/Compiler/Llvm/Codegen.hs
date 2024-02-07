@@ -1,5 +1,3 @@
-{-# LANGUAGE RecursiveDo #-}
-
 module Compiler.Llvm.Codegen (grinToLlvm) where
 
 import           Control.Applicative        (liftA2)
@@ -28,7 +26,7 @@ import           Agda.Utils.Functor         (for)
 import           Agda.Utils.Impossible      (__IMPOSSIBLE__)
 import           Agda.Utils.List            (caseList, (!!))
 import           Agda.Utils.List1           (pattern (:|))
-import           Agda.Utils.Maybe           (fromMaybe, fromMaybeM)
+import           Agda.Utils.Maybe           (fromJust, fromMaybe, fromMaybeM)
 import           Agda.Utils.Monad           (tell1)
 
 import           Compiler.Grin.Grin         (GrinDefinition (..), Tag, Term)
@@ -84,10 +82,9 @@ data Env = MkEnv
   , env_recent_label    :: Maybe LocalId
   }
 
-
 freshUnnamed :: MonadState Env m => m LocalId
 freshUnnamed = do
-  unnamed <- gets $ mkLocalId . prettyShow . env_fresh_unnamed
+  unnamed <- gets $ MkLocalId . prettyShow . env_fresh_unnamed
   modify \ env -> env{env_fresh_unnamed = env.env_fresh_unnamed + 1}
   pure unnamed
 
@@ -181,7 +178,7 @@ emitUnit (AVar x) (FBranch label) (G.VariableNode n vs) = do
 emitUnit ass fin v = error $ render $ text "emitUnit: Missing pattern" <+> pshow ass <+>  pshow fin <+> pshow v
 
 localVars :: MonadReader Cxt m => [G.Abs] -> m a -> m a
-localVars xs = local \ cxt -> cxt{cxt_vars = reverse (map (mkLocalId . prettyShow) xs) ++ cxt.cxt_vars}
+localVars xs = local \ cxt -> cxt{cxt_vars = reverse (map (MkLocalId . prettyShow) xs) ++ cxt.cxt_vars}
 
 localVar :: MonadReader Cxt m => G.Abs -> m a -> m a
 localVar = localVars . singleton
@@ -192,118 +189,304 @@ emitBind ass fin t1 (G.LAltEmpty t2) = do
   emitTerm AEmpty fin' t1
 emitBind ass fin t1 (G.LAltVar x t2) = do
   fin' <- FFallthrough . runCodegen m <$> ask
-  emitTerm (AVar $ mkLocalId $ prettyShow x) fin' t1
+  emitTerm (AVar $ MkLocalId $ prettyShow x) fin' t1
   where
   m = localVar x (emitTerm ass fin t2)
 emitBind ass fin t1 (G.LAltConstantNode _ xs t2) = do
   fin' <- FFallthrough . runCodegen m <$> ask
   emitTerm ass' fin' t1
   where
-  ass' = AConstantNode $ map (mkLocalId . prettyShow) xs
+  ass' = AConstantNode $ map (MkLocalId . prettyShow) xs
   m = localVars xs (emitTerm ass fin t2)
 emitBind ass fin t1 (G.LAltVariableNode x xs t2) = do
   fin' <- FFallthrough . runCodegen m <$> ask
   emitTerm ass' fin' t1
   where
-  ass' = AVariableNode (mkLocalId $ prettyShow x) $ map (mkLocalId . prettyShow) xs
+  ass' = AVariableNode (MkLocalId $ prettyShow x) $ map (MkLocalId . prettyShow) xs
   m = localVars (x : xs) (emitTerm ass fin t2)
 
-emitAlt :: Assignment -> Finally -> Maybe Int -> String -> Term -> Codegen AltInfo
-emitAlt ass fin malt_num desc t = do
-  label_num <- freshLabelNum
-  let label = surroundWithQuotes $  "L" ++ show label_num ++ "-" ++ desc
-  let alt_first_label = mkLocalId $ surroundWithQuotes $  "L" ++ show label_num ++ "-" ++ desc
-  let alt_result = mkLocalId $ surroundWithQuotes $  "L" ++ show label_num ++ "-result-" ++ desc
-
-  censor do singleton . Label label
-         do recentLabel alt_first_label
-            emitTerm ass fin t
-
-  alt_recent_label <- gets $ fromMaybe alt_first_label . env_recent_label
-
-  pure MkAltInfo
-    { alt_num          = malt_num
-    , alt_first_label  = alt_first_label
-    , alt_recent_label = alt_recent_label
-    , alt_result       = alt_result
-    }
-
-emitCAlt :: Assignment -> Finally -> G.CAlt -> Codegen AltInfo
-emitCAlt ass fin (G.CAltTag tag t)    = do
-  alt_num <- lookupTag tag
-  emitAlt ass fin (Just alt_num) (prettyShow tag) t
-emitCAlt ass fin (G.CAltLit (LitNat n) t)    =
-  emitAlt ass fin (Just $ fromInteger n) (show $ fromInteger n) t
-emitCAlt ass fin alt = error $ render $ text "emitCalt: Missing pattern" <+> pshow ass <+>  pshow fin <+> pshow alt
-
+-- FIXME Horrible copy paste programming. Abstract patterns once everything works.
 emitCase :: Assignment -> Finally -> G.Val -> G.Term -> [G.CAlt] -> Codegen ()
 emitCase AEmpty (FFallthrough c) (G.Var n) t alts = do
-  label_num <- freshLabelNum
-  let label = surroundWithQuotes $ "L" ++ show label_num ++ "-continue"
-  let fin = FBranch (mkLocalId label)
-  (altInfo, instructions) <- run $ emitAlt AEmpty fin Nothing "default" t
+  -- Continue label
+  continue_label_num <- freshLabelNum
+  let continue_label = surroundWithQuotes $ "L" ++ show continue_label_num ++ "-continue"
+  let fin = FBranch (MkLocalId continue_label)
+
+  let
+    go malt_num desc t = run do
+      alt_label_num <- freshLabelNum
+      let alt_first_label = MkLocalId $ surroundWithQuotes $  "L" ++ show alt_label_num ++ "-" ++ desc
+      censor do singleton . Label alt_first_label.unLocalId
+             do recentLabel alt_first_label
+                emitTerm AEmpty fin t
+      alt_recent_label <- gets $ fromMaybe alt_first_label . env_recent_label
+      pure MkAltInfo
+            { alt_num          = malt_num
+            , alt_first_label  = alt_first_label
+            , alt_recent_label = alt_recent_label
+            , alt_result       = Nothing
+            }
+
+    emitCAlt (G.CAltTag tag t) = do
+      malt_num <- Just <$> lookupTag tag
+      let desc = prettyShow tag
+      go malt_num desc t
+    emitCAlt (G.CAltLit (LitNat n) t) = do
+      let malt_num = Just (fromInteger n)
+      let desc = show n
+      go malt_num desc t
+    emitCAlt _ = __IMPOSSIBLE__
+
+  -- Alternatives
+  (altInfo, instructions) <- go Nothing "default" t
   (instructions, altInfos) <-
     forAccumM instructions alts \ instructions1  alt -> do
-      (altInfo, instructions2) <- run $ emitCAlt AEmpty fin alt
+      (altInfo, instructions2) <- emitCAlt alt
       pure (instructions1 ++ instructions2, altInfo)
+
+  -- Switch
   scrutinee <- lookupVar n
   tell $ switch scrutinee altInfo altInfos : instructions
-  censor (singleton . Label label) do
-    recentLabel (mkLocalId label)
+
+  -- Continuation
+  censor (singleton . Label continue_label) do
+    recentLabel (MkLocalId continue_label)
     continuation c
 emitCase AEmpty (FBranch label) (G.Var n) t alts = do
-  rec (altInfo, instructions) <- run $ emitAlt AEmpty (FBranch label) Nothing "default" t
-  (instructions, altInfos) <- forAccumM instructions alts \ instructions1 alt -> mdo
-        (altInfo, instructions2) <- run $ emitCAlt AEmpty (FBranch label) alt
+  -- Alternatives
+  (altInfo, instructions) <- go Nothing "default" t
+  (instructions, altInfos) <- forAccumM instructions alts \ instructions1 alt -> do
+        (altInfo, instructions2) <- emitCAlt alt
         pure (instructions1 ++ instructions2, altInfo)
+
+  -- Switch
   scrutinee <- lookupVar n
   tell $ switch scrutinee altInfo altInfos : instructions
+  where
+  go malt_num desc t = run do
+    alt_label_num <- freshLabelNum
+    let alt_first_label = MkLocalId $ surroundWithQuotes $  "L" ++ show alt_label_num ++ "-" ++ desc
+    censor do singleton . Label alt_first_label.unLocalId
+           do recentLabel alt_first_label
+              emitTerm AEmpty (FBranch label) t
+    alt_recent_label <- gets $ fromMaybe alt_first_label . env_recent_label
+    pure MkAltInfo
+          { alt_num          = malt_num
+          , alt_first_label  = alt_first_label
+          , alt_recent_label = alt_recent_label
+          , alt_result       = Nothing
+          }
+
+  emitCAlt (G.CAltTag tag t) = do
+    malt_num <- Just <$> lookupTag tag
+    let desc = prettyShow tag
+    go malt_num desc t
+  emitCAlt (G.CAltLit (LitNat n) t) = do
+    let malt_num = Just (fromInteger n)
+    let desc = show n
+    go malt_num desc t
+  emitCAlt _ = __IMPOSSIBLE__
 emitCase (AVar x) (FFallthrough c) (G.Var n) t alts = do
-  label_num <- freshLabelNum
-  let label = surroundWithQuotes $  "L" ++ show label_num ++ "-continue"
-  rec (altInfo, instructions) <- run $ emitAlt (AVar altInfo.alt_result) (FBranch $ mkLocalId label) Nothing "default" t
-  (instructions, altInfos) <- forAccumM instructions alts \ instructions1 alt -> mdo
-    (altInfo, instructions2) <- run $ emitCAlt (AVar altInfo.alt_result) (FBranch $ mkLocalId label) alt
+  -- Continue label
+  continue_label_num <- freshLabelNum
+  let continue_label = surroundWithQuotes $  "L" ++ show continue_label_num ++ "-continue"
+  let fin = FBranch (MkLocalId continue_label)
+
+  let
+    go malt_num desc t = run do
+      alt_label_num <- freshLabelNum
+      let alt_first_label = MkLocalId $ surroundWithQuotes $  "L" ++ show alt_label_num ++ "-" ++ desc
+      let alt_result = MkLocalId $ surroundWithQuotes $ "L" ++ show alt_label_num ++ "-result-" ++ desc
+      censor do singleton . Label alt_first_label.unLocalId
+             do recentLabel alt_first_label
+                emitTerm (AVar alt_result) fin t
+      alt_recent_label <- gets $ fromMaybe alt_first_label . env_recent_label
+      pure MkAltInfo
+            { alt_num          = malt_num
+            , alt_first_label  = alt_first_label
+            , alt_recent_label = alt_recent_label
+            , alt_result       = Just alt_result
+            }
+
+    emitCAlt (G.CAltTag tag t) = do
+      malt_num <- Just <$> lookupTag tag
+      let desc = prettyShow tag
+      go malt_num desc t
+    emitCAlt (G.CAltLit (LitNat n) t) = do
+      let malt_num = Just (fromInteger n)
+      let desc = show n
+      go malt_num desc t
+    emitCAlt _ = __IMPOSSIBLE__
+
+  -- Alternatives
+  (altInfo, instructions) <- go Nothing "default" t
+  (instructions, altInfos) <- forAccumM instructions alts \ instructions1 alt -> do
+    (altInfo, instructions2) <- emitCAlt alt
     pure (instructions1 ++ instructions2, altInfo)
+
+  -- Switch
   scrutinee <- lookupVar n
   tell $ switch scrutinee altInfo altInfos : instructions
-  censor (singleton . Label label) do
-    recentLabel (mkLocalId label)
+
+  -- Continuation
+  censor (singleton . Label continue_label) do
+    recentLabel (MkLocalId continue_label)
+    -- Phi node
     let altInfos' = list __IMPOSSIBLE__ (:|) $ applyUnless (t == G.Unreachable) (altInfo :) altInfos
-    let pairs = for altInfos' \ altInfo -> (altInfo.alt_result, altInfo.alt_recent_label)
+    let pairs = for altInfos' \ altInfo -> (fromMaybe __IMPOSSIBLE__ altInfo.alt_result, altInfo.alt_recent_label)
     tell1 $ SetVar x (phi nodeTySyn pairs)
     continuation c
-emitCase (AConstantNode xs) (FFallthrough c) (G.Var n) t alts = do
-  label_num <- freshLabelNum
-  let label = surroundWithQuotes $  "L" ++ show label_num ++ "-continue"
-  rec (altInfo, instructions) <- run $ emitAlt (AVar altInfo.alt_result) (FBranch $ mkLocalId label) Nothing "default" t
-  (instructions, altInfos) <- forAccumM instructions alts \ instructions1 alt -> mdo
-    (altInfo, instructions2) <- run $ emitCAlt (AVar altInfo.alt_result) (FBranch $ mkLocalId label) alt
+emitCase (AVar x) (FBranch label) (G.Var n) t alts = do
+  -- Continue label
+  continue_label_num <- freshLabelNum
+  let continue_label = surroundWithQuotes $  "L" ++ show continue_label_num ++ "-continue"
+  let fin = FBranch (MkLocalId continue_label)
+
+  let
+    go malt_num desc t = run do
+      alt_label_num <- freshLabelNum
+      let alt_first_label = MkLocalId $ surroundWithQuotes $  "L" ++ show alt_label_num ++ "-" ++ desc
+      let alt_result = MkLocalId $ surroundWithQuotes $ "L" ++ show alt_label_num ++ "-result-" ++ desc
+      censor do singleton . Label alt_first_label.unLocalId
+             do recentLabel alt_first_label
+                emitTerm (AVar alt_result) fin t
+      alt_recent_label <- gets $ fromMaybe alt_first_label . env_recent_label
+      pure MkAltInfo
+            { alt_num          = malt_num
+            , alt_first_label  = alt_first_label
+            , alt_recent_label = alt_recent_label
+            , alt_result       = Just alt_result
+            }
+
+    emitCAlt (G.CAltTag tag t) = do
+      malt_num <- Just <$> lookupTag tag
+      let desc = prettyShow tag
+      go malt_num desc t
+    emitCAlt (G.CAltLit (LitNat n) t) = do
+      let malt_num = Just (fromInteger n)
+      let desc = show n
+      go malt_num desc t
+    emitCAlt _ = __IMPOSSIBLE__
+
+  -- Alternatives
+  (altInfo, instructions) <- go Nothing "default" t
+  (instructions, altInfos) <- forAccumM instructions alts \ instructions1 alt -> do
+    (altInfo, instructions2) <- emitCAlt alt
     pure (instructions1 ++ instructions2, altInfo)
+
+  -- Switch
   scrutinee <- lookupVar n
   tell $ switch scrutinee altInfo altInfos : instructions
-  censor (singleton . Label label) do
-    recentLabel (mkLocalId label)
+
+  -- Continuation
+  censor (singleton . Label continue_label) do
+    recentLabel (MkLocalId continue_label)
+    -- Phi node
+    let altInfos' = list __IMPOSSIBLE__ (:|) $ applyUnless (t == G.Unreachable) (altInfo :) altInfos
+    let pairs = for altInfos' \ altInfo -> (fromMaybe __IMPOSSIBLE__ altInfo.alt_result, altInfo.alt_recent_label)
+    tell [SetVar x (phi nodeTySyn pairs), Br label]
+emitCase (AConstantNode xs) (FFallthrough c) (G.Var n) t alts = do
+  -- Continue label
+  contine_label_num <- freshLabelNum
+  let continue_label = surroundWithQuotes $  "L" ++ show contine_label_num ++ "-continue"
+  let fin = FBranch (MkLocalId continue_label)
+
+  let
+    go malt_num desc t = run do
+      label_num <- freshLabelNum
+      let alt_first_label = MkLocalId $ surroundWithQuotes $  "L" ++ show label_num ++ "-" ++ desc
+      let alt_result = MkLocalId $ surroundWithQuotes $ "L" ++ show label_num ++ "-result-" ++ desc
+      censor do singleton . Label alt_first_label.unLocalId
+             do recentLabel alt_first_label
+                emitTerm (AVar alt_result) fin t
+      alt_recent_label <- gets $ fromMaybe alt_first_label . env_recent_label
+      pure MkAltInfo
+            { alt_num          = malt_num
+            , alt_first_label  = alt_first_label
+            , alt_recent_label = alt_recent_label
+            , alt_result       = Just alt_result
+            }
+
+    emitCAlt (G.CAltTag tag t) = do
+      malt_num <- Just <$> lookupTag tag
+      let desc = prettyShow tag
+      go malt_num desc t
+    emitCAlt (G.CAltLit (LitNat n) t) = do
+      let malt_num = Just (fromInteger n)
+      let desc = show n
+      go malt_num desc t
+    emitCAlt _ = __IMPOSSIBLE__
+
+  -- Alternatives
+  (altInfo, instructions) <- go Nothing "default" t
+  (instructions, altInfos) <- forAccumM instructions alts \ instructions1 alt -> do
+    (altInfo, instructions2) <- emitCAlt alt
+    pure (instructions1 ++ instructions2, altInfo)
+
+  -- Switch
+  scrutinee <- lookupVar n
+  tell $ switch scrutinee altInfo altInfos : instructions
+
+  -- Continuation
+  censor (singleton . Label continue_label) do
+    recentLabel (MkLocalId continue_label)
+    -- Phi node
     unnamed <- freshUnnamed
     let altInfos' = list __IMPOSSIBLE__ (:|) $ applyUnless (t == G.Unreachable) (altInfo :) altInfos
-    let pairs = for altInfos' \ altInfo -> (altInfo.alt_result, altInfo.alt_recent_label)
+    let pairs = for altInfos' \ altInfo -> (fromMaybe __IMPOSSIBLE__ altInfo.alt_result, altInfo.alt_recent_label)
     tell $ SetVar unnamed (phi nodeTySyn pairs)
          : zipWith (\ x -> SetVar x . extractvalue unnamed) xs [2 ..]
     continuation c
 emitCase (AVariableNode x xs) (FFallthrough c) (G.Var n) t alts = do
-  label_num <- freshLabelNum
-  let label = surroundWithQuotes $  "L" ++ show label_num ++ "-continue"
-  rec (altInfo, instructions) <- run $ emitAlt (AVar altInfo.alt_result) (FBranch $ mkLocalId label) Nothing "default" t
-  (instructions, altInfos) <- forAccumM instructions alts \ instructions1 alt -> mdo
-    (altInfo, instructions2) <- run $ emitCAlt (AVar altInfo.alt_result) (FBranch $ mkLocalId label) alt
+  -- Continue label
+  contine_label_num <- freshLabelNum
+  let continue_label = surroundWithQuotes $  "L" ++ show contine_label_num ++ "-continue"
+  let fin = FBranch (MkLocalId continue_label)
+
+  let
+    go malt_num desc t = run do
+      label_num <- freshLabelNum
+      let alt_first_label = MkLocalId $ surroundWithQuotes $  "L" ++ show label_num ++ "-" ++ desc
+      let alt_result = MkLocalId $ surroundWithQuotes $ "L" ++ show label_num ++ "-result-" ++ desc
+      censor do singleton . Label alt_first_label.unLocalId
+             do recentLabel alt_first_label
+                emitTerm (AVar alt_result) fin t
+      alt_recent_label <- gets $ fromMaybe alt_first_label . env_recent_label
+      pure MkAltInfo
+            { alt_num          = malt_num
+            , alt_first_label  = alt_first_label
+            , alt_recent_label = alt_recent_label
+            , alt_result       = Just alt_result
+            }
+
+    emitCAlt (G.CAltTag tag t) = do
+      malt_num <- Just <$> lookupTag tag
+      let desc = prettyShow tag
+      go malt_num desc t
+    emitCAlt (G.CAltLit (LitNat n) t) = do
+      let malt_num = Just (fromInteger n)
+      let desc = show n
+      go malt_num desc t
+    emitCAlt _ = __IMPOSSIBLE__
+
+  -- Alternatives
+  (altInfo, instructions) <- go Nothing "default" t
+  (instructions, altInfos) <- forAccumM instructions alts \ instructions1 alt -> do
+    (altInfo, instructions2) <- emitCAlt alt
     pure (instructions1 ++ instructions2, altInfo)
+
+  -- Switch
   scrutinee <- lookupVar n
   tell $ switch scrutinee altInfo altInfos : instructions
-  censor (singleton . Label label) do
-    recentLabel (mkLocalId label)
+
+  -- Continuation
+  censor (singleton . Label continue_label) do
+    recentLabel (MkLocalId continue_label)
+    -- Phi node
     unnamed <- freshUnnamed
     let altInfos' = list __IMPOSSIBLE__ (:|) $ applyUnless (t == G.Unreachable) (altInfo :) altInfos
-    let pairs = for altInfos' \ altInfo -> (altInfo.alt_result, altInfo.alt_recent_label)
+    let pairs = for altInfos' \ altInfo -> (fromMaybe __IMPOSSIBLE__ altInfo.alt_result, altInfo.alt_recent_label)
     tell $ SetVar unnamed (phi nodeTySyn pairs)
          : zipWith (\ x -> SetVar x . extractvalue unnamed) (x : xs) [1 ..]
     continuation c
@@ -324,7 +507,7 @@ mkCall tail f vs = do
 emitApp :: Assignment -> Finally -> G.Val -> [G.Val] -> Codegen ()
 emitApp AEmpty FReturn (G.Def "printf") [v] = do
   v' <- emitVal v
-  tell [ Call (Just Tail) Fastcc Void (mkGlobalId "printf") [(Ptr, fmt), (I64, v')]
+  tell [ Call Nothing Fastcc Void (mkGlobalId "printf") [(Ptr, fmt), (I64, v')]
        , RetVoid
        ]
   where
@@ -458,7 +641,7 @@ emitTerm _   _   G.Fetch'{}                     = __IMPOSSIBLE__
 --------------------------------------------------------------------------------
 
 initCxt :: GrinDefinition -> Cxt
-initCxt def = MkCxt {cxt_vars = map (mkLocalId . prettyShow) (reverse def.gr_args)}
+initCxt def = MkCxt {cxt_vars = map (MkLocalId . prettyShow) (reverse def.gr_args)}
 
 initEnv :: Map Tag Int -> Env
 initEnv tags = MkEnv
@@ -473,7 +656,7 @@ grinToLlvm :: Map Tag Int -> GrinDefinition -> (Map Tag Int, Instruction)
 grinToLlvm tags def = (tags', definition)
   where
   (argsTys, returnTy) = typeOfDef def.gr_name def.gr_arity
-  args = zip argsTys (map (mkLocalId . prettyShow) def.gr_args)
+  args = zip argsTys (map (MkLocalId . prettyShow) def.gr_args)
 
   (instructions, tags') = bimap snd env_tags
                         $ runCodegen do emitTerm AEmpty FReturn def.gr_term

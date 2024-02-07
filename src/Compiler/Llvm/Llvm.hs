@@ -5,7 +5,7 @@ module Compiler.Llvm.Llvm (module Compiler.Llvm.Llvm) where
 
 import           Control.Arrow             (Arrow (first))
 import           Data.Foldable             (toList)
-import           Data.List                 (intercalate, isPrefixOf)
+import           Data.List                 (intercalate)
 import           Data.String               (IsString)
 
 import           Agda.Syntax.Common.Pretty
@@ -14,7 +14,7 @@ import           Agda.Utils.Impossible     (__IMPOSSIBLE__)
 import           Agda.Utils.List
 import           Agda.Utils.List1          (List1, pattern (:|), (<|))
 import qualified Agda.Utils.List1          as List1
-import Agda.Utils.Maybe (fromMaybe)
+import           Agda.Utils.Maybe          (fromMaybe)
 
 data Instruction =
     Define CallingConvention Type GlobalId [(Type, LocalId)] [Instruction]
@@ -44,13 +44,13 @@ data AltInfo = MkAltInfo
   { alt_num          :: !(Maybe Int)
   , alt_first_label  :: !LocalId
   , alt_recent_label :: !LocalId
-  , alt_result       :: !LocalId
+  , alt_result       :: !(Maybe LocalId)
   } deriving Show
 
 data Tail = Musttail | Tail deriving Show
 
 pattern RetVoid = Ret Void Nothing
-pattern RetNode v = Ret (Alias "%Node") (Just v)
+pattern RetNode v = Ret (Alias "Node") (Just v)
 
 add64 :: Val -> Val -> Instruction
 add64 = Add I64
@@ -60,13 +60,10 @@ sub64 = Sub I64
 
 newtype GlobalId = MkGlobalId String deriving (Show, Eq, Ord, IsString)
 
-newtype LocalId = MkLocalId String deriving (Show, Eq, Ord, IsString)
+newtype LocalId = MkLocalId{unLocalId :: String} deriving (Show, Eq, Ord, IsString)
 
 surroundWithQuotes :: String -> String
 surroundWithQuotes s = '"' : s `snoc` '"'
-
-mkLocalId :: String -> LocalId
-mkLocalId = MkLocalId . ('%' :)
 
 mkGlobalId :: String -> GlobalId
 mkGlobalId = MkGlobalId . ("@" ++)
@@ -106,7 +103,7 @@ size I8               = 1
 size I64              = 8
 size I32              = 4
 size Ptr              = 8
-size (Alias "%Node")  = size nodeTy
+size (Alias "Node")   = size nodeTy
 -- size (Alias "%HeapNode")  = size heapNodeTy
 size (StructureTy ts) = List1.foldr ((+) . size) size ts
 size Varargs          = __IMPOSSIBLE__
@@ -140,7 +137,7 @@ load t = Load t Ptr . LocalId
 
 -- TODO remove once custom node layouts
 nodeTySyn :: Type
-nodeTySyn  = Alias "%Node"
+nodeTySyn  = Alias "Node"
 
 nodeTy :: Type
 nodeTy = StructureTy $ I64 <| I64 <| I64 <| I64 :| []
@@ -187,7 +184,7 @@ instance Pretty Instruction where
       ]
 
     Label s is
-      | isPrefixOf "continue" s -> vcat [text (s `snoc` ':'), vcat $ map pretty $ toList is]
+      | "continue" `isSublistOf` s -> vcat [text (s `snoc` ':'), vcat $ map pretty $ toList is]
       | otherwise               -> nest 4 $ vcat [text (s `snoc` ':'), nest 4 $ vcat $ map pretty $ toList is]
 
     Switch t x alt alts ->
@@ -260,7 +257,7 @@ instance Pretty Type where
     Varargs        -> text "..."
 
 instance Pretty LocalId where
-  pretty (MkLocalId s) = text s
+  pretty (MkLocalId s) = text $ '%' : s
 
 instance Pretty GlobalId where
   pretty (MkGlobalId s) = text s

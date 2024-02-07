@@ -570,7 +570,6 @@ llvmPostCompile env _ mods = do
     putStrLn $ "Writing file " ++ file_ll
     writeFile file_ll program
 
-    {-
 
     -- -O3 -flto
     let opt = unwords
@@ -594,7 +593,6 @@ llvmPostCompile env _ mods = do
     putStrLn "Linking program"
     putStrLn cmd
     void $ readCreateProcess (shell cmd) ""
-    -}
 
 
 -----------------------------------------------------------------------
