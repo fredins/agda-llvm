@@ -16,5 +16,5 @@ sum : ℕ → List ℕ → ℕ
 sum acc [] = acc
 sum acc (x ∷ xs) = sum (x + acc) xs
 
-main = sum 0 (upTo [] 100) 
+main = sum 0 (upTo [] 101) 
 

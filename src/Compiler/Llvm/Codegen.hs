@@ -583,12 +583,14 @@ emitUpdate AEmpty (FFallthrough c) _ _ n v = do
 emitUpdate ass fin tag' tag n v = error $ render $ text "emitUpdate: Missing pattern" <+> pshow ass <+>  pshow fin <+> pretty tag' <+> pretty tag <+> pshow n <+> pshow v
 
 emitStore :: Assignment -> Finally -> G.Val -> Codegen ()
-emitStore (AVar x) (FFallthrough c) v = do
-  v' <- emitVal v
-  unnamed <- freshUnnamed
-  tell [ SetVar unnamed (malloc nodeSize)
-       , store nodeTySyn v' unnamed
-       , SetVar x (ptrtoint unnamed)
+emitStore (AVar x) (FFallthrough c) (G.ConstantNode tag vs) = do
+  v <- mkLit <$> lookupTag tag
+  vs' <- mapM emitVal vs
+  node <- mkUnnamedNode v vs'
+  node' <- setVar $ insertvalue (LocalId node) (mkLit 1) 0
+  ptr <- setVar (malloc nodeSize)
+  tell [ store nodeTySyn (LocalId node') ptr
+       , SetVar x (ptrtoint ptr)
        ]
   continuation c
 emitStore ass fin v = error $ render $ text "emitStore: Missing pattern" <+> pshow ass <+>  pshow fin <+> pshow v

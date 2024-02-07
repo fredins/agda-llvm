@@ -12,4 +12,4 @@ nfib (suc (suc n)) =
   primForce (primForce (suc n) nfib) _+_ 
     (primForce (primForce n nfib) _+_ 1)
 
-main = nfib 10
+main = nfib 16

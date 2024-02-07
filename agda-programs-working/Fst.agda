@@ -17,4 +17,4 @@ nfib zero = 1
 nfib (suc zero) = 1
 nfib (suc (suc n)) = nfib (suc n) + nfib n + 1
 
-main = nfib (primForce (10 , 100) fst)
+main = nfib (primForce (14 , 100) fst)
