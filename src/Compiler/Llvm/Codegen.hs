@@ -562,23 +562,24 @@ emitFetchOffset (AVar x) (FFallthrough c) _ n offset = do
 emitFetchOffset ass fin tag n offset = error $ render $ text "emitFetchOpaqueOffset: Missing pattern" <+> pshow ass <+>  pshow fin <+> pretty tag <+> pshow n <+> pshow offset
 
 -- TODO need to lookup tag to get node structure
+emitUpdate' :: Int -> G.Tag -> [G.Val] ->Codegen ()
+emitUpdate' n tag vs = do 
+  x <- lookupVar n
+  x_ptr <- setVar (inttoptr x)
+  rc_ptr <- setVar (getelementptr x_ptr 0)
+  rc <- setVar (load I64 rc_ptr)
+  v <- mkLit <$> lookupTag tag
+  vs' <- mapM emitVal vs
+  node <- mkUnnamedNode v vs'
+  node' <- setVar (insertvalue (LocalId node) (LocalId rc) 0)
+  tell1 (store nodeTySyn (LocalId node') x_ptr)
+
 emitUpdate :: Assignment -> Finally -> Tag -> Tag -> Int -> G.Val -> Codegen ()
-emitUpdate AEmpty (FBranch label) _ _ n v = do
-  x <- lookupVar n
-  v' <- emitVal v
-  x_ptr <- setVar (inttoptr x)
-  rc_ptr <- setVar (getelementptr x_ptr 0)
-  rc <- setVar (load I64 rc_ptr)
-  node <- setVar (insertvalue v' (LocalId rc) 0)
-  tell [store nodeTySyn (LocalId node) x_ptr, Br label]
-emitUpdate AEmpty (FFallthrough c) _ _ n v = do
-  x <- lookupVar n
-  v' <- emitVal v
-  x_ptr <- setVar (inttoptr x)
-  rc_ptr <- setVar (getelementptr x_ptr 0)
-  rc <- setVar (load I64 rc_ptr)
-  node <- setVar (insertvalue v' (LocalId rc) 0)
-  tell [store nodeTySyn (LocalId node) x_ptr]
+emitUpdate AEmpty (FBranch label) _ _ n (G.ConstantNode tag vs) = do
+  emitUpdate' n tag vs
+  tell1 (Br label)
+emitUpdate AEmpty (FFallthrough c) _ _ n (G.ConstantNode tag vs) = do
+  emitUpdate' n tag vs
   continuation c
 emitUpdate ass fin tag' tag n v = error $ render $ text "emitUpdate: Missing pattern" <+> pshow ass <+>  pshow fin <+> pretty tag' <+> pretty tag <+> pshow n <+> pshow v
 
