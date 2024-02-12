@@ -26,13 +26,14 @@ css: Agda.css
 Read the following: 
 
 - @cockx2022
+- @reinking2020 (proofs)
 
 Did the following: 
 
-- Finished the new code generator, which correctly handles nested case 
+- Finished the new code generator, which correctly handles nested case  
   expressions among other things.
 
-
+- Defined some provable/testable properties about our Perceus algorithm.
 
 ### W.3 and W.4
 

@@ -132,6 +132,7 @@ instance Pretty InterpreterError where
 throw :: (HasCallStack, MonadError InterpreterError m) => Error -> m a
 throw e = withCallerCallStack $ throwError . InterpreterError e
 
+-- FIXME: record
 data HeapNode = HeapNode Integer Tag [Value]
 
 instance Pretty HeapNode where
