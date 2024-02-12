@@ -1,6 +1,6 @@
 {
   "nodes": {
-    "agda": {
+    "Agda": {
       "flake": false,
       "locked": {
         "lastModified": 1702584566,
@@ -85,7 +85,7 @@
     },
     "root": {
       "inputs": {
-        "agda": "agda",
+        "Agda": "Agda",
         "flake-parts": "flake-parts",
         "haskell-flake": "haskell-flake",
         "nixpkgs": "nixpkgs"
