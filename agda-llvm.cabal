@@ -58,6 +58,7 @@ common warnings
 library 
   import: warnings
   exposed-modules:
+    Compiler.Grin.Codegen
     Compiler.Grin.Grin
     Compiler.Grin.GrinInterpreter
     Compiler.Grin.GrinTransformations
