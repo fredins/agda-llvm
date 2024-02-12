@@ -1,6 +1,5 @@
-An Agda backend which compiles to LLVM via the intermidate representation GRIN (Boquist 1999, Johnsson 1991).
-It uses Perceus-style reference counting and doesn't require an external runtime system except initialization 
-code (crt0) and libc.
+An Agda backend that compiles to LLVM via the intermidate representation GRIN (Boquist 1999, Johnsson 1991).
+Memory is managed by Perceus-style (Reiking et al. 2021) reference counting.
 
 ### Dependencies
 
