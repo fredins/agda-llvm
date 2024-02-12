@@ -1,16 +1,16 @@
-.PHONY : sdist clean test
+.PHONY : install test clean
 
 install :
 	cabal install
-
-run : 
-	agda-llvm --llvm agda-programs/DownFrom.agda
 
 test :
 	cabal run test
 
 test-clean :
 	rm test/*.err
+
+run : 
+	agda-llvm --llvm agda-programs/DownFrom.agda
 
 html : html/logbook.html
 
