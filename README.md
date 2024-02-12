@@ -40,14 +40,10 @@ code (crt0) and libc.
 
 ### Build from source
 
-```
-git clone git@github.com:fredins/agda-llvm.git
-```
-
 The easiest way to satisfy all the dependencies is by using the nix flake: 
 
 ```
-nix develop
+nix --experimental-features 'nix-command flakes' develop
 ```
 
 Running `make install` will build and install the exectuable `agda-llvm` usually to `$HOME/.cabal/bin/`. This will build all dependencies and an Agda fork [github.com/fredins/agda](https://github.com/fredins/agda), which is over 400 modules. 
