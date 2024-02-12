@@ -20,7 +20,21 @@ css: Agda.css
 
   ```
 
-### W.3 W.4
+### W.5 and W.6
+
+
+Read the following: 
+
+- @cockx2022
+
+Did the following: 
+
+- Finished the new code generator, which correctly handles nested case 
+  expressions among other things.
+
+
+
+### W.3 and W.4
 
 
 - Reworked how updates are done throughout the compiler:

@@ -946,3 +946,40 @@ series = {LFP '86}
   school={Universiteit van Amsterdam},
   url={https://eprints.illc.uva.nl/id/document/1982}
 }
+@inproceedings{cockx2022,
+author = {Cockx, Jesper and Melkonian, Orestis and Escot, Lucas and Chapman, James and Norell, Ulf},
+title = {Reasonable Agda is correct Haskell: writing verified Haskell using agda2hs},
+year = {2022},
+isbn = {9781450394383},
+publisher = {Association for Computing Machinery},
+address = {New York, NY, USA},
+url = {https://doi.org/10.1145/3546189.3549920},
+doi = {10.1145/3546189.3549920},
+abstract = {Modern dependently typed languages such as Agda can be used to  
+ statically enforce the correctness of programs. However, they still  
+ lack the large ecosystem of a more popular language like Haskell.  
+ To combine the strength of both approaches, we present agda2hs, a  
+ tool that translates an expressive subset of Agda to readable  
+ Haskell, erasing dependent types and proofs in the process.  
+ Thanks to Agda's support for erasure annotations, this  
+ process is both safe and transparent to the user.  
+ Compared to other tools for program extraction, agda2hs uses a syntax  
+ that is already familiar to functional programmers, allows for both  
+ intrinsic and extrinsic approaches to verification, and produces  
+ Haskell code that is easy to read and audit by programmers with no  
+ knowledge of Agda.  
+
+ We present a practical use case of agda2hs at IOG  
+ to verify properties of a program generator.  
+ While both agda2hs and its ecosystem are still young, our  
+ experiences so far show that this is a viable approach to make  
+ verified functional programming available to a broader audience.  
+
+ This paper is a literate Agda script, hence all rendered (Agda) code has been typechecked.},
+booktitle = {Proceedings of the 15th ACM SIGPLAN International Haskell Symposium},
+pages = {108–122},
+numpages = {15},
+keywords = {Agda, Dependent types, Formal verification, Program extraction},
+location = {Ljubljana, Slovenia},
+series = {Haskell 2022}
+}
