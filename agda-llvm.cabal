@@ -120,30 +120,36 @@ executable agda-llvm
 
   default-language: GHC2021
 
--- test-suite test
---   import:           warnings
---
---   type:             exitcode-stdio-1.0
---   hs-source-dirs:   test/
---   main-is:          Main.hs
---
---   default-extensions:
---     LambdaCase
---     PatternSynonyms
---
---   build-depends:    
---     , Agda         >= 2.6.4
---     , base         >= 4.12.0.0 && < 4.20
---     , bytestring
---     , containers   >= 0.6.0.1  && < 0.7
---     , deepseq      >= 1.4.4.0  && < 1.5            
---     , extra
---     , filepath
---     , mtl
---     , tasty        >= 1.1.0.4 && < 1.5
---     , tasty-silver >= 3.1.13  && < 3.4
---     , text
---     , unix-compat      >= 0.4.3.1 && < 0.8
---     , agda-llvm
---
---   default-language: GHC2021
+test-suite test
+  import:           warnings
+
+  type:             exitcode-stdio-1.0
+  hs-source-dirs:   test/
+  main-is:          Test.hs
+
+  default-extensions:
+    LambdaCase
+    PatternSynonyms
+    OverloadedRecordDot      
+    BlockArguments        
+    PatternSynonyms
+    LexicalNegation
+
+  build-depends:    
+    , Agda         >= 2.6.4
+    , agda-llvm
+    , base         >= 4.12.0.0 && < 4.20
+    -- , bytestring
+    -- , containers   >= 0.6.0.1  && < 0.7
+    -- , deepseq      >= 1.4.4.0  && < 1.5            
+    -- , extra
+    -- , filepath
+    -- , mtl
+    , tasty        >= 1.1.0.4 && < 1.5
+    , tasty-quickcheck
+    , QuickCheck
+    -- , tasty-silver >= 3.1.13  && < 3.4
+    -- , text
+    -- , unix-compat      >= 0.4.3.1 && < 0.8
+
+  default-language: GHC2021
