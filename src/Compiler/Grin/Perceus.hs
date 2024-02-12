@@ -2,7 +2,7 @@
 {-# LANGUAGE OverloadedRecordDot #-}
 {-# LANGUAGE ViewPatterns        #-}
 
-module Compiler.Grin.Perceus (mkDrop, perceus, specializeDrop, pushDownDup, fuseDupDrop) where
+module Compiler.Grin.Perceus (ReferenceCountedTerm, mkDrop, perceus, specializeDrop, pushDownDup, fuseDupDrop) where
 
 import           Control.Applicative          (Applicative (liftA2), (<|>))
 import           Control.Monad                (filterM, forM, mapAndUnzipM,
@@ -95,10 +95,13 @@ perceus def = do
   t <- runReaderT (perceusDef def.gr_args def.gr_term) (initPerceusCxt def)
   pure $ setGrTerm t def
 
+-- TODO replace with newtype or trees-that-grow
+type ReferenceCountedTerm = Term
+
 -- ∅ | Γ ⊢ t ⟿  t′   Γ = fv(t)   Γ′ = {x}∗ - Γ
 -- -------------------------------------------
 -- ø ⊢ f {x}∗ = t ⟿  f {x}∗ = drop Γ′; t′
-perceusDef :: (MonadReader Cxt m, MonadFresh Int m) => [Abs] -> Term -> m Term
+perceusDef :: (MonadReader Cxt m, MonadFresh Int m) => [Abs] -> Term -> m ReferenceCountedTerm
 perceusDef xs t = do
   -- Γ = fv(t)
   gamma <- varsLocal xs $ fvTerm t
@@ -118,7 +121,7 @@ perceusStore
   => Context 
   -> Loc 
   -> Val
-  -> m Term
+  -> m ReferenceCountedTerm
 perceusStore c loc v = foldr BindEmpty (Store loc v) <$> perceusVal c v
 
 -- Rule: UNIT
@@ -126,7 +129,7 @@ perceusUnit
   :: (MonadReader Cxt m, MonadFresh Int m) 
   => Context 
   -> Val
-  -> m Term
+  -> m ReferenceCountedTerm
 perceusUnit c v = foldr BindEmpty (Unit v) <$> perceusVal c v
 
 -- Rule: APP
@@ -135,7 +138,7 @@ perceusApp
   => Context 
   -> Val 
   -> [Val]
-  -> m Term
+  -> m ReferenceCountedTerm
 perceusApp c v vs = do
   -- FIXME GRIN.hs should use List1
   let vs' = List1.fromListSafe __IMPOSSIBLE__ vs
@@ -150,7 +153,7 @@ perceusCase
   -> Int
   -> Term 
   -> [CAlt]
-  -> m Term
+  -> m ReferenceCountedTerm
 perceusCase c n t alts = do
   -- Lookup the variables that depend on the scrutinee
   x <- fromMaybe __IMPOSSIBLE__ <$> deBruijnLookup n
@@ -179,7 +182,7 @@ perceusUpdate
   -> Tag
   -> Int
   -> Val 
-  -> m Term
+  -> m ReferenceCountedTerm
 perceusUpdate c tag' tag n v = do
   t <- foldr BindEmpty (Update tag' tag n v) <$> perceusVal c v
   foldrM step t [2 .. tag.tArity + 1]
@@ -201,7 +204,7 @@ perceusBindFetchDup
   -> Int
   -> Abs
   -> Term 
-  -> m Term
+  -> m ReferenceCountedTerm
 perceusBindFetchDup c tag n offset x t = do
   fv_t <- varLocal x (fvTerm t)
   let gamma' = Set.insert x (c.gamma `Set.intersection` fv_t)
@@ -220,7 +223,7 @@ perceusBindFetch
   -> Int
   -> Abs
   -> Term 
-  -> m Term
+  -> m ReferenceCountedTerm
 perceusBindFetch c tag n offset x t = do
   fv_t <- varLocal x (fvTerm t)
   let gamma' = c.gamma `Set.intersection` fv_t
@@ -236,7 +239,7 @@ perceusBind
   => Context 
   -> Term
   -> LAlt 
-  -> m Term
+  -> m ReferenceCountedTerm
 perceusBind c t1 alt = do
   let (mkAlt, t2, xs) = splitLaltWithVars alt
   bv_p <- Set.fromList <$> filterM isPointer xs
@@ -274,7 +277,7 @@ perceusTerm
   :: (MonadReader Cxt m, MonadFresh Int m) 
   => Context 
   -> Term 
-  -> m Term
+  -> m ReferenceCountedTerm
 -- Rule: FETCH-OPAQUE
 perceusTerm _ (FetchOpaqueOffset n offset) = pure (FetchOpaqueOffset n offset) 
 -- Rule: UNREACHABLE 
@@ -301,7 +304,7 @@ perceusTerm _ Fetch'{} = __IMPOSSIBLE__
 perceusTerm _ Case{} = __IMPOSSIBLE__
 
 
-type Dups = [Term]
+type Dups = [ReferenceCountedTerm]
 
 -- TODO formalize
 perceusVal :: MonadReader Cxt m => Context -> Val -> m Dups
@@ -365,7 +368,7 @@ splitContext c vs = List1.scanr' step (Context c.delta) <$> gammas
 
 
 -- | drop Γ; t = drop x₁; ..; drop xₙ ; t   where |Γ| = n
-dropSetL :: MonadReader Cxt m => Set Abs -> Term -> m Term
+dropSetL :: MonadReader Cxt m => Set Abs -> Term -> m ReferenceCountedTerm
 dropSetL gammad t = asks \ cxt ->
   foldr (step cxt.pc_vars) t gammad
   where
@@ -375,7 +378,7 @@ dropSetL gammad t = asks \ cxt ->
               do \ n -> Drop n `BindEmpty` t
 
 -- | drop Γ; t = t ; drop x₁ ; ... ; drop xₙ    where |Γ| = n
-dropSetR :: MonadReader Cxt m => Term -> Set Abs -> m Term
+dropSetR :: MonadReader Cxt m => Term -> Set Abs -> m ReferenceCountedTerm
 dropSetR t gammad = asks \ cxt ->
   foldr (step cxt.pc_vars) t gammad
   where
@@ -521,7 +524,7 @@ specializeDrop def = lensGrTerm (go $ replicate def.gr_arity Nothing) def
 
   go _ t = pure t
 
-pushDownDup :: Term -> Term
+pushDownDup :: ReferenceCountedTerm -> ReferenceCountedTerm
 pushDownDup (Dup n1 `BindEmpty` (pushDownDup -> t1)) =
   fromMaybe (Dup n1 `BindEmpty` t1) (go t1)
   where
@@ -546,6 +549,7 @@ pushDownDup (Case v t alts) = Case v (pushDownDup t) (map step alts)
 
 pushDownDup t = t
 
+fuseDupDrop :: ReferenceCountedTerm -> ReferenceCountedTerm
 fuseDupDrop (Dup n `BindEmpty` (fuseDupDrop -> t)) = fromMaybe (Dup n `BindEmpty` t) (go t)
   where
   -- TODO more patterns are valid!
