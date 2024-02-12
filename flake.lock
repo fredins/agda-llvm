@@ -1,0 +1,97 @@
+{
+  "nodes": {
+    "agda": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1702584566,
+        "narHash": "sha256-bHgKppaF0/hWAr+mQ7b91t7DnLdwTthfyFph+wuk00A=",
+        "owner": "fredins",
+        "repo": "agda",
+        "rev": "44214a4c23e33a0b7cc5381d2fadbcd0589bc134",
+        "type": "github"
+      },
+      "original": {
+        "owner": "fredins",
+        "repo": "agda",
+        "type": "github"
+      }
+    },
+    "flake-parts": {
+      "inputs": {
+        "nixpkgs-lib": "nixpkgs-lib"
+      },
+      "locked": {
+        "lastModified": 1706830856,
+        "narHash": "sha256-a0NYyp+h9hlb7ddVz4LUn1vT/PLwqfrWYcHMvFB1xYg=",
+        "owner": "hercules-ci",
+        "repo": "flake-parts",
+        "rev": "b253292d9c0a5ead9bc98c4e9a26c6312e27d69f",
+        "type": "github"
+      },
+      "original": {
+        "owner": "hercules-ci",
+        "repo": "flake-parts",
+        "type": "github"
+      }
+    },
+    "haskell-flake": {
+      "locked": {
+        "lastModified": 1707549206,
+        "narHash": "sha256-aoVxXbMu7mrGGwravNsDXGqTRAO60PZpe94d8vxq4w8=",
+        "owner": "srid",
+        "repo": "haskell-flake",
+        "rev": "b3ff5c2093f9a697aef23dfcd8798762e0cd40d6",
+        "type": "github"
+      },
+      "original": {
+        "owner": "srid",
+        "repo": "haskell-flake",
+        "type": "github"
+      }
+    },
+    "nixpkgs": {
+      "locked": {
+        "lastModified": 1707711327,
+        "narHash": "sha256-JaiR0Er0Bx80CT5POOYR1I1tLM7VvC2/ny6mOmkoRQw=",
+        "owner": "nixos",
+        "repo": "nixpkgs",
+        "rev": "01737456dfe4907fb5bdc8af39ac8c6d6b1fb551",
+        "type": "github"
+      },
+      "original": {
+        "owner": "nixos",
+        "ref": "nixpkgs-unstable",
+        "repo": "nixpkgs",
+        "type": "github"
+      }
+    },
+    "nixpkgs-lib": {
+      "locked": {
+        "dir": "lib",
+        "lastModified": 1706550542,
+        "narHash": "sha256-UcsnCG6wx++23yeER4Hg18CXWbgNpqNXcHIo5/1Y+hc=",
+        "owner": "NixOS",
+        "repo": "nixpkgs",
+        "rev": "97b17f32362e475016f942bbdfda4a4a72a8a652",
+        "type": "github"
+      },
+      "original": {
+        "dir": "lib",
+        "owner": "NixOS",
+        "ref": "nixos-unstable",
+        "repo": "nixpkgs",
+        "type": "github"
+      }
+    },
+    "root": {
+      "inputs": {
+        "agda": "agda",
+        "flake-parts": "flake-parts",
+        "haskell-flake": "haskell-flake",
+        "nixpkgs": "nixpkgs"
+      }
+    }
+  },
+  "root": "root",
+  "version": 7
+}
