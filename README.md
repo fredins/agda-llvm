@@ -60,7 +60,7 @@ To run the GRIN interpreter add the `--interpret` flag.
 agda-llvm --llvm --interpret <FILE>
 ```
 
-There also an optimization flag `-O` that enable O3 optimizations and LTO in clang.
+There is also an optimization flag `-O` that enable O3 optimizations and LTO in clang.
 
 ### Logbook (OUT OF DATE)
 See [fredins.github.io](https://fredins.github.io)
