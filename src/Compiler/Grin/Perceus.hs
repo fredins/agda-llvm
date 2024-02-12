@@ -90,7 +90,7 @@ isPointer x = asks $ Set.member x . pc_pointers
 tagDependencyLocal :: MonadReader Cxt m => Abs -> [Abs] -> m a -> m a
 tagDependencyLocal x xs = local $ \cxt -> cxt{pc_tag_dependency = Map.insert x xs cxt.pc_tag_dependency}
 
-perceus :: (MonadIO m, MonadFresh Int m) => GrinDefinition -> m GrinDefinition
+perceus :: (MonadFresh Int m) => GrinDefinition -> m GrinDefinition
 perceus def = do
   t <- runReaderT (perceusDef def.gr_args def.gr_term) (initPerceusCxt def)
   pure $ setGrTerm t def
@@ -98,7 +98,7 @@ perceus def = do
 -- ∅ | Γ ⊢ t ⟿  t′   Γ = fv(t)   Γ′ = {x}∗ - Γ
 -- -------------------------------------------
 -- ø ⊢ f {x}∗ = t ⟿  f {x}∗ = drop Γ′; t′
-perceusDef :: (MonadReader Cxt m, MonadFresh Int m, MonadIO m) => [Abs] -> Term -> m Term
+perceusDef :: (MonadReader Cxt m, MonadFresh Int m) => [Abs] -> Term -> m Term
 perceusDef xs t = do
   -- Γ = fv(t)
   gamma <- varsLocal xs $ fvTerm t
@@ -114,7 +114,7 @@ perceusDef xs t = do
 
 -- Rule: STORE
 perceusStore 
-  :: (MonadReader Cxt m, MonadFresh Int m, MonadIO m) 
+  :: (MonadReader Cxt m, MonadFresh Int m) 
   => Context 
   -> Loc 
   -> Val
@@ -123,7 +123,7 @@ perceusStore c loc v = foldr BindEmpty (Store loc v) <$> perceusVal c v
 
 -- Rule: UNIT
 perceusUnit 
-  :: (MonadReader Cxt m, MonadFresh Int m, MonadIO m) 
+  :: (MonadReader Cxt m, MonadFresh Int m) 
   => Context 
   -> Val
   -> m Term
@@ -131,7 +131,7 @@ perceusUnit c v = foldr BindEmpty (Unit v) <$> perceusVal c v
 
 -- Rule: APP
 perceusApp 
-  :: (MonadReader Cxt m, MonadFresh Int m, MonadIO m) 
+  :: (MonadReader Cxt m, MonadFresh Int m) 
   => Context 
   -> Val 
   -> [Val]
@@ -145,7 +145,7 @@ perceusApp c v vs = do
 
 -- Rule: CASE
 perceusCase 
-  :: (MonadReader Cxt m, MonadFresh Int m, MonadIO m) 
+  :: (MonadReader Cxt m, MonadFresh Int m) 
   => Context 
   -> Int
   -> Term 
@@ -173,7 +173,7 @@ perceusCase c n t alts = do
 
 -- Rule: UPDATE
 perceusUpdate
-  :: (MonadReader Cxt m, MonadFresh Int m, MonadIO m) 
+  :: (MonadReader Cxt m, MonadFresh Int m) 
   => Context 
   -> Tag
   -> Tag
@@ -194,7 +194,7 @@ perceusUpdate c tag' tag n v = do
 
 -- Rule: BIND-FETCH-DUP
 perceusBindFetchDup 
-  :: (MonadReader Cxt m, MonadFresh Int m, MonadIO m) 
+  :: (MonadReader Cxt m, MonadFresh Int m) 
   => Context 
   -> Tag
   -> Int
@@ -213,7 +213,7 @@ perceusBindFetchDup c tag n offset x t = do
   
 -- Rule: BIND-FETCH
 perceusBindFetch
-  :: (MonadReader Cxt m, MonadFresh Int m, MonadIO m) 
+  :: (MonadReader Cxt m, MonadFresh Int m) 
   => Context 
   -> Tag
   -> Int
@@ -232,7 +232,7 @@ perceusBindFetch c tag n offset x t = do
 
 -- Rule: BIND
 perceusBind
-  :: (MonadReader Cxt m, MonadFresh Int m, MonadIO m) 
+  :: (MonadReader Cxt m, MonadFresh Int m) 
   => Context 
   -> Term
   -> LAlt 
@@ -248,12 +248,12 @@ perceusBind c t1 alt = do
       gamma1 = (c.gamma `Set.intersection` ov_t1) `Set.difference` gamma2
       gammad = (c.gamma `Set.union` bv_p) `Set.difference` (gamma1 `Set.union` gamma2)
 
-  logIO ""
-  logIO $ "t1:\n" ++ render (nest 4 (pretty t1))
-  logIO $ "alt:\n" ++ render (nest 4 (pretty (mkAlt t2)))
-  logIO $ "gamma1: " ++ prettyShow gamma1
-  logIO $ "gammad: " ++ prettyShow gammad
-  logIO $ "gamma2: " ++ prettyShow gamma2
+  -- logIO ""
+  -- logIO $ "t1:\n" ++ render (nest 4 (pretty t1))
+  -- logIO $ "alt:\n" ++ render (nest 4 (pretty (mkAlt t2)))
+  -- logIO $ "gamma1: " ++ prettyShow gamma1
+  -- logIO $ "gammad: " ++ prettyShow gammad
+  -- logIO $ "gamma2: " ++ prettyShow gamma2
 
   t1' <- perceusTerm
            do Context (c.delta `Set.union` gammad `Set.union` gamma2) gamma1
@@ -271,7 +271,7 @@ perceusBind c t1 alt = do
 
 -- Δ | Γ ⊢ t ⟿  t′
 perceusTerm 
-  :: (MonadReader Cxt m, MonadFresh Int m, MonadIO m) 
+  :: (MonadReader Cxt m, MonadFresh Int m) 
   => Context 
   -> Term 
   -> m Term
