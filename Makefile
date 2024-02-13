@@ -1,7 +1,7 @@
 .PHONY : install test clean
 
 install :
-	cabal install
+	cabal install --overwrite-policy=always
 
 test :
 	cabal run test
