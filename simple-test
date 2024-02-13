@@ -1,8 +1,8 @@
 #!/bin/sh
-agda-llvm --llvm ./agda-programs-working/DownFrom.agda    1> /dev/null && printf "\nTesting program DownFrom:\n"    && valgrind ./program
-agda-llvm --llvm ./agda-programs-working/DownFromOpt.agda 1> /dev/null && printf "\nTesting program DownFromOpt:\n" && valgrind ./program
-agda-llvm --llvm ./agda-programs-working/Identity.agda    1> /dev/null && printf "\nTesting program Identity:\n"    && valgrind ./program
-agda-llvm --llvm ./agda-programs-working/Fst.agda         1> /dev/null && printf "\nTesting program Fst:\n"         && valgrind ./program
-agda-llvm --llvm ./agda-programs-working/NFib.agda        1> /dev/null && printf "\nTesting program NFib:\n"        && valgrind ./program
-agda-llvm --llvm ./agda-programs-working/NFibS.agda       1> /dev/null && printf "\nTesting program NFibS:\n"       && valgrind ./program
-agda-llvm --llvm ./agda-programs-working/UpTo.agda        1> /dev/null && printf "\nTesting program UpTo:\n"        && valgrind ./program
+printf "\nTesting program DownFrom:\n"    && agda-llvm --llvm ./agda-programs-working/DownFrom.agda    && valgrind ./program
+printf "\nTesting program DownFromOpt:\n" && agda-llvm --llvm ./agda-programs-working/DownFromOpt.agda && valgrind ./program
+printf "\nTesting program Identity:\n"    && agda-llvm --llvm ./agda-programs-working/Identity.agda    && valgrind ./program
+printf "\nTesting program Fst:\n"         && agda-llvm --llvm ./agda-programs-working/Fst.agda         && valgrind ./program
+printf "\nTesting program NFib:\n"        && agda-llvm --llvm ./agda-programs-working/NFib.agda        && valgrind ./program
+printf "\nTesting program NFibS:\n"       && agda-llvm --llvm ./agda-programs-working/NFibS.agda       && valgrind ./program
+printf "\nTesting program UpTo:\n"        && agda-llvm --llvm ./agda-programs-working/UpTo.agda        && valgrind ./program

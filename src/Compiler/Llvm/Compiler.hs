@@ -331,176 +331,61 @@ llvmPostCompile :: LlvmEnv
 llvmPostCompile env _ mods = do
 
   let defs_treeless = concatMap (\(LlvmModule xs) -> xs) (Map.elems mods)
-  liftIO $ do
-    putStrLn "\n------------------------------------------------------------------------"
-    putStrLn "-- * Treeless"
-    putStrLn "------------------------------------------------------------------------\n"
-    putStrLn $ intercalate "\n\n" $ map prettyShow defs_treeless
 
   defs_grin <- mapM (fmap (updateGrTerm bindNormalisation) . treelessToGrin) defs_treeless
-  liftIO $ do
-    putStrLn "\n------------------------------------------------------------------------"
-    putStrLn "-- * GRIN"
-    putStrLn "------------------------------------------------------------------------\n"
-    putStrLn $ intercalate "\n\n" $ map prettyShow defs_grin
 
   -- FIXME
   -- printInterpretGrin defs_grin
 
   let (absCxtEqs, absCxt, share) = heapPointsTo defs_grin
   let tagInfo_pointsTo = initTagInfo absCxt
-  liftIO $ do
-    putStrLn "\n------------------------------------------------------------------------"
-    putStrLn "-- * Heap points-to analysis"
-    putStrLn "------------------------------------------------------------------------\n"
-    putStrLn "Equations"
-    putStrLn $ prettyShow absCxtEqs
-    putStrLn ""
-    putStrLn $ prettyShow absCxt
-    putStrLn $ "\nSharing Heap: " ++ prettyShow share
-    putStrLn $ "\nTag Info:\n" ++ prettyShow tagInfo_pointsTo
-
   let returnVars = foldr (\ def -> applyWhenJust def.gr_return (def.gr_name `Map.insert`)) mempty defs_grin
+
+  -- TODO 
+  -- Process each definition at a time and start using reportSDoc
 
   (tagInfo_evalInlining, defs_evalInlining) <- forAccumM tagInfo_pointsTo defs_grin \ tagInfo def -> do
     (tagInfo, t) <- evalInlining absCxt returnVars tagInfo def
     pure (tagInfo, setGrTerm t def)
 
-  liftIO $ do
-    putStrLn "\n------------------------------------------------------------------------"
-    putStrLn "-- * Eval inlining"
-    putStrLn "------------------------------------------------------------------------\n"
-    putStrLn $ intercalate "\n\n" $ map prettyShow defs_evalInlining
-    putStrLn $ "\nTag Info:\n" ++ prettyShow tagInfo_evalInlining
-
   let defs_bindNormalisation = map (updateGrTerm bindNormalisation) defs_evalInlining
-  liftIO $ do
-    putStrLn "\n------------------------------------------------------------------------"
-    putStrLn "-- * Bind normalisation"
-    putStrLn "------------------------------------------------------------------------\n"
-    putStrLn $ intercalate "\n\n" $ map prettyShow defs_bindNormalisation
 
   let defs_copyPropagation = map (updateGrTerm copyPropagation) defs_bindNormalisation
-  liftIO $ do
-    putStrLn "\n------------------------------------------------------------------------"
-    putStrLn "-- * Copy propagation"
-    putStrLn "------------------------------------------------------------------------\n"
-    putStrLn $ intercalate "\n\n" $ map prettyShow defs_copyPropagation
-
-  liftIO $ putStrLn $ "\nTag Info:\n" ++ prettyShow tagInfo_evalInlining
 
   (tagInfo_vectorization, defs_vectorization) <-
     forAccumM tagInfo_evalInlining defs_copyPropagation \ tagInfo def -> do
       (tagInfo', t) <- vectorization tagInfo def.gr_term
       pure (tagInfo', setGrTerm t def)
 
-  liftIO $ do
-    putStrLn "\n------------------------------------------------------------------------"
-    putStrLn "-- * Vectorization"
-    putStrLn "------------------------------------------------------------------------\n"
-    putStrLn $ intercalate "\n\n" $ map prettyShow defs_vectorization
-    putStrLn $ "\nTag Info:\n" ++ prettyShow tagInfo_vectorization
-
   let defs_caseSimplification = map (updateGrTerm caseSimplification) defs_vectorization
-  liftIO $ do
-    putStrLn "\n------------------------------------------------------------------------"
-    putStrLn "-- * Case simplification"
-    putStrLn "------------------------------------------------------------------------\n"
-    putStrLn $ intercalate "\n\n" $ map prettyShow defs_caseSimplification
 
   let defs_constantPropagation = map (updateGrTerm $ constantPropagation tagInfo_vectorization) defs_caseSimplification
-  liftIO $ do
-    putStrLn "\n------------------------------------------------------------------------"
-    putStrLn "-- * Constant propagation"
-    putStrLn "------------------------------------------------------------------------\n"
-    putStrLn $ intercalate "\n\n" $ map prettyShow defs_constantPropagation
 
   let defs_fetchSpecialisation = map (updateGrTerm fetchSpecialisation) defs_constantPropagation
-  liftIO $ do
-    putStrLn "\n------------------------------------------------------------------------"
-    putStrLn "-- * Fetch specialisation"
-    putStrLn "------------------------------------------------------------------------\n"
-    putStrLn $ intercalate "\n\n" $ map prettyShow defs_fetchSpecialisation
 
   let defs_bindNormalisation = map (updateGrTerm bindNormalisation) defs_fetchSpecialisation
-  liftIO $ do
-    putStrLn "\n------------------------------------------------------------------------"
-    putStrLn "-- * Bind normalisation"
-    putStrLn "------------------------------------------------------------------------\n"
-    putStrLn $ intercalate "\n\n" $ map prettyShow defs_bindNormalisation
 
   let defs_copyPropagation = map (updateGrTerm copyPropagation) defs_bindNormalisation
-  liftIO $ do
-    putStrLn "\n------------------------------------------------------------------------"
-    putStrLn "-- * Copy propagation"
-    putStrLn "------------------------------------------------------------------------\n"
-    putStrLn $ intercalate "\n\n" $ map prettyShow defs_copyPropagation
 
   let defs_splitFetchOperations = map (updateGrTerm splitFetchOperations) defs_copyPropagation
-  liftIO $ do
-    putStrLn "\n------------------------------------------------------------------------"
-    putStrLn "-- * Split fetch operations"
-    putStrLn "------------------------------------------------------------------------\n"
-    putStrLn $ intercalate "\n\n" $ map prettyShow defs_splitFetchOperations
 
   defs_rightHoistFetchOperations <- mapM (lensGrTerm rightHoistFetchOperations) defs_splitFetchOperations
-  liftIO $ do
-    putStrLn "\n------------------------------------------------------------------------"
-    putStrLn "-- * Right hoist fetch operations"
-    putStrLn "------------------------------------------------------------------------\n"
-    putStrLn $ intercalate "\n\n" $ map prettyShow defs_rightHoistFetchOperations
 
   def_drop <- bindingReturningCase =<< mkDrop defs_fetchSpecialisation
 
   defs_perceus <- mapM perceus defs_rightHoistFetchOperations
-  liftIO $ do
-    putStrLn "\n------------------------------------------------------------------------"
-    putStrLn "-- * Perceus"
-    putStrLn "------------------------------------------------------------------------\n"
-    putStrLn $ intercalate "\n\n" (map prettyShow $ defs_perceus ++ [def_drop]) ++ "\n"
 
   let defs_bindNormalisation = map (updateGrTerm bindNormalisation) defs_perceus
-  liftIO $ do
-    putStrLn "\n------------------------------------------------------------------------"
-    putStrLn "-- * Bind normalisation"
-    putStrLn "------------------------------------------------------------------------\n"
-    putStrLn $ intercalate "\n\n" (map prettyShow defs_bindNormalisation) ++ "\n"
 
   let defs_fetchReuse = map (updateGrTerm fetchReuse) defs_bindNormalisation
-  liftIO $ do
-    putStrLn "\n------------------------------------------------------------------------"
-    putStrLn "-- * Fetch reuse"
-    putStrLn "------------------------------------------------------------------------\n"
-    putStrLn $ intercalate "\n\n" (map prettyShow defs_fetchReuse) ++ "\n"
 
   let defs_dropRaising = map (updateGrTerm dropRaising) defs_fetchReuse
-  liftIO $ do
-    putStrLn "\n------------------------------------------------------------------------"
-    putStrLn "-- * Drop raising"
-    putStrLn "------------------------------------------------------------------------\n"
-    putStrLn $ intercalate "\n\n" (map prettyShow defs_dropRaising) ++ "\n"
 
   let defs_dupLowering = map (updateGrTerm dupLowering) defs_dropRaising
-  liftIO $ do
-    putStrLn "\n------------------------------------------------------------------------"
-    putStrLn "-- * Dup lowering"
-    putStrLn "------------------------------------------------------------------------\n"
-    putStrLn $ intercalate "\n\n" (map prettyShow defs_dupLowering) ++ "\n"
 
   let defs_dupDropFusion = map (updateGrTerm dupDropFusion) defs_dupLowering
-  liftIO $ do
-    putStrLn "\n------------------------------------------------------------------------"
-    putStrLn "-- * Dup/Drop fusion"
-    putStrLn "------------------------------------------------------------------------\n"
-    putStrLn $ intercalate "\n\n" (map prettyShow $ defs_dupDropFusion ++ [def_drop]) ++ "\n"
-
 
   defs_bindingReturningCase <- mapM bindingReturningCase defs_dupDropFusion
-  liftIO $ do
-    putStrLn "\n------------------------------------------------------------------------"
-    putStrLn "-- * Binding returning case"
-    putStrLn "------------------------------------------------------------------------\n"
-    putStrLn $ intercalate "\n\n" (map prettyShow $ defs_bindingReturningCase ++ [def_drop]) ++ "\n"
 
   when env.envLlvmOpts.flagLlvmInterpret $ printInterpretGrin (defs_bindingReturningCase ++ [def_drop])
 
