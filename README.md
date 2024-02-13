@@ -8,6 +8,7 @@ Memory is managed by Perceus-style (Reiking et al. 2021) reference counting.
 - zlib
 - clang
 - lld (LLVM linker)
+- valgrind (optional)
 
 ### Build from source
 
@@ -32,6 +33,8 @@ agda-llvm --llvm --interpret <FILE>
 ```
 
 There is also an optimization flag `-O` that enable O3 optimizations and LTO in clang.
+
+Optionally, you can run `./simple-test` to compile and run a few selected programs. This step requires valgrind.
 
 ### Restrictions
 - No lambdas.  
