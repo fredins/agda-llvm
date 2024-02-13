@@ -13,21 +13,20 @@
 
       perSystem = { self', pkgs, ... }: {
         haskellProjects.default = {
-          packages = {
-            Agda.source = inputs.Agda;
-          };
+          packages.Agda.source = inputs.Agda;
+          settings.Agda.check = false;
+
           devShell = {
             enable = true;
             tools = hp: { 
               # Compling agda programs 
               zlib = pkgs.zlib;
-              # LLVM with assertions (require compilation)
+              # LLVM with assertions (requires compilation)
               # libllvm = pkgs.llvmPackages_15.libllvm.override{debugVersion = true;};
               libllvm = pkgs.llvmPackages_15.libllvm;
               clangUseLLVM = pkgs.llvmPackages_15.clangUseLLVM;
 
               # Debugging
-              lldb_15 = pkgs.lldb_15;
               valgrind = pkgs.valgrind;
               massif-visualizer = pkgs.massif-visualizer;
 
