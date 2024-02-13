@@ -17,7 +17,7 @@ The easiest way to satisfy all the dependencies is by using the nix flake:
 nix --experimental-features 'nix-command flakes' develop
 ```
 
-Running `make install` will build and install the exectuable `agda-llvm` usually to `$HOME/.cabal/bin/`. This will build all dependencies and an Agda fork [github.com/fredins/agda](https://github.com/fredins/agda), which is over 400 modules. 
+Running `make install` will build and install the exectuable `agda-llvm` usually to `$HOME/.cabal/bin/` or `$HOME/.local/bin`. 
 
 To run the compiler use the `--llvm` flag.  
 
