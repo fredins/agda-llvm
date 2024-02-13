@@ -13,8 +13,13 @@
 
       perSystem = { self', pkgs, ... }: {
         haskellProjects.default = {
-          packages.Agda.source = inputs.Agda;
-          settings.Agda.check = false;
+          packages = {
+            Agda.source = inputs.Agda;
+          };
+
+          settings = {
+            Agda.check = false;
+          }
 
           devShell = {
             enable = true;
@@ -25,6 +30,7 @@
               # libllvm = pkgs.llvmPackages_15.libllvm.override{debugVersion = true;};
               libllvm = pkgs.llvmPackages_15.libllvm;
               clangUseLLVM = pkgs.llvmPackages_15.clangUseLLVM;
+              lld_15 = pkgs.lld_15
 
               # Debugging
               valgrind = pkgs.valgrind;

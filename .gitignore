@@ -1,7 +1,6 @@
 *.agdai
 dist-newstyle
-llvm/*
-!llvm/program.ll
+llvm
 output.hs
 output
 plan.md

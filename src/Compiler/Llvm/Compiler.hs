@@ -39,6 +39,7 @@ import           Compiler.Treeless.TreelessTransform
 import           Compiler.Grin.Codegen               (treelessToGrin)
 import           Compiler.Llvm.Codegen               (grinToLlvm)
 import           Utils.Utils
+import System.Directory.Extra (createDirectoryIfMissing)
 
 
 
@@ -537,6 +538,7 @@ llvmPostCompile env _ mods = do
     let file_ll = "llvm" </> env.envLlvmOpts.flagLLvmOutput ++ ".ll"
     let file_ll_opt = "llvm" </> env.envLlvmOpts.flagLLvmOutput ++ "-opt.ll"
     let file_asm_s = "llvm" </> env.envLlvmOpts.flagLLvmOutput ++ "-asm.s"
+    createDirectoryIfMissing False "llvm"
     putStrLn $ "Writing file " ++ file_ll
     writeFile file_ll program
 
