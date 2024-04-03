@@ -1,4 +1,4 @@
-name: agda-prgrams
+name: agda-programs
 include: agda-programs-working
          agda-programs-not-working
 
