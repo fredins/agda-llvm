@@ -1,0 +1,10 @@
+name: formalize
+include: 
+  src
+depend: 
+  agda2hs
+  scope
+flags: 
+  --erasure
+  --hidden-argument-puns
+  
