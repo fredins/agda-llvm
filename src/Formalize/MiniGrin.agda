@@ -31,14 +31,29 @@ data SynthesizeVal
  → Σ0[ β ∈ Scope name ] Rezz _ β × β ⊆ α 
  → Set
 
-infix 3 SynthesizeVal
+data SynthesizeTerm 
+ : Context 
+ → Term α
+ → RcTerm α
+ → Set
+
+infix 3 SynthesizeVal SynthesizeTerm
 
 syntax SynthesizeVal c v β = c ⊢ₛ v ⇝ᵥ β
+syntax SynthesizeTerm c t t′ = c ⊢ₛ t ⇝ₜ t′
 
 -- TODO add rest of the rules
+
 data SynthesizeVal where
   SVAR-PRIM
     : ∀ {x}
     ---------------------------------------------------
     → (x ◃ ∅) ¦ ∅ ¦ ∅ ⊢ₛ Var x ⇝ᵥ < rezz ∅ , subEmpty >
 
+-- TODO
+
+-- perceusVal 
+--   : (@0 Ξ Δ Γ : Scope name) (v : Val α) 
+--   → Ξ ⋈ Δ ⋈ Γ ≡ α
+--   → ∃ _ λ Σβ → Ξ ¦ Δ ¦ Γ ⊢ₛ v ⇝ᵥ Σβ
+-- perceusVal v split = ?

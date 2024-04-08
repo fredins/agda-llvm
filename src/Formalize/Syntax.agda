@@ -45,6 +45,12 @@ data Term : @0 Scope name → Set where
   Return : Val α → Term α
   AppDef : (@0 f : name) → f ∈ defScope → Args α → Term α
 
+data RcTerm : @0 Scope name → Set where
+  RcReturn : Val α → RcTerm α
+  RcAppDef : (@0 f : name) → f ∈ defScope → Args α → RcTerm α
+  RcDup    : (@0 x : name) → Cover (x ◃ ∅) α β → RcTerm α → RcTerm β
+  RcDrop   : (@0 x : name) → Cover (x ◃ ∅) α β → RcTerm α → RcTerm β
+
 -- Free variables of Cover, Args, Val, and Term.
 
 rezzCover : Cover α β γ → Rezz _ γ
