@@ -1,8 +1,9 @@
 
 module Formalize.Scope.Base where
 
-open import Haskell.Prelude using (_×_; _,_; _∘_) renaming (mempty to ∅) 
+open import Haskell.Prelude using (_×_; _,_; _∘_; _≡_; refl) renaming (mempty to ∅) 
 open import Haskell.Extra.Erase 
+open import Haskell.Law
 
 open import Scope 
 open import Formalize.Utils.Erase
@@ -10,8 +11,44 @@ open import Formalize.Utils.Erase
 private variable
   a            : Set
   @0 name      : Set
-  @0 x         : name
   @0 α β γ δ   : Scope name
+  @0 x         : name
+
+  -- @0 name : Set
+  -- @0 α β  : Scope name
+  -- @0 x    : name
+
+
+--------------------------------------------------------------------------------
+-- * Cover.
+
+-- From "Everybody’s Got To Be Somewhere" by Connor McBride, 2018. Also, see 
+-- Jesper Cockx's blogpost for a short introduction: 
+-- https://jesper.sikanda.be/posts/1001-syntax-representations.html.
+data Cover {@0 name : Set} : (@0 α β γ : Scope name) → Set where
+  CDone  : Cover ∅ ∅ ∅
+  CLeft  : Cover α β γ → Cover (x ◃ α) β       (x ◃ γ)
+  CRight : Cover α β γ → Cover α       (x ◃ β) (x ◃ γ)
+  CBoth  : Cover α β γ → Cover (x ◃ α) (x ◃ β) (x ◃ γ)
+
+done  : Cover {name = name} ∅ ∅ ∅
+left  : Cover α β γ → Cover (x ◃ α) β       (x ◃ γ)
+right : Cover α β γ → Cover α       (x ◃ β) (x ◃ γ)
+both  : Cover α β γ → Cover (x ◃ α) (x ◃ β) (x ◃ γ)
+
+done  = CDone
+left  = CLeft
+right = CRight
+both  = CBoth
+
+opaque 
+  unfolding Scope
+  @0 ∅-Cover-injective : Cover ∅ β γ → β ≡ γ
+  ∅-Cover-injective CDone      = refl
+  ∅-Cover-injective (CRight c) = cong (bind _) (∅-Cover-injective c)
+
+--------------------------------------------------------------------------------
+-- * Three split.
 
 opaque 
 
@@ -22,6 +59,9 @@ opaque
 
   split3EmptyLefts : ∅ ⋈ ∅ ⋈ α ≡ α
   split3EmptyLefts = < splitEmptyLeft , splitEmptyLeft >
+
+  split3EmptyRights : α ⋈ ∅ ⋈ ∅  ≡ α
+  split3EmptyRights = < splitEmptyRight , splitEmptyLeft  >
 
   split3Left : α ⋈ β ⋈ γ ≡ δ → Σ0[ ε ∈ Scope name ] α ⋈ ε ≡ δ
   split3Left < splitL , splitR > = < splitL >
@@ -37,6 +77,7 @@ opaque
 
   split3Assoc : α ⋈ β ⋈ γ ≡ δ → β ⋈ γ ⋈ α ≡ δ
   split3Assoc < splitL , splitR > = splitAssoc splitR (splitComm splitL)
+
 
 opaque 
   unfolding Split3 Split Sub

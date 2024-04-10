@@ -5,9 +5,9 @@ open import Scope
 
 record Globals : Set where
   field
-    varScope   : Scope name
+    -- varScope   : Scope name
     defScope   : Scope name
-    tagScope   : Scope name
-    fieldScope : All (λ _ → Scope name) tagScope
+    -- tagScope   : Scope name
+    -- fieldScope : All (λ _ → Scope name) tagScope
 
 open Globals public

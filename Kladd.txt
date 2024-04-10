@@ -1,0 +1,112 @@
+  -- splitCover : ∀{@0 Δ Γ} → Cover α β γ → Δ ⋈ Γ ≡ γ → (Σ0[ (Δ , Γ) ∈ Scope name × Scope name ] Δ ⋈ Γ ≡ α) × 
+  --                                                    (Σ0[ (Δ , Γ) ∈ Scope name × Scope name ] Δ ⋈ Γ ≡ β)
+  -- splitCover CDone        EmptyL       = < splitEmptyLeft > , < splitEmptyLeft >
+  -- splitCover CDone        EmptyR       = < splitEmptyLeft > , < splitEmptyLeft >
+  -- splitCover (CLeft  x c) EmptyL       = first  (map0 splitBindRight) (splitCover c EmptyL)
+  -- splitCover (CLeft  x c) EmptyR       = first  (map0 splitBindLeft)  (splitCover c EmptyR)
+  -- splitCover (CLeft  x c) (ConsL .x s) = first  (map0 splitBindLeft)  (splitCover c s)
+  -- splitCover (CLeft  x c) (ConsR .x s) = first  (map0 splitBindRight) (splitCover c s)
+  -- splitCover (CRight x c) EmptyL       = second (map0 splitBindRight) (splitCover c EmptyL)
+  -- splitCover (CRight x c) EmptyR       = second (map0 splitBindLeft)  (splitCover c EmptyR)
+  -- splitCover (CRight x c) (ConsL .x s) = second (map0 splitBindLeft)  (splitCover c s)
+  -- splitCover (CRight x c) (ConsR .x s) = second (map0 splitBindRight) (splitCover c s)
+  -- splitCover (CBoth  x c) EmptyL       = (map0 splitBindLeft *** map0 splitBindRight) (splitCover c EmptyL)
+  -- splitCover (CBoth  x c) EmptyR       = (map0 splitBindLeft *** map0 splitBindLeft)  (splitCover c EmptyR)
+  -- splitCover (CBoth  x c) (ConsL .x s) = (map0 splitBindLeft *** map0 splitBindLeft)  (splitCover c s)
+  -- splitCover (CBoth  x c) (ConsR .x s) = (map0 splitBindLeft *** map0 splitBindRight) (splitCover c s)
+
+  -- perceusName < EmptyL         , EmptyL          > = _ ⟨ SNAME ⟩
+  -- perceusName < EmptyL         , EmptyR          > = _ ⟨ SNAME-DUP ⟩
+  -- perceusName < EmptyL         , ConsL x EmptyL  > = _ ⟨ SNAME-DUP ⟩
+  -- perceusName < EmptyL         , ConsL x EmptyR  > = _ ⟨ SNAME-DUP ⟩
+  -- perceusName < EmptyL         , ConsR x EmptyL  > = _ ⟨ SNAME ⟩
+  -- perceusName < EmptyL         , ConsR x EmptyR  > = _ ⟨ SNAME ⟩
+  -- perceusName < EmptyR         , EmptyL          > = _ ⟨ SNAME-PRIM ⟩
+  -- perceusName < EmptyR         , EmptyR          > = _ ⟨ SNAME-PRIM ⟩
+  -- perceusName < ConsL x EmptyL , EmptyL          > = _ ⟨ SNAME-PRIM ⟩
+  -- perceusName < ConsL x EmptyR , EmptyL          > = _ ⟨ SNAME-PRIM ⟩
+  -- perceusName < ConsL x EmptyL , EmptyR          > = _ ⟨ SNAME-PRIM ⟩
+  -- perceusName < ConsL x EmptyR , EmptyR          > = _ ⟨ SNAME-PRIM ⟩
+  -- perceusName < ConsR x EmptyL , EmptyL          > = _ ⟨ SNAME ⟩
+  -- perceusName < ConsR x EmptyL , EmptyR          > = _ ⟨ SNAME-DUP ⟩
+  -- perceusName < ConsR x EmptyL , ConsL .x EmptyL > = _ ⟨ SNAME-DUP ⟩
+  -- perceusName < ConsR x EmptyL , ConsL .x EmptyR > = _ ⟨ SNAME-DUP ⟩
+  -- perceusName < ConsR x EmptyL , ConsR .x EmptyL > = _ ⟨ SNAME ⟩ 
+  -- perceusName < ConsR x EmptyL , ConsR .x EmptyR > = _ ⟨ SNAME ⟩ 
+  -- perceusName < ConsR x EmptyR , EmptyL          > = _ ⟨ SNAME ⟩
+  -- perceusName < ConsR x EmptyR , EmptyR          > = _ ⟨ SNAME-DUP ⟩
+  -- perceusName < ConsR x EmptyR , ConsL .x EmptyL > = _ ⟨ SNAME-DUP ⟩
+  -- perceusName < ConsR x EmptyR , ConsL .x EmptyR > = _ ⟨ SNAME-DUP ⟩
+  -- perceusName < ConsR x EmptyR , ConsR .x EmptyL > = _ ⟨ SNAME ⟩
+  -- perceusName < ConsR x EmptyR , ConsR .x EmptyR > = _ ⟨ SNAME ⟩
+
+  -- perceusNames NNil split = {! !}
+  -- perceusNames (NCons x (CLeft {β = β} {γ = γ} c) xs)  < EmptyL , EmptyL > = 
+  --   let _ ⟨ proof₁ ⟩ = perceusName {x = x} split3EmptyLefts 
+  --       _ ⟨ proof₂ ⟩ = perceusNames xs (subst0 (λ γ → ∅ ⋈ ∅ ⋈ γ ≡ β) (∅-Cover-injective c) split3EmptyLefts)
+  --   in
+  --   _ ⟨ SCONS proof₁ proof₂ ⟩
+
+  -- perceusNames (NCons x (CRight c) xs) < EmptyL , EmptyL > = 
+  --   let _ ⟨ proof₁ ⟩ = perceusName ?  
+  --       _ ⟨ proof₂ ⟩ = perceusNames xs {! !}
+  --   in  _ ⟨ SCONS proof₁ proof₂ ⟩
+
+
+  -- perceusNames (NCons x (CBoth {β = β} {γ = γ} c) xs)  < EmptyL , EmptyL > =
+  --   let _ ⟨ proof₁ ⟩ = perceusName ?
+  --       _ ⟨ proof₂ ⟩ = perceusNames xs {! !}
+  --   in  _ ⟨ SCONS proof₁ proof₂ ⟩
+
+
+  -- perceusNames (NCons x c xs) < EmptyL          , EmptyR          > = {! !}
+  -- perceusNames (NCons x c xs) < EmptyL          , ConsL x₁ splitR > = {! !}
+  -- perceusNames (NCons x c xs) < EmptyL          , ConsR y  splitR > = {! !}
+  -- perceusNames (NCons x c xs) < EmptyR          , EmptyL          > = {! !}
+  -- perceusNames (NCons x c xs) < EmptyR          , EmptyR          > = {! !}
+  -- perceusNames (NCons x c xs) < ConsL x₁ splitL , EmptyL          > = {! !}
+  -- perceusNames (NCons x c xs) < ConsL x₁ splitL , EmptyR          > = {! !}
+  -- perceusNames (NCons x c xs) < ConsL x₁ splitL , ConsL x₂ splitR > = {! !}
+  -- perceusNames (NCons x c xs) < ConsL x₁ splitL , ConsR y  splitR > = {! !}
+  -- perceusNames (NCons x c xs) < ConsR y  splitL , EmptyL          > = {! !}
+  -- perceusNames (NCons x c xs) < ConsR y  splitL , EmptyR          > = {! !}
+  -- perceusNames (NCons x c xs) < ConsR y  splitL , ConsL .y splitR > = {! !}
+  -- perceusNames (NCons x c xs) < ConsR y  splitL , ConsR .y splitR > = {! !}
+
+
+  -- perceusNames NNil < EmptyL , EmptyL > = _ ⟨ SNNIL ⟩
+  -- perceusNames NNil < EmptyL , EmptyR > = _ ⟨ SNNIL ⟩
+  -- perceusNames NNil < EmptyR , EmptyL > = _ ⟨ SNNIL ⟩
+  -- perceusNames NNil < EmptyR , EmptyR > = _ ⟨ SNNIL ⟩
+  -- perceusNames (NCons (CLeft x c) xs) record { proj₁ = _ ; proj₂ = (EmptyL , EmptyL) } = 
+  --   let _ ⟨ proof ⟩ = perceusNames xs {! !} in
+  --   {! !} ⟨ ? ⟩
+  -- perceusNames (NCons (CRight x c) xs) record { proj₁ = _ ; proj₂ = (EmptyL , EmptyL) } = {! !}
+  -- perceusNames (NCons (CBoth x c) xs) record { proj₁ = _ ; proj₂ = (EmptyL , EmptyL) } = {! !}
+  --
+  --
+  --
+  -- perceusNames (NCons c xs) record { proj₁ = _ ; proj₂ = (EmptyL , EmptyR) } = {! !}
+  -- perceusNames (NCons c xs) record { proj₁ = _ ; proj₂ = (EmptyL , ConsL _ splitR) } = {! !}
+  -- perceusNames (NCons c xs) record { proj₁ = _ ; proj₂ = (EmptyL , ConsR _ splitR) } = {! !}
+  -- perceusNames (NCons c xs) record { proj₁ = _ ; proj₂ = (EmptyR , EmptyL) } = {! !}
+  -- perceusNames (NCons c xs) record { proj₁ = _ ; proj₂ = (EmptyR , EmptyR) } = {! !}
+  -- perceusNames (NCons c xs) record { proj₁ = _ ; proj₂ = (ConsL _ splitL , EmptyL) } = {! !}
+  -- perceusNames (NCons c xs) record { proj₁ = _ ; proj₂ = (ConsL _ splitL , EmptyR) } = {! !}
+  -- perceusNames (NCons c xs) record { proj₁ = _ ; proj₂ = (ConsL _ splitL , ConsL x splitR) } = {! !}
+  -- perceusNames (NCons c xs) record { proj₁ = _ ; proj₂ = (ConsL _ splitL , ConsR y splitR) } = {! !}
+  -- perceusNames (NCons c xs) record { proj₁ = _ ; proj₂ = (ConsR _ splitL , EmptyL) } = {! !}
+  -- perceusNames (NCons c xs) record { proj₁ = _ ; proj₂ = (ConsR _ splitL , EmptyR) } = {! !}
+  -- perceusNames (NCons c xs) record { proj₁ = _ ; proj₂ = (ConsR _ splitL , ConsL _ splitR) } = {! !}
+  -- perceusNames (NCons c xs) record { proj₁ = _ ; proj₂ = (ConsR _ splitL , ConsR _ splitR) } = {! !}
+
+
+  -- perceusNCons 
+  --   : (@0 Ξ Δ Γ : Scope name) (c : Cover (x ◃ ∅) β (x ◃ γ)) (xs : Names β) 
+  --   → Ξ ⋈ Δ ⋈ Γ ≡ (x ◃ γ)
+  --   → ∃[ xs′ ∈ Rc.Names (x ◃ γ) ] Ξ ¦ Δ ¦ Γ ⊢ₛ NCons c xs ⇝ₓₛ xs′
+  -- perceusNCons Ξ Δ Γ (CLeft x c) xs split = 
+  --   let _ ⟨ proof ⟩ = perceusNames Ξ Δ Γ xs split in
+  --   {! !} ⟨ {! SNCONS!} ⟩
+  -- perceusNCons Ξ Δ Γ (CRight x c) xs split = {! !}
+  -- perceusNCons Ξ Δ Γ (CBoth x c) xs split = {! !} ⟨ {!SNCONS-DUP !} ⟩
