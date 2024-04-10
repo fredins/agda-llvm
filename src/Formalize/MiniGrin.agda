@@ -63,7 +63,7 @@ syntax SynthesizeNames c xs xs′ = c ⊢ₛ xs ⇝ₓₛ xs′
 syntax SynthesizeVal c v v′     = c ⊢ₛ v  ⇝ᵥ  v′
 syntax SynthesizeTerm c t t′    = c ⊢ₛ t  ⇝ₜ  t′
 
--- TODO add rest of the rules
+-- TODO add the rest of the rules
 
 data SynthesizeName where
 
@@ -123,9 +123,9 @@ data SynthesizeTerm where
     → Δ ¦ Γ ⊢ₛ AppDef f p xs ⇝ₜ Rc.AppDef f p xs′
 
 -- Represents a split of a split Δ ⋈ Γ ≡ γ according to 
--- a Cover α β γ, such the owned variables Γ are all consumed
--- exactly once. Thus, either α or β needs to borrow shared 
--- variables. We do not enforce that α need to borrow, unfortunately.
+-- a Cover α β γ, such that the owned variables Γ are all consumed
+-- exactly once. Thus, either α or β needs to borrow the shared 
+-- variables. We do not enforce that α needs to borrow, unfortunately.
 record CoverSplits (@0 α β Γ : Scope name) : Set where
   field
     @0 {Δₗ}    : Scope name
