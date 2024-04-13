@@ -31,15 +31,29 @@ data Cover {@0 name : Set} : (@0 α β γ : Scope name) → Set where
   CRight : Cover α β γ → Cover α       (x ◃ β) (x ◃ γ)
   CBoth  : Cover α β γ → Cover (x ◃ α) (x ◃ β) (x ◃ γ)
 
+
+{-# COMPILE AGDA2HS Cover deriving Show #-}
+
 done  : Cover {name = name} ∅ ∅ ∅
 left  : Cover α β γ → Cover (x ◃ α) β       (x ◃ γ)
 right : Cover α β γ → Cover α       (x ◃ β) (x ◃ γ)
 both  : Cover α β γ → Cover (x ◃ α) (x ◃ β) (x ◃ γ)
 
 done  = CDone
+
+{-# COMPILE AGDA2HS done deriving Show #-}
+
 left  = CLeft
+
+{-# COMPILE AGDA2HS left deriving Show #-}
+
 right = CRight
+
+{-# COMPILE AGDA2HS right deriving Show #-}
+
 both  = CBoth
+
+{-# COMPILE AGDA2HS both deriving Show #-}
 
 opaque 
   unfolding Scope

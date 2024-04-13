@@ -6,5 +6,6 @@ depend:
   scope
 flags: 
   --erasure
+  --erase-record-parameters
   --hidden-argument-puns
   

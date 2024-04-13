@@ -13,22 +13,34 @@ open import Formalize.Scope.Base
 name = String
 globals = record{defScope = "f" ◃ ∅}
 
-open import Formalize.MiniGrin name globals
-open import Formalize.Syntax.Grin name globals
-import Formalize.Syntax.RcGrin name globals as Rc
+import Formalize.MiniGrin name globals as M
+import Formalize.Syntax.Grin name globals as G
+import Formalize.Syntax.RcGrin name globals as R
 
-ex₀ : Term ("x" ◃ ∅)
-ex₀ = Return (Var "x")
+ex0 : G.Term ("x" ◃ ∅)
+ex0 = G.Return (G.Var "x")
   
-ex₀′ : Rc.Term ("x" ◃ ∅)
-ex₀′ = Rc.Return (Rc.Var (Rc.NoDup "x"))
+{-# COMPILE AGDA2HS ex0 #-}
 
-test₀ = perceusTerm ex₀ splitEmptyLeft
+ex0' : R.Term ("x" ◃ ∅)
+ex0' = R.Return (R.Var (R.NoDup "x"))
 
-ex₁ : Term ("x" ◃ "y" ◃ ∅)
-ex₁ = AppDef "f" inHere (NCons "x" (both (right done)) (NCons "y" (right (left done)) (NCons "x" (left done) NNil)))
+{-# COMPILE AGDA2HS ex0' #-}
 
-ex₁′ : Rc.Term ("x" ◃ "y" ◃ ∅)
-ex₁′ = Rc.AppDef "f" inHere (Rc.NCons (Rc.Dup "x") (both (right done)) (Rc.NCons (Rc.NoDup "y") (right (left done)) (Rc.NCons (Rc.NoDup "x") (left done) Rc.NNil)))
+test0 = M.perceusTerm ex0 splitEmptyLeft
 
-test₁ = perceusTerm ex₁ splitEmptyLeft
+{-# COMPILE AGDA2HS test0 #-}
+
+ex1 : G.Term ("x" ◃ "y" ◃ ∅)
+ex1 = G.AppDef "f" inHere (G.NCons "x" (both (right done)) (G.NCons "y" (right (left done)) (G.NCons "x" (left done) G.NNil)))
+
+{-# COMPILE AGDA2HS ex1 #-}
+
+ex1' : R.Term ("x" ◃ "y" ◃ ∅)
+ex1' = R.AppDef "f" inHere (R.NCons (R.Dup "x") (both (right done)) (R.NCons (R.NoDup "y") (right (left done)) (R.NCons (R.NoDup "x") (left done) R.NNil)))
+
+{-# COMPILE AGDA2HS ex1' #-}
+
+test1 = M.perceusTerm ex1 splitEmptyLeft
+
+{-# COMPILE AGDA2HS test1 #-}

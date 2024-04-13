@@ -12,7 +12,15 @@ build-type:         Simple
 extra-doc-files:    CHANGELOG.md
 -- extra-source-files:
 
-common warnings
+common commons
+  default-language: GHC2021
+  default-extensions:
+    LambdaCase
+    PatternSynonyms
+    OverloadedRecordDot      
+    BlockArguments        
+    PatternSynonyms
+    LexicalNegation
   ghc-options:
     -W
     -- ghc-options:
@@ -56,7 +64,7 @@ common warnings
     --   -Wunused-imports
 
 library 
-  import: warnings
+  import: commons
   exposed-modules:
     Compiler.Grin.Codegen
     Compiler.Grin.Grin
@@ -77,14 +85,6 @@ library
     Utils.Monad
     Utils.Set
     Utils.Utils
-       
-  default-extensions:
-    LambdaCase
-    PatternSynonyms
-    OverloadedRecordDot      
-    BlockArguments        
-    PatternSynonyms
-    LexicalNegation
 
   build-depends:    
     , Agda         >= 2.6.4
@@ -98,11 +98,31 @@ library
     , pretty
 
   hs-source-dirs:   src
+
+library gen 
+  hs-source-dirs: gen
+  exposed-modules:  
+      Formalize.Test
+    , Formalize.Syntax.Grin
+    , Formalize.Syntax.RcGrin
+    , Formalize.Scope.Base
+    , Formalize.MiniGrin
+    , Scope.Core
+    , Scope.In
+    , Scope.Split
+    , Scope.Sub
+
+  build-depends:
+    , base       >= 4.12.0.0 && < 4.20
+  ghc-options:
+    -fno-warn-incomplete-patterns
+    -Wno-incomplete-patterns
+    -fno-warn-name-shadowing
   default-language: GHC2021
 
 
 executable agda-llvm
-  import: warnings
+  import: commons
   hs-source-dirs: app
   main-is:        Main.hs
   build-depends:
@@ -110,30 +130,12 @@ executable agda-llvm
     , agda-llvm
     , base       >= 4.12.0.0 && < 4.20
 
-  default-extensions:
-    LambdaCase
-    PatternSynonyms
-    OverloadedRecordDot      
-    BlockArguments        
-    PatternSynonyms
-    LexicalNegation
-
-  default-language: GHC2021
-
 test-suite test
-  import:           warnings
+  import:           commons
 
   type:             exitcode-stdio-1.0
   hs-source-dirs:   test/
   main-is:          Test.hs
-
-  default-extensions:
-    LambdaCase
-    PatternSynonyms
-    OverloadedRecordDot      
-    BlockArguments        
-    PatternSynonyms
-    LexicalNegation
 
   build-depends:    
     , Agda         >= 2.6.4
@@ -151,5 +153,3 @@ test-suite test
     -- , tasty-silver >= 3.1.13  && < 3.4
     -- , text
     -- , unix-compat      >= 0.4.3.1 && < 0.8
-
-  default-language: GHC2021

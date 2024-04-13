@@ -26,14 +26,22 @@ private variable
 data Name : @0 name → Set where
   NoDup Dup : (@0 x : name) → Name x
 
+{-# COMPILE AGDA2HS Name deriving Show #-}
+
 data Names : @0 Scope name → Set where
   NNil  : Names ∅
   NCons : Name x → Cover (x ◃ ∅) β γ → Names β → Names γ
+
+{-# COMPILE AGDA2HS Names deriving Show #-}
 
 data Val : @0 Scope name → Set where
   Lit : Nat → Val ∅
   Var : Name x → Val (x ◃ ∅)
 
+{-# COMPILE AGDA2HS Val deriving Show #-}
+
 data Term : @0 Scope name → Set where
   Return : Val α → Term α
   AppDef : (@0 f : name) → f ∈ defScope → Names α → Term α
+
+{-# COMPILE AGDA2HS Term deriving Show #-}

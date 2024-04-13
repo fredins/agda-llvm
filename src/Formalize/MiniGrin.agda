@@ -136,17 +136,24 @@ record CoverSplits (@0 α β Γ : Scope name) : Set where
     splitRight : Δᵣ ⋈ Γᵣ ≡ β
     splitGamma : Γₗ ⋈ Γᵣ ≡ Γ
 
+{-# COMPILE AGDA2HS CoverSplits deriving Show #-}
+
+open CoverSplits public
+
 forCoverSplits 
  : ∀ {@0 α β Γ Δₗ′ Γₗ′ Δᵣ′ Γᵣ′ α′ β′ Γ′} 
  → (s : CoverSplits α β Γ)
- → (let open CoverSplits s)
- → (Δₗ ⋈ Γₗ ≡ α → Δₗ′ ⋈ Γₗ′ ≡ α′) 
- → (Δᵣ ⋈ Γᵣ ≡ β → Δᵣ′ ⋈ Γᵣ′ ≡ β′) 
- → (Γₗ ⋈ Γᵣ ≡ Γ → Γₗ′ ⋈ Γᵣ′ ≡ Γ′)
+ → (Δₗ s ⋈ Γₗ s ≡ α → Δₗ′ ⋈ Γₗ′ ≡ α′) 
+ → (Δᵣ s ⋈ Γᵣ s ≡ β → Δᵣ′ ⋈ Γᵣ′ ≡ β′) 
+ → (Γₗ s ⋈ Γᵣ s ≡ Γ → Γₗ′ ⋈ Γᵣ′ ≡ Γ′)
  → CoverSplits α′ β′ Γ′
-forCoverSplits s f g h = record{splitLeft = f splitLeft; splitRight = g splitRight; splitGamma = h splitGamma}
-  where
-  open CoverSplits s
+forCoverSplits s f g h = record 
+  { splitLeft  = f (splitLeft s)
+  ; splitRight = g (splitRight s)
+  ; splitGamma = h (splitGamma s)
+  }
+
+{-# COMPILE AGDA2HS forCoverSplits  #-}
 
 opaque 
   unfolding Split
@@ -167,6 +174,8 @@ opaque
   coverSplits (CBoth  c) (ConsL x s) = forCoverSplits (coverSplits c s)      splitBindLeft  splitBindLeft  id
   coverSplits (CBoth  c) (ConsR x s) = forCoverSplits (coverSplits c s)      splitBindLeft  splitBindRight splitBindRight
 
+  {-# COMPILE AGDA2HS coverSplits  #-}
+
   perceusName 
     : ∀ {@0 Δ Γ} 
     → Δ ⋈ Γ ≡ (x ◃ ∅)
@@ -177,6 +186,9 @@ opaque
   perceusName (ConsL x EmptyR) = _ ⟨ SNAME-DUP ⟩
   perceusName (ConsR x EmptyL) = _ ⟨ SNAME ⟩
   perceusName (ConsR x EmptyR) = _ ⟨ SNAME ⟩
+
+
+  {-# COMPILE AGDA2HS perceusName  #-}
 
   perceusNames
     : ∀ {@0 Δ Γ} (xs : Names α)
@@ -191,6 +203,9 @@ opaque
       _ ⟨ proof₂ ⟩ = perceusNames xs (CoverSplits.splitRight cs)
     in
     _ ⟨ SCONS (CoverSplits.splitGamma cs) proof₁ proof₂ ⟩
+
+
+  {-# COMPILE AGDA2HS perceusNames  #-}
 
   perceusLit 
     : ∀ {@0 Δ Γ} {n : Nat}
@@ -208,6 +223,8 @@ perceusVal (Var x) split =
     let _ ⟨ proof ⟩ = perceusName split in 
     _ ⟨ SVAR proof ⟩ 
 
+{-# COMPILE AGDA2HS perceusVal  #-}
+
 perceusTerm 
   : ∀ {@0 Δ Γ} (t : Term α) 
   → Δ ⋈ Γ ≡ α
@@ -220,3 +237,4 @@ perceusTerm (AppDef f p xs) split =
   _ ⟨ SAPPDEF proof ⟩
 
 
+{-# COMPILE AGDA2HS perceusTerm  #-}

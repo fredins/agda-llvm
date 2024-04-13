@@ -1,4 +1,5 @@
 *.agdai
+gen/
 dist-newstyle
 llvm
 output.hs

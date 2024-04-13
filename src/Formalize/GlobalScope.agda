@@ -11,3 +11,5 @@ record Globals : Set where
     -- fieldScope : All (λ _ → Scope name) tagScope
 
 open Globals public
+
+{-# COMPILE AGDA2HS Globals #-}

@@ -1,4 +1,16 @@
-.PHONY : install test clean
+.PHONY : test-formalize install html pdf bib clean
+
+
+gen/Formalize/Test.hs : gen
+	agda2hs -o gen src/Formalize/Test.agda
+
+gen : 
+	mkdir -p gen
+
+clean-gen : 
+	rm -rf gen
+
+test-formalize : gen/Formalize/Test.hs
 
 install :
 	cabal install --overwrite-policy=always

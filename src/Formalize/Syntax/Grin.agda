@@ -32,13 +32,19 @@ data Names : @0 Scope name → Set where
   NNil  : Names ∅
   NCons : (@0 x : name) → Cover (x ◃ ∅) β γ → Names β → Names γ
 
+{-# COMPILE AGDA2HS Names deriving Show #-}
+
 data Val : @0 Scope name → Set where
   Lit : Nat → Val ∅
   Var : (@0 x : name) → Val (x ◃ ∅)
 
+{-# COMPILE AGDA2HS Val deriving Show #-}
+
 data Term : @0 Scope name → Set where
   Return : Val α → Term α
   AppDef : (@0 f : name) → f ∈ defScope → Names α → Term α
+
+{-# COMPILE AGDA2HS Term deriving Show #-}
 
 rezzCover : Cover α β γ → Rezz _ γ
 rezzCover CDone      = rezz ∅
@@ -46,14 +52,22 @@ rezzCover (CLeft c)  = rezzCong (bind _) (rezzCover c)
 rezzCover (CRight c) = rezzCong (bind _) (rezzCover c)
 rezzCover (CBoth c)  = rezzCong (bind _) (rezzCover c)
 
+{-# COMPILE AGDA2HS rezzCover #-}
+
 rezzNames : Names α → Rezz _ α
 rezzNames NNil         = rezz ∅
 rezzNames (NCons x c xs) = rezzCover c
+
+{-# COMPILE AGDA2HS rezzNames #-}
 
 rezzVal : Val α → Rezz _ α
 rezzVal (Lit n) = rezz ∅
 rezzVal (Var x) = rezz (x ◃ ∅)
 
+{-# COMPILE AGDA2HS rezzVal #-}
+
 rezzTerm : Term α → Rezz _ α
 rezzTerm (Return v)      = rezzVal v
 rezzTerm (AppDef f p xs) = rezzNames xs
+
+{-# COMPILE AGDA2HS rezzTerm #-}
