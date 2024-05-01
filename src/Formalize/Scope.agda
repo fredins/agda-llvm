@@ -148,14 +148,14 @@ splitAssoc SEmptyL q = < SEmptyL , q >
 splitAssoc SEmptyR q = < q , SEmptyL >
 splitAssoc p SEmptyR = < p , SEmptyR >
 splitAssoc (SExtendL p x) (SExtendL q x) = 
-    let < r , s > = splitAssoc p q
-    in  < SExtendL r x , s >
+  let < r , s > = splitAssoc p q
+  in  < SExtendL r x , s >
 splitAssoc (SExtendR p x) (SExtendL q x) = 
-    let < r , s > = splitAssoc p q
-    in  < SExtendR r x , SExtendL s x >
+  let < r , s > = splitAssoc p q
+  in  < SExtendR r x , SExtendL s x >
 splitAssoc p (SExtendR q x) =
-    let < r , s > = splitAssoc p q
-    in  < SExtendR r x , SExtendR s x >
+  let < r , s > = splitAssoc p q
+  in  < SExtendR r x , SExtendR s x >
 
 {-# COMPILE AGDA2HS splitAssoc #-}
 
