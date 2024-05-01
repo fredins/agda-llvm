@@ -35,8 +35,8 @@ infix 4 _¦_
 
 -- Represents a split of a split Δ ⋈ Γ ≡ γ according to 
 -- a Cover α β γ, such that the owned variables Γ are all consumed
--- exactly once. Thus, either α or β needs to borrow the shared 
--- variables. We do not enforce that α needs to borrow, unfortunately.
+-- exactly once. We enforce that that the left term (α) must borrow 
+-- the shared variables.
 record SplitCover (@0 Δ Γ α β  : Scope name) : Set where
   field
     -- The subsripts l, r, and lr indicate subscopeness of 
@@ -64,6 +64,8 @@ record SplitCover (@0 Δ Γ α β  : Scope name) : Set where
 
 open SplitCover public
 
+-- Create a SplitCover. The function body is huge but the details are
+-- irrelevant as it is correct by construction.
 splitAndCover : Δ ⋈ Γ ≡ γ → Cover α β γ → SplitCover Δ Γ α β
 splitAndCover SEmptyL CEmptyL = 
   record { splitlDelta = < SEmptyR , SEmptyR >
@@ -264,6 +266,9 @@ splitAndCover (SExtendR s x) (CExtendB c x) =
 
 {-# COMPILE AGDA2HS splitAndCover #-}
 
+------------------------------------------------------------------------
+-- Syntax-directed rules
+
 infix 3 _⊢ₛ_⇝ₙ_ _⊢ₛ_⇝ₙₛ_ _⊢ₛ_⇝ᵥ_ _⊢ₛ_⇝ₜ_ ⊢ₛ_⇝_
 
 data _⊢ₛ_⇝ₙ_ : Context → Name x α → R.Name x α → Set where
@@ -327,6 +332,11 @@ data ⊢ₛ_⇝_ : Definition → R.Definition → Set where
     → ⊢ₛ record{vars = vars; varsUsage = varsUsage; term = t} ⇝ 
          record{vars = vars; term = R.drops' vars varsUsage t′}
 
+------------------------------------------------------------------------
+-- Implementation of the rules 
+--
+-- Produces a value proof pair.
+
 perceusName 
   : ∀ {@0 Δ Γ} 
   → Δ ⋈ Γ ≡ α
@@ -383,7 +393,6 @@ perceusTerm s (Bind {β = β} r (MkPair c tl b)) =
   let 
     sc = splitAndCover s c
     _ ⟨ proofₗ ⟩ = perceusTerm (splitl sc) tl
-    tr = body b
     _ ⟨ proofᵣ ⟩ = perceusTerm (splitJoinRight (rezzSplitLeft (proj₂ (usage b)) r) (splitr sc)) (body b)
   in _ ⟨ SBIND s proofₗ proofᵣ ⟩
 

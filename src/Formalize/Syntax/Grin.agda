@@ -40,7 +40,6 @@ data Term (@0 α : Scope name) : Set where
   Return : Val α → Term α
   AppDef : (@0 f : name) → f ∈ defScope → Names α → Term α
   Bind   : Rezz _ β → Pair Term (Binder β Term) α → Term α
-  -- Bind1  : (@0 x : name) → Pair Term (Binder (x ◃ ∅) Term) α → Term α
 
 {-# COMPILE AGDA2HS Term deriving Show #-}
 
