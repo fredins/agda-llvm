@@ -295,7 +295,7 @@ data _⊢ₛ_⇝ₙₛ_  {@0 α : Scope name} : Context → Names α → R.Names
 
 data _⊢ₛ_⇝ᵥ_ {@0 α : Scope name} : Context → Val α → R.Val α → Set where
   SVAR 
-    : ∀ {Δ Γ n′} {n : Name x α} 
+    : {n : Name x α} {n′ : R.Name x α}
     → Δ ¦ Γ  ⊢ₛ n ⇝ₙ n′
     ---------------------------------
     → Δ ¦ Γ  ⊢ₛ Var n ⇝ᵥ R.Var n′
@@ -325,12 +325,10 @@ data _⊢ₛ_⇝ₜ_ {@0 α : Scope name} : Context → Term α → R.Term α �
 
 data ⊢ₛ_⇝_ : Definition → R.Definition → Set where
   SDEF 
-    : ∀ {varsScope freeScope vars} {varsUsage : freeScope ⊆ varsScope}
-      {t : Term freeScope} {t′ : R.Term freeScope}
+    : ∀ {varsScope freeScope vars t t′} {varsUsage : freeScope ⊆ varsScope}
     → Δ ¦ Γ ⊢ₛ t ⇝ₜ t′ 
-    ---------------------------------------------------------
-    → ⊢ₛ record{vars = vars; varsUsage = varsUsage; term = t} ⇝ 
-         record{vars = vars; term = R.drops' vars varsUsage t′}
+    -----------------------------------------------------------------------
+    → ⊢ₛ MkDef vars varsUsage t ⇝ R.MkDef vars (R.drops' vars varsUsage t′)
 
 ------------------------------------------------------------------------
 -- Implementation of the rules 
@@ -352,8 +350,7 @@ perceusName (SExtendR SEmptyR x) (Only x) = _ ⟨ SNAME ⟩
 {-# COMPILE AGDA2HS perceusName  #-}
 
 perceusNames
-  : ∀ {@0 Δ Γ} 
-  → Δ ⋈ Γ ≡ α
+  : Δ ⋈ Γ ≡ α
   → (ns : Names α)
   → ∃[ ns′ ∈ R.Names α ] Δ ¦ Γ ⊢ₛ ns ⇝ₙₛ ns′
 perceusNames SEmptyL (NNil None) = _ ⟨ SNIL ⟩
@@ -368,8 +365,7 @@ perceusNames s (NCons (MkPair c (Only x) ns)) =
 {-# COMPILE AGDA2HS perceusNames  #-}
 
 perceusVal 
-  : ∀ {@0 Δ Γ} 
-  → Δ ⋈ Γ ≡ α
+  : Δ ⋈ Γ ≡ α
   → (v : Val α)
   → ∃[ v′ ∈ R.Val α ] Δ ¦ Γ ⊢ₛ v ⇝ᵥ v′
 perceusVal s (Var (Only x)) =
@@ -379,8 +375,7 @@ perceusVal s (Var (Only x)) =
 {-# COMPILE AGDA2HS perceusVal  #-}
 
 perceusTerm 
-  : ∀ {@0 Δ Γ} 
-  → Δ ⋈ Γ ≡ α
+  : Δ ⋈ Γ ≡ α
   → (t : Term α) 
   → ∃[ t′ ∈ R.Term α ] Δ ¦ Γ ⊢ₛ t ⇝ₜ t′
 perceusTerm s (Return v) = 
