@@ -1,11 +1,11 @@
 
 module Formalize.GlobalScope (@0 name  : Set) where
 
-open import Scope
+open import Formalize.Scope
 
 record Globals : Set where
   field
-    -- varScope   : Scope name
+    varScope   : Scope name
     defScope   : Scope name
     -- tagScope   : Scope name
     -- fieldScope : All (λ _ → Scope name) tagScope

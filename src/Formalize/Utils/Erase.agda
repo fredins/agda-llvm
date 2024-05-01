@@ -25,5 +25,14 @@ inverse-erased-get refl = refl
 @0 inverse-get-erased : {@0 a : Set} {@0 z : a} {x : Erase a} → z ≡ get x → Erased z ≡ x
 inverse-get-erased refl = refl
  
-map0 : {@0 a b : Set} {p : @0 a → Set} {q : @0 b → Set} {@0 f : a → b} → (∀ {@0 x} → p x → q (f x)) → Σ0 a p → Σ0 b q
-map0 g < s > = < g s >
+mapSig : {@0 a b : Set} {p : @0 a → Set} {q : @0 b → Set} {@0 f : a → b} → (∀ {@0 x} → p x → q (f x)) → Σ0 a p → Σ0 b q
+mapSig g < s > = < g s >
+
+{-# COMPILE AGDA2HS mapSig #-}
+
+mapRef 
+  : {a b : Set} {@0 p : a → Set} {@0 q : b → Set} {f : a → b} 
+  → (∀ {@0 x} → p x → q (f x)) →  ∃ a p → ∃ b q
+mapRef g (_ ⟨ x ⟩) = _ ⟨ g x ⟩
+
+

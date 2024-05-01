@@ -1,3 +1,4 @@
+{-# OPTIONS --allow-unsolved-metas #-} 
 
 open import Formalize.GlobalScope using (Globals)
 
@@ -8,66 +9,51 @@ module Formalize.Syntax.Grin
 
 private open module @0 G = Globals globals
 
-open import Haskell.Prelude renaming (mempty to ∅)
-open import Haskell.Prim using (it)
+open import Haskell.Prelude using (_<>_) 
 open import Haskell.Extra.Erase 
-open import Haskell.Law
+open import Agda.Primitive
 
-open import Scope 
 open import Formalize.Scope
-
-postulate 
-  Tag : Set
+open import Formalize.Syntax.Common
 
 private variable
-  @0 x     : name
   @0 α β γ : Scope name
+  @0 x y   : name
 
--- Names, Val, and Term uses named 'co-de-Bruijn' syntax representation, where 
--- each construction is indexed by its free variables. Compared to de Bruijn indices, 
--- unused variables are discarded at the root (binding site) instead of the leafs 
--- (variable constructors).
+data Name : @0 name → @0 Scope name → Set where
+  Only : (@0 x : name) → Name x (∅ ▹ x)
 
-data Names : @0 Scope name → Set where
-  NNil  : Names ∅
-  NCons : (@0 x : name) → Cover (x ◃ ∅) β γ → Names β → Names γ
+{-# COMPILE AGDA2HS Name deriving Show #-}
+
+data Names (@0 α : Scope name) : Set where
+  NNil : Atom α → Names α
+  NCons : Pair (Name x) Names α → Names α
 
 {-# COMPILE AGDA2HS Names deriving Show #-}
-
-data Val : @0 Scope name → Set where
-  Lit : Nat → Val ∅
-  Var : (@0 x : name) → Val (x ◃ ∅)
+  
+data Val (@0 α : Scope name) : Set where
+  Var : Name x α → Val α
 
 {-# COMPILE AGDA2HS Val deriving Show #-}
 
-data Term : @0 Scope name → Set where
+data Term (@0 α : Scope name) : Set where
   Return : Val α → Term α
   AppDef : (@0 f : name) → f ∈ defScope → Names α → Term α
+  Bind   : Rezz _ β → Pair Term (Binder β Term) α → Term α
+  -- Bind1  : (@0 x : name) → Pair Term (Binder (x ◃ ∅) Term) α → Term α
 
 {-# COMPILE AGDA2HS Term deriving Show #-}
 
-rezzCover : Cover α β γ → Rezz _ γ
-rezzCover CDone      = rezz ∅
-rezzCover (CLeft c)  = rezzCong (bind _) (rezzCover c)
-rezzCover (CRight c) = rezzCong (bind _) (rezzCover c)
-rezzCover (CBoth c)  = rezzCong (bind _) (rezzCover c)
+record Definition : Set where
+  constructor MkDef 
+  field
+    @0 {varsScope} : Scope name
+    @0 {freeScope} : Scope name
+    vars           : Rezz (Scope name) varsScope
+    varsUsage      : freeScope ⊆ varsScope
+    term           : Term freeScope
 
-{-# COMPILE AGDA2HS rezzCover #-}
+{-# COMPILE AGDA2HS Definition deriving Show #-}
 
-rezzNames : Names α → Rezz _ α
-rezzNames NNil         = rezz ∅
-rezzNames (NCons x c xs) = rezzCover c
+open Definition public
 
-{-# COMPILE AGDA2HS rezzNames #-}
-
-rezzVal : Val α → Rezz _ α
-rezzVal (Lit n) = rezz ∅
-rezzVal (Var x) = rezz (x ◃ ∅)
-
-{-# COMPILE AGDA2HS rezzVal #-}
-
-rezzTerm : Term α → Rezz _ α
-rezzTerm (Return v)      = rezzVal v
-rezzTerm (AppDef f p xs) = rezzNames xs
-
-{-# COMPILE AGDA2HS rezzTerm #-}

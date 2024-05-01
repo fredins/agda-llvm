@@ -1,0 +1,10 @@
+
+rewrites:
+
+  - from: "Haskell.Prim.Tuple.first"
+    to: "first"
+    importing: "Data.Bifunctor"
+
+  - from: "Haskell.Prim.Tuple._***_"
+    to: "bimap"
+    importing: "Data.Bifunctor"

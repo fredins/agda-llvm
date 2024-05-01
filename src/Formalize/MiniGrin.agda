@@ -9,232 +9,390 @@ module Formalize.MiniGrin
 
 private open module @0 G = Globals globals
 
-open import Haskell.Prelude using (_×_; _,_; Nat; _<>_; case_of_; []; _∷_; _$_; id) renaming (mempty to ∅)
-open import Haskell.Prim.Tuple using (_***_; first; second)
-open import Haskell.Extra.Erase 
+open import Haskell.Prelude -- using (_<>_; _,_; Show) 
+open import Haskell.Prim.Tuple using (first; _***_)
 open import Haskell.Extra.Refinement 
-open import Haskell.Law
+open import Haskell.Extra.Erase 
+open import Haskell.Law.Equality 
+open import Haskell.Law.Monoid.Def using (leftIdentity; rightIdentity)
 
-open import Scope 
-open import Formalize.Utils.Erase 
 open import Formalize.Scope
+open import Formalize.Utils.Erase 
 open import Formalize.Syntax.Grin name globals
-import Formalize.Syntax.RcGrin name globals as Rc
+import Formalize.Syntax.RcGrin name globals as R
 
 private variable
-  @0 x     : name
-  @0 α β γ : Scope name
+  @0 x       : name
+  @0 α β γ δ : Scope name
+  @0 Δ Γ     : Scope name
 
 record Context : Set where
   constructor _¦_
   field
-    Δ Γ : Scope name 
+    borrowed owned : Scope name
 
 infix 4 _¦_ 
-
-data SynthesizeName
- : Context 
- → (@0 x : name)
- → Rc.Name x
- → Set
-
-data SynthesizeNames 
- : Context 
- → Names α
- → Rc.Names α
- → Set
-
-data SynthesizeVal 
- : Context 
- → Val α
- → Rc.Val α
- → Set
-
-data SynthesizeTerm 
- : Context 
- → Term α
- → Rc.Term α
- → Set
-
-infix 3 SynthesizeName SynthesizeNames SynthesizeVal SynthesizeTerm 
-
-syntax SynthesizeName c x x′    = c ⊢ₛ x  ⇝ₓ  x′
-syntax SynthesizeNames c xs xs′ = c ⊢ₛ xs ⇝ₓₛ xs′
-syntax SynthesizeVal c v v′     = c ⊢ₛ v  ⇝ᵥ  v′
-syntax SynthesizeTerm c t t′    = c ⊢ₛ t  ⇝ₜ  t′
-
--- TODO add the rest of the rules
-
-data SynthesizeName where
-
-  SNAME-DUP
-    : ∀ {x}
-    -------------------------------------------
-    → (x ◃ ∅) ¦ ∅ ⊢ₛ x ⇝ₓ Rc.Dup x
-
-  SNAME
-    : ∀ {x}
-    ---------------------------------------------
-    → ∅ ¦ (x ◃ ∅) ⊢ₛ x ⇝ₓ Rc.NoDup x
-
-  -- TODO: add primitives later. 
-  --
-  -- SNAME-PRIM
-  --   : ∀ {x}
-  --   ----------------------------------------------
-  --   → (x ◃ ∅) ¦ ∅ ¦ ∅ ⊢ₛ x ⇝ₓ Rc.NoDup x
-
-data SynthesizeNames where
-  SNIL
-    ------------------------------
-    : ∅ ¦ ∅ ⊢ₛ NNil ⇝ₓₛ Rc.NNil
-
-  SCONS
-    : ∀ {x x′ xs xs′ Δ Γ Δₗ Γₗ Δᵣ Γᵣ} {c : Cover (x ◃ ∅) β γ} 
-    → Γₗ ⋈ Γᵣ ≡ Γ 
-    → Δₗ ¦ Γₗ ⊢ₛ x  ⇝ₓ  x′ 
-    → Δᵣ ¦ Γᵣ ⊢ₛ xs ⇝ₓₛ xs′
-    ---------------------------------------------------------
-    → Δ ¦ Γ ⊢ₛ NCons x c xs ⇝ₓₛ Rc.NCons x′ c xs′
-
-data SynthesizeVal where
-  SLIT
-    : ∀ {n}
-    ---------------------------------
-    → ∅ ¦ ∅  ⊢ₛ Lit n ⇝ᵥ Rc.Lit n
-
-  SVAR 
-    : ∀ {Δ Γ x′}
-    → Δ ¦ Γ  ⊢ₛ x ⇝ₓ x′
-    ---------------------------------
-    → Δ ¦ Γ  ⊢ₛ Var x ⇝ᵥ Rc.Var x′
-
-data SynthesizeTerm where
-  SRETURN
-    : ∀ {Δ Γ v} {v′ : Rc.Val α}
-    → Δ ¦ Γ ⊢ₛ v ⇝ᵥ v′
-    ------------------------------------------------
-    → Δ ¦ Γ ⊢ₛ Return v ⇝ₜ Rc.Return v′
-
-  SAPPDEF 
-    : ∀ {Δ Γ f p xs} {xs′ : Rc.Names α}
-    → Δ ¦ Γ ⊢ₛ xs ⇝ₓₛ xs′
-    ------------------------------------------------
-    → Δ ¦ Γ ⊢ₛ AppDef f p xs ⇝ₜ Rc.AppDef f p xs′
 
 -- Represents a split of a split Δ ⋈ Γ ≡ γ according to 
 -- a Cover α β γ, such that the owned variables Γ are all consumed
 -- exactly once. Thus, either α or β needs to borrow the shared 
 -- variables. We do not enforce that α needs to borrow, unfortunately.
-record CoverSplits (@0 α β Γ : Scope name) : Set where
+record SplitCover (@0 Δ Γ α β  : Scope name) : Set where
   field
-    @0 {Δₗ}    : Scope name
-    @0 {Γₗ}    : Scope name
-    @0 {Δᵣ}    : Scope name
-    @0 {Γᵣ}    : Scope name
-    splitLeft  : Δₗ ⋈ Γₗ ≡ α
-    splitRight : Δᵣ ⋈ Γᵣ ≡ β
-    splitGamma : Γₗ ⋈ Γᵣ ≡ Γ
+    -- The subsripts l, r, and lr indicate subscopeness of 
+    -- only α, only β, or both α and β.
+    @0 {Δₗᵣ Δₗ Δᵣ}  : Scope name
+    @0 {Γₗᵣ Γₗ Γᵣ}  : Scope name
 
-{-# COMPILE AGDA2HS CoverSplits deriving Show #-}
+    -- Composite scopes. Note funny names.
+    @0 {Δₗᵣ,Δₗ,Γₗᵣ} : Scope name
+    @0 {Δₗᵣ,Δᵣ}     : Scope name
+    @0 {Γₗᵣ,Γᵣ}     : Scope name
 
-open CoverSplits public
+    -- Auxiliary splits.
+    splitlDelta     : Δₗᵣ ⋈ Δₗ ⋈ Γₗᵣ ≡ Δₗᵣ,Δₗ,Γₗᵣ
+    splitrDelta     : Δₗᵣ ⋈ Δᵣ       ≡ Δₗᵣ,Δᵣ
+    splitrGamma     : Γₗᵣ ⋈ Γᵣ       ≡ Γₗᵣ,Γᵣ
 
-forCoverSplits 
- : ∀ {@0 α β Γ Δₗ′ Γₗ′ Δᵣ′ Γᵣ′ α′ β′ Γ′} 
- → (s : CoverSplits α β Γ)
- → (Δₗ s ⋈ Γₗ s ≡ α → Δₗ′ ⋈ Γₗ′ ≡ α′) 
- → (Δᵣ s ⋈ Γᵣ s ≡ β → Δᵣ′ ⋈ Γᵣ′ ≡ β′) 
- → (Γₗ s ⋈ Γᵣ s ≡ Γ → Γₗ′ ⋈ Γᵣ′ ≡ Γ′)
- → CoverSplits α′ β′ Γ′
-forCoverSplits s f g h = record 
-  { splitLeft  = f (splitLeft s)
-  ; splitRight = g (splitRight s)
-  ; splitGamma = h (splitGamma s)
-  }
+    splitDelta      : Δₗᵣ ⋈ Δₗ ⋈ Δᵣ ≡ Δ
+    splitGamma      : Γₗᵣ ⋈ Γₗ ⋈ Γᵣ ≡ Γ
 
-{-# COMPILE AGDA2HS forCoverSplits  #-}
+    splitl          : Δₗᵣ,Δₗ,Γₗᵣ ⋈ Γₗ     ≡ α
+    splitr          : Δₗᵣ,Δᵣ     ⋈ Γₗᵣ,Γᵣ ≡ β
 
-opaque 
-  unfolding Split
-  -- Create a CoverSplits. If a varaible is used by both α and β then it is borrowed in α and owned in β.
-  coverSplits : ∀{@0 Δ Γ} → Cover α β γ → Δ ⋈ Γ ≡ γ → CoverSplits α β Γ
-  coverSplits CDone      EmptyL      = record{splitLeft = splitEmptyLeft; splitRight = splitEmptyLeft; splitGamma = splitEmptyLeft}
-  coverSplits CDone      EmptyR      = record{splitLeft = splitEmptyRight; splitRight = splitEmptyRight; splitGamma = splitEmptyRight}
-  coverSplits (CLeft  c) EmptyL      = forCoverSplits (coverSplits c EmptyL) splitBindRight id             splitBindLeft
-  coverSplits (CLeft  c) EmptyR      = forCoverSplits (coverSplits c EmptyR) splitBindLeft  id             id
-  coverSplits (CLeft  c) (ConsL x s) = forCoverSplits (coverSplits c s)      splitBindLeft  id             id
-  coverSplits (CLeft  c) (ConsR x s) = forCoverSplits (coverSplits c s)      splitBindRight id             splitBindLeft
-  coverSplits (CRight c) EmptyL      = forCoverSplits (coverSplits c EmptyL) id             splitBindRight splitBindRight
-  coverSplits (CRight c) EmptyR      = forCoverSplits (coverSplits c EmptyR) id             splitBindLeft  id
-  coverSplits (CRight c) (ConsL x s) = forCoverSplits (coverSplits c s)      id             splitBindLeft  id
-  coverSplits (CRight c) (ConsR x s) = forCoverSplits (coverSplits c s)      id             splitBindRight splitBindRight
-  coverSplits (CBoth  c) EmptyL      = forCoverSplits (coverSplits c EmptyL) splitBindLeft  splitBindRight splitBindRight
-  coverSplits (CBoth  c) EmptyR      = forCoverSplits (coverSplits c EmptyR) splitBindLeft  splitBindLeft  id
-  coverSplits (CBoth  c) (ConsL x s) = forCoverSplits (coverSplits c s)      splitBindLeft  splitBindLeft  id
-  coverSplits (CBoth  c) (ConsR x s) = forCoverSplits (coverSplits c s)      splitBindLeft  splitBindRight splitBindRight
+{-# COMPILE AGDA2HS SplitCover deriving Show  #-}
 
-  {-# COMPILE AGDA2HS coverSplits  #-}
+open SplitCover public
 
-  perceusName 
-    : ∀ {@0 Δ Γ} 
-    → Δ ⋈ Γ ≡ (x ◃ ∅)
-    → ∃[ x′ ∈ Rc.Name x ] Δ ¦ Γ ⊢ₛ x ⇝ₓ x′
-  perceusName EmptyL           = _ ⟨ SNAME ⟩
-  perceusName EmptyR           = _ ⟨ SNAME-DUP ⟩
-  perceusName (ConsL x EmptyL) = _ ⟨ SNAME-DUP ⟩
-  perceusName (ConsL x EmptyR) = _ ⟨ SNAME-DUP ⟩
-  perceusName (ConsR x EmptyL) = _ ⟨ SNAME ⟩
-  perceusName (ConsR x EmptyR) = _ ⟨ SNAME ⟩
+splitAndCover : Δ ⋈ Γ ≡ γ → Cover α β γ → SplitCover Δ Γ α β
+splitAndCover SEmptyL CEmptyL = 
+  record { splitlDelta = < SEmptyR , SEmptyR >
+         ; splitrDelta = SEmptyR
+         ; splitrGamma = SEmptyL
+         ; splitDelta  = < SEmptyR , SEmptyR >
+         ; splitGamma  = < SEmptyL , SEmptyL >
+         ; splitl      = SEmptyR
+         ; splitr      = SEmptyL
+         }
+splitAndCover SEmptyL CEmptyR = 
+  record { splitlDelta = < SEmptyR , SEmptyR >
+         ; splitrDelta = SEmptyR
+         ; splitrGamma = SEmptyR
+         ; splitDelta  = < SEmptyR , SEmptyR >
+         ; splitGamma  = < SEmptyL , SEmptyR >
+         ; splitl      = SEmptyL
+         ; splitr      = SEmptyR
+         }
+splitAndCover SEmptyL (CExtendL c x) = 
+  let sc = splitAndCover SEmptyL c in 
+  record { splitlDelta = splitlDelta sc
+         ; splitrDelta = splitrDelta sc
+         ; splitrGamma = splitrGamma sc
+         ; splitDelta  = splitDelta sc 
+         ; splitGamma  = mapSig ((λ s → SExtendR s x) *** (λ s → SExtendL s x)) (splitGamma sc) 
+         ; splitl      = SExtendR (splitl sc) x 
+         ; splitr      = splitr sc 
+         }
+splitAndCover SEmptyL (CExtendR c x) = 
+  let sc = splitAndCover SEmptyL c in 
+  record { splitlDelta = splitlDelta sc
+         ; splitrDelta = splitrDelta sc
+         ; splitrGamma = SExtendR (splitrGamma sc) x
+         ; splitDelta  = splitDelta sc
+         ; splitGamma  = mapSig ((λ s → SExtendR s x) *** (λ s → SExtendR s x)) (splitGamma sc)
+         ; splitl      = splitl sc
+         ; splitr      = SExtendR (splitr sc) x
+         }
+splitAndCover SEmptyL (CExtendB c x) = 
+  let sc = splitAndCover SEmptyL c in 
+  record { splitlDelta = mapSig ((λ s → SExtendR s x) *** (λ s → SExtendR s x)) (splitlDelta sc)
+         ; splitrDelta = splitrDelta sc
+         ; splitrGamma = SExtendL (splitrGamma sc) x 
+         ; splitDelta  = splitDelta sc
+         ; splitGamma  = mapSig (first λ s → SExtendL s x) (splitGamma sc)
+         ; splitl      = SExtendL (splitl sc) x
+         ; splitr      = SExtendR (splitr sc) x
+         }
+splitAndCover SEmptyR CEmptyL = 
+  record { splitlDelta = < SEmptyL , SEmptyL >
+         ; splitrDelta = SEmptyL
+         ; splitrGamma = SEmptyL
+         ; splitDelta  = < SEmptyL , SEmptyL >
+         ; splitGamma  = < SEmptyR , SEmptyL >
+         ; splitl      = SEmptyR
+         ; splitr      = SEmptyR
+         }
+splitAndCover SEmptyR CEmptyR = 
+  record { splitlDelta = < SEmptyL , SEmptyR >
+         ; splitrDelta = SEmptyL
+         ; splitrGamma = SEmptyL
+         ; splitDelta  = < SEmptyL , SEmptyR >
+         ; splitGamma  = < SEmptyL , SEmptyL >
+         ; splitl      = SEmptyR
+         ; splitr      = SEmptyR
+         }
+splitAndCover SEmptyR (CExtendL c x) = 
+  let sc = splitAndCover SEmptyR c in 
+  record { splitlDelta = mapSig ((λ s → SExtendR s x) *** (λ s → SExtendL s x)) (splitlDelta sc)
+         ; splitrDelta = splitrDelta sc
+         ; splitrGamma = splitrGamma sc
+         ; splitDelta  = mapSig ((λ s → SExtendR s x) *** (λ s → SExtendL s x)) (splitDelta sc)
+         ; splitGamma  = splitGamma sc
+         ; splitl      = SExtendL (splitl sc) x
+         ; splitr      = splitr sc
+         }
+splitAndCover SEmptyR (CExtendR c x) = 
+  let sc = splitAndCover SEmptyR c in 
+  record { splitlDelta = splitlDelta sc
+         ; splitrDelta = SExtendR (splitrDelta sc) x 
+         ; splitrGamma = splitrGamma sc
+         ; splitDelta  = mapSig ((λ s → SExtendR s x) *** (λ s → SExtendR s x)) (splitDelta sc)
+         ; splitGamma  = splitGamma sc
+         ; splitl      = splitl sc
+         ; splitr      = SExtendL (splitr sc) x
+         }
+splitAndCover SEmptyR (CExtendB c x) = 
+  let sc = splitAndCover SEmptyR c in 
+  record { splitlDelta = mapSig (first λ s → SExtendL s x) (splitlDelta sc)
+         ; splitrDelta = SExtendL (splitrDelta sc) x
+         ; splitrGamma = splitrGamma sc
+         ; splitDelta  = mapSig (first λ s → SExtendL s x) (splitDelta sc)
+         ; splitGamma  = splitGamma sc
+         ; splitl      = SExtendL (splitl sc) x
+         ; splitr      = SExtendL (splitr sc) x
+         }
+splitAndCover (SExtendL s x) CEmptyL = 
+  let sc = splitAndCover s CEmptyL in 
+  record { splitlDelta = splitlDelta sc
+         ; splitrDelta = SExtendR (splitrDelta sc) x
+         ; splitrGamma = splitrGamma sc
+         ; splitDelta  = mapSig ((λ s → SExtendR s x) *** (λ s → SExtendR s x)) (splitDelta sc)
+         ; splitGamma  = splitGamma sc
+         ; splitl      = splitl sc
+         ; splitr      = SExtendL (splitr sc) x
+         }
+splitAndCover (SExtendL s x) CEmptyR = 
+  let sc = splitAndCover s CEmptyR in 
+  record { splitlDelta = mapSig ((λ s → SExtendR s x) *** (λ s → SExtendL s x)) (splitlDelta sc)
+         ; splitrDelta = splitrDelta sc
+         ; splitrGamma = splitrGamma sc
+         ; splitDelta  = mapSig ((λ s → SExtendR s x) *** (λ s → SExtendL s x)) (splitDelta sc)
+         ; splitGamma  = splitGamma sc
+         ; splitl      = SExtendL (splitl sc) x
+         ; splitr      = splitr sc
+         }
+splitAndCover (SExtendL s x) (CExtendL c x) = 
+  let sc = splitAndCover s c in 
+  record { splitlDelta = mapSig ((λ s → SExtendR s x) *** (λ s → SExtendL s x)) (splitlDelta sc)
+         ; splitrDelta = splitrDelta sc
+         ; splitrGamma = splitrGamma sc
+         ; splitDelta  = mapSig ((λ s → SExtendR s x) *** (λ s → SExtendL s x)) (splitDelta sc)
+         ; splitGamma  = splitGamma sc
+         ; splitl      = SExtendL (splitl sc) x
+         ; splitr      = splitr sc
+         }
+splitAndCover (SExtendL s x) (CExtendR c x) = 
+  let sc = splitAndCover s c in 
+  record { splitlDelta = splitlDelta sc
+         ; splitrDelta = SExtendR (splitrDelta sc) x
+         ; splitrGamma = splitrGamma sc
+         ; splitDelta  = mapSig ((λ s → SExtendR s x) *** (λ s → SExtendR s x)) (splitDelta sc)
+         ; splitGamma  = splitGamma sc
+         ; splitl      = splitl sc
+         ; splitr      = SExtendL (splitr sc) x
+         }
+splitAndCover (SExtendL s x) (CExtendB c x) = 
+  let sc = splitAndCover s c in 
+  record { splitlDelta = mapSig (first λ s → SExtendL s x) (splitlDelta sc)
+         ; splitrDelta = SExtendL (splitrDelta sc) x
+         ; splitrGamma = splitrGamma sc
+         ; splitDelta  = mapSig (first λ s → SExtendL s x) (splitDelta sc)
+         ; splitGamma  = splitGamma sc
+         ; splitl      = SExtendL (splitl sc) x
+         ; splitr      = SExtendL (splitr sc) x
+         }
+splitAndCover (SExtendR s x) CEmptyL = 
+  let sc = splitAndCover s CEmptyL in 
+  record { splitlDelta = splitlDelta sc
+         ; splitrDelta = splitrDelta sc
+         ; splitrGamma = SExtendR (splitrGamma sc) x 
+         ; splitDelta  = splitDelta sc
+         ; splitGamma  = mapSig ((λ s → SExtendR s x) *** (λ s → SExtendR s x)) (splitGamma sc)
+         ; splitl      = splitl sc
+         ; splitr      = SExtendR (splitr sc) x
+         }
+splitAndCover (SExtendR s x) CEmptyR = 
+  let sc = splitAndCover s CEmptyR in 
+  record { splitlDelta = splitlDelta sc
+         ; splitrDelta = splitrDelta sc
+         ; splitrGamma = splitrGamma sc
+         ; splitDelta  = splitDelta sc
+         ; splitGamma  = mapSig ((λ s → SExtendR s x) *** (λ s → SExtendL s x)) (splitGamma sc)
+         ; splitl      = SExtendR (splitl sc) x
+         ; splitr      = splitr sc
+         }
+splitAndCover (SExtendR s x) (CExtendL c x) = 
+  let sc = splitAndCover s c in 
+  record { splitlDelta = splitlDelta sc
+         ; splitrDelta = splitrDelta sc
+         ; splitrGamma = splitrGamma sc
+         ; splitDelta  = splitDelta sc
+         ; splitGamma  = mapSig ((λ s → SExtendR s x) *** (λ s → SExtendL s x)) (splitGamma sc)
+         ; splitl      = SExtendR (splitl sc) x
+         ; splitr      = splitr sc
+         }
+splitAndCover (SExtendR s x) (CExtendR c x) = 
+  let sc = splitAndCover s c in 
+  record { splitlDelta = splitlDelta sc 
+         ; splitrDelta = splitrDelta sc 
+         ; splitrGamma = SExtendR (splitrGamma sc) x
+         ; splitDelta  = splitDelta sc
+         ; splitGamma  = mapSig ((λ s → SExtendR s x) *** (λ s → SExtendR s x)) (splitGamma sc)
+         ; splitl      = splitl sc
+         ; splitr      = SExtendR (splitr sc) x
+         }
+splitAndCover (SExtendR s x) (CExtendB c x) = 
+  let sc = splitAndCover s c in 
+  record { splitlDelta = mapSig ((λ s → SExtendR s x) *** (λ s → SExtendR s x)) (splitlDelta sc)
+         ; splitrDelta = splitrDelta sc
+         ; splitrGamma = SExtendL (splitrGamma sc) x
+         ; splitDelta  = splitDelta sc
+         ; splitGamma  = mapSig (first λ s → SExtendL s x) (splitGamma sc)
+         ; splitl      = SExtendL (splitl sc) x
+         ; splitr      = SExtendR (splitr sc) x
+         }
 
+{-# COMPILE AGDA2HS splitAndCover #-}
 
-  {-# COMPILE AGDA2HS perceusName  #-}
+infix 3 _⊢ₛ_⇝ₙ_ _⊢ₛ_⇝ₙₛ_ _⊢ₛ_⇝ᵥ_ _⊢ₛ_⇝ₜ_ ⊢ₛ_⇝_
 
-  perceusNames
-    : ∀ {@0 Δ Γ} (xs : Names α)
-    → Δ ⋈ Γ ≡ α
-    → ∃[ xs′ ∈ Rc.Names α ] Δ ¦ Γ ⊢ₛ xs ⇝ₓₛ xs′
-  perceusNames NNil EmptyL = _ ⟨ SNIL ⟩
-  perceusNames NNil EmptyR = _ ⟨ SNIL ⟩
-  perceusNames (NCons x c xs) s = 
-    let 
-      cs = coverSplits c s 
-      _ ⟨ proof₁ ⟩ = perceusName (CoverSplits.splitLeft cs)
-      _ ⟨ proof₂ ⟩ = perceusNames xs (CoverSplits.splitRight cs)
-    in
-    _ ⟨ SCONS (CoverSplits.splitGamma cs) proof₁ proof₂ ⟩
+data _⊢ₛ_⇝ₙ_ : Context → Name x α → R.Name x α → Set where
+  SNAME-DUP
+    ----------------------------------
+    : (∅ ▹ x) ¦ ∅ ⊢ₛ Only x ⇝ₙ R.Dup x
+  SNAME
+    -----------------------------------
+    : ∅ ¦ (∅ ▹ x) ⊢ₛ Only x ⇝ₙ R.Only x
 
+data _⊢ₛ_⇝ₙₛ_  {@0 α : Scope name} : Context → Names α → R.Names α → Set where
+  SNIL 
+    : {none : Atom α}
+    ------------------------------------
+    → Δ ¦ Γ ⊢ₛ NNil none ⇝ₙₛ R.NNil none
 
-  {-# COMPILE AGDA2HS perceusNames  #-}
+  SCONS
+    : ∀ {n : Name x (∅ ▹ x)} {ns : Names β} {n′ ns′} {c : Cover (∅ ▹ x) β α} 
+    → (s : Δ ⋈ Γ ≡ α) (let sc = splitAndCover s c)
+    → Δₗᵣ,Δₗ,Γₗᵣ sc ¦ Γₗ sc     ⊢ₛ n  ⇝ₙ  n′ 
+    → Δₗᵣ,Δᵣ sc     ¦ Γₗᵣ,Γᵣ sc ⊢ₛ ns ⇝ₙₛ ns′
+    --------------------------------------------------------------
+    → Δ ¦ Γ ⊢ₛ NCons (MkPair c n ns) ⇝ₙₛ R.NCons (MkPair c n′ ns′) 
 
-  perceusLit 
-    : ∀ {@0 Δ Γ} {n : Nat}
-    → Δ ⋈ Γ ≡ ∅
-    → Δ ¦ Γ ⊢ₛ Lit n ⇝ᵥ Rc.Lit n
-  perceusLit EmptyL = SLIT
-  perceusLit EmptyR = SLIT
+data _⊢ₛ_⇝ᵥ_ {@0 α : Scope name} : Context → Val α → R.Val α → Set where
+  SVAR 
+    : ∀ {Δ Γ n′} {n : Name x α} 
+    → Δ ¦ Γ  ⊢ₛ n ⇝ₙ n′
+    ---------------------------------
+    → Δ ¦ Γ  ⊢ₛ Var n ⇝ᵥ R.Var n′
+
+data _⊢ₛ_⇝ₜ_ {@0 α : Scope name} : Context → Term α → R.Term α → Set where
+  SRETURN
+    : ∀ {v v′} 
+    → Δ ¦ Γ ⊢ₛ v ⇝ᵥ v′
+    ----------------------------------
+    → Δ ¦ Γ ⊢ₛ Return v ⇝ₜ R.Return v′
+
+  SAPPDEF 
+    : ∀ {f p ns ns′} 
+    → Δ ¦ Γ ⊢ₛ ns ⇝ₙₛ ns′
+    --------------------------------------------
+    → Δ ¦ Γ ⊢ₛ AppDef f p ns ⇝ₜ R.AppDef f p ns′
+
+  SBIND 
+    : ∀ {fvₗ fvᵣ xs r tₗ tₗ′ tᵣ tᵣ′} 
+      {c : Cover fvₗ fvᵣ α} {p : xs ⊆ β} 
+    → (s : Δ ⋈ Γ ≡ α) (let sc = splitAndCover s c) 
+    → Δₗᵣ,Δₗ,Γₗᵣ sc ¦ Γₗ           sc ⊢ₛ tₗ ⇝ₜ tₗ′
+    → Δₗᵣ,Δᵣ     sc ¦ Γₗᵣ,Γᵣ sc <> xs ⊢ₛ tᵣ ⇝ₜ tᵣ′
+    ---------------------------------------------------------------------------
+    → Δ ¦ Γ ⊢ₛ Bind r (MkPair c tₗ (MkBinder p tᵣ)) ⇝ₜ 
+               R.Bind r (MkPair c tₗ′ (MkBinder < SEmptyR > (R.drops r p tᵣ′)))
+
+data ⊢ₛ_⇝_ : Definition → R.Definition → Set where
+  SDEF 
+    : ∀ {varsScope freeScope vars} {varsUsage : freeScope ⊆ varsScope}
+      {t : Term freeScope} {t′ : R.Term freeScope}
+    → Δ ¦ Γ ⊢ₛ t ⇝ₜ t′ 
+    ---------------------------------------------------------
+    → ⊢ₛ record{vars = vars; varsUsage = varsUsage; term = t} ⇝ 
+         record{vars = vars; term = R.drops' vars varsUsage t′}
+
+perceusName 
+  : ∀ {@0 Δ Γ} 
+  → Δ ⋈ Γ ≡ α
+  → (n : Name x α)
+  → ∃[ n′ ∈ R.Name x α ] Δ ¦ Γ ⊢ₛ n ⇝ₙ n′
+perceusName SEmptyL              (Only x) = _ ⟨ SNAME ⟩
+perceusName SEmptyR              (Only x) = _ ⟨ SNAME-DUP ⟩
+perceusName (SExtendL SEmptyL x) (Only x) = _ ⟨ SNAME-DUP ⟩
+perceusName (SExtendL SEmptyR x) (Only x) = _ ⟨ SNAME-DUP ⟩
+perceusName (SExtendR SEmptyL x) (Only x) = _ ⟨ SNAME ⟩
+perceusName (SExtendR SEmptyR x) (Only x) = _ ⟨ SNAME ⟩ 
+
+{-# COMPILE AGDA2HS perceusName  #-}
+
+perceusNames
+  : ∀ {@0 Δ Γ} 
+  → Δ ⋈ Γ ≡ α
+  → (ns : Names α)
+  → ∃[ ns′ ∈ R.Names α ] Δ ¦ Γ ⊢ₛ ns ⇝ₙₛ ns′
+perceusNames SEmptyL (NNil None) = _ ⟨ SNIL ⟩
+perceusNames SEmptyR (NNil None) = _ ⟨ SNIL ⟩
+perceusNames s (NCons (MkPair c (Only x) ns)) = 
+  let 
+    sc = splitAndCover s c
+    _ ⟨ proofₗ ⟩ = perceusName (splitl sc) (Only x) 
+    _ ⟨ proofᵣ ⟩ = perceusNames (splitr sc) ns 
+  in _ ⟨ SCONS s proofₗ proofᵣ ⟩
+
+{-# COMPILE AGDA2HS perceusNames  #-}
 
 perceusVal 
-  : ∀ {@0 Δ Γ} (v : Val α) 
+  : ∀ {@0 Δ Γ} 
   → Δ ⋈ Γ ≡ α
-  → ∃[ v′ ∈ Rc.Val α ] Δ ¦ Γ ⊢ₛ v ⇝ᵥ v′
-perceusVal (Lit n) split = _ ⟨ perceusLit split ⟩
-perceusVal (Var x) split = 
-    let _ ⟨ proof ⟩ = perceusName split in 
+  → (v : Val α)
+  → ∃[ v′ ∈ R.Val α ] Δ ¦ Γ ⊢ₛ v ⇝ᵥ v′
+perceusVal s (Var (Only x)) =
+    let _ ⟨ proof ⟩ = perceusName s (Only x) in 
     _ ⟨ SVAR proof ⟩ 
 
 {-# COMPILE AGDA2HS perceusVal  #-}
 
 perceusTerm 
-  : ∀ {@0 Δ Γ} (t : Term α) 
+  : ∀ {@0 Δ Γ} 
   → Δ ⋈ Γ ≡ α
-  → ∃[ t′ ∈ Rc.Term α ] Δ ¦ Γ ⊢ₛ t ⇝ₜ t′
-perceusTerm (Return v) split = 
-  let _ ⟨ proof ⟩ = perceusVal v split in
-  _ ⟨ SRETURN proof ⟩
-perceusTerm (AppDef f p xs) split = 
-  let _ ⟨ proof ⟩ = perceusNames xs split in
+  → (t : Term α) 
+  → ∃[ t′ ∈ R.Term α ] Δ ¦ Γ ⊢ₛ t ⇝ₜ t′
+perceusTerm s (Return v) = 
+  let _ ⟨ proof ⟩ = perceusVal s v
+  in  _ ⟨ SRETURN proof ⟩
+perceusTerm s (AppDef f p xs) = 
+  let _ ⟨ proof ⟩ = perceusNames s xs in
   _ ⟨ SAPPDEF proof ⟩
-
+perceusTerm s (Bind {β = β} r (MkPair c tl b)) = 
+  let 
+    sc = splitAndCover s c
+    _ ⟨ proofₗ ⟩ = perceusTerm (splitl sc) tl
+    tr = body b
+    _ ⟨ proofᵣ ⟩ = perceusTerm (splitJoinRight (rezzSplitLeft (proj₂ (usage b)) r) (splitr sc)) (body b)
+  in _ ⟨ SBIND s proofₗ proofᵣ ⟩
 
 {-# COMPILE AGDA2HS perceusTerm  #-}
+
+perceus : (f : Definition) → ∃[ f′ ∈ R.Definition ] ⊢ₛ f ⇝ f′
+perceus f = 
+  let _ ⟨ proof ⟩ = perceusTerm SEmptyL (term f)
+  in  _ ⟨ SDEF proof ⟩
+
+{-# COMPILE AGDA2HS perceus #-}
+
