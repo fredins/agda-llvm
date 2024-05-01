@@ -31,13 +31,13 @@ infixl 5 _▹_
 
 instance 
   iSemigroupScope : Semigroup (Scope name)
-  iSemigroupScope ._<>_ xs ∅        = xs
+  iSemigroupScope ._<>_ xs ∅ = xs
   iSemigroupScope ._<>_ xs (ys ▹ y) = (xs <> ys) ▹ y
 
   {-# COMPILE AGDA2HS iSemigroupScope #-}
   
   iLawfulSemigroupScope : IsLawfulSemigroup (Scope name)
-  iLawfulSemigroupScope .associativity xs ys ∅        = refl
+  iLawfulSemigroupScope .associativity xs ys ∅ = refl
   iLawfulSemigroupScope .associativity xs ys (zs ▹ x) 
     rewrite sym (associativity xs ys zs) 
     = refl 
@@ -46,7 +46,7 @@ instance
   iMonoidScope .mempty  = ∅
   iMonoidScope .super   = iSemigroupScope
   iMonoidScope .mappend = _<>_
-  iMonoidScope .mconcat []       = mempty
+  iMonoidScope .mconcat [] = mempty
   iMonoidScope .mconcat (x ∷ xs) = x <> mconcat xs 
 
   {-# COMPILE AGDA2HS iMonoidScope #-}
@@ -160,13 +160,13 @@ splitAssoc p (SExtendR q x) =
 {-# COMPILE AGDA2HS splitAssoc #-}
 
 splitJoinRight : Rezz _ δ → α ⋈ β ≡ γ → α ⋈ (β <> δ) ≡ (γ <> δ)
-splitJoinRight (rezz ∅)       s = s
+splitJoinRight (rezz ∅)        s = s
 splitJoinRight (rezz (xs ▹ x)) s = SExtendR (splitJoinRight (rezz xs) s) x
 
 {-# COMPILE AGDA2HS splitJoinRight #-}
 
 splitJoinLeft : Rezz _ δ → α ⋈ β ≡ γ → (α <> δ) ⋈ β ≡ (γ <> δ)
-splitJoinLeft (rezz ∅)       s = s
+splitJoinLeft (rezz ∅)        s = s
 splitJoinLeft (rezz (xs ▹ x)) s = SExtendL (splitJoinLeft (rezz xs) s) x
 
 {-# COMPILE AGDA2HS splitJoinLeft #-}
