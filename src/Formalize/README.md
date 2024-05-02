@@ -15,7 +15,7 @@ You can also run `cabal repl gen` to interpret the generated code.
 
 ### Status
 
-We have rules and implementation for term constructors `Return`, `AppDef`, `Bind`, and the only values we support are variables `Var`. These constructors involve two challenging aspects: composition of terms and variable bindings. So, other constructors such as `Store` and `Fetch` are straight forward to implementation. `Case`, `Update`, and literals `Lit` will, however, require a bit more work. Our current goal is to hold off on implementing all the rules, and instead focus on proving properties about the rules. Following are some of the properties we are intrested in.
+We have rules and implementation for the term constructors `Return`, `AppDef`, `Bind`, and the only values we support are variables `Var`. These constructors involve two challenging aspects: composition of terms and variable bindings. So, other constructors such as `Store` and `Fetch` are straight forward to implement. `Case`, `Update`, and literals `Lit` will, however, require a bit more work. Our current goal is to hold off on implementing all the rules, and instead focus on proving properties about the rules. Following are some of the properties we are intrested in.
 
 - Reachability. All heap nodes are reachable from the pointers at the stack. 
   For any heap H : Loc → HeapNode and stack S : Abs → Val, the domain dom(H) ∈ image(S).
