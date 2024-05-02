@@ -1,39 +1,19 @@
-.PHONY : test-formalize install html pdf bib clean
+.PHONY : install gen pdf bib html 
 
-
-gen/Formalize/Test.hs : gen
-	agda2hs -o gen src/Formalize/Test.agda
-
-gen : 
-	mkdir -p gen
-
-clean-gen : 
-	rm -rf gen
-
-test-formalize : gen/Formalize/Test.hs
+AGDA2HS = agda2hs
 
 install :
 	cabal install --overwrite-policy=always
 
-test :
-	cabal run test
-
-test-clean :
-	rm test/*.err
-
-run : 
-	agda-llvm --llvm agda-programs/DownFrom.agda
-
-html : html/logbook.html
+gen : 
+	$(AGDA2HS) --config=rewrite-rules.yml -o gen src/Formalize/Test.agda
 
 pdf : latex/report.pdf
 
 bib : latex/report.tex
 	cd latex && biber report && lualatex report
 
-clean : 
-	rm -rf html
-	rm -rf latex
+html : html/logbook.html
 
 html/logbook.md : logbook.lagda.md
 	agda-llvm --html --html-highlight=auto logbook.lagda.md
