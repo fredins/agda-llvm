@@ -9,6 +9,6 @@ We eventually plan to replace the current Haskell implementation [src/Compiler/G
 
 Start by taking a look at [Test.agda](Test.agda) for a short introduction.
 
-Then, run `make gen`. To generate the corresponding Haskell code to the [gen](../../gen) directory.
+`make gen` will generate the corresponding Haskell code to the [gen](../../gen) directory.
 
 You can also run `cabal repl gen` to interpret the generated code.
