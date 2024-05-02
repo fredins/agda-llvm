@@ -6,11 +6,14 @@ module Formalize.Test where
 
 open import Agda.Builtin.String using (String)
 open import Haskell.Prelude using (_≡_; refl) 
-open import Haskell.Extra.Erase 
-open import Haskell.Extra.Refinement 
+open import Haskell.Extra.Erase using (<_>; rezz)
+open import Haskell.Extra.Refinement using (value)
 
+-- Defines everything that is globally known.
 open import Formalize.GlobalScope
-open import Formalize.Scope
+
+-- Scoping library.
+open import Formalize.Scope 
 
 -- We use strings as names for readability, but this doesn't 
 -- matter since names are erased.
@@ -27,8 +30,13 @@ globals = record
   ; varScope = ∅ ▹ "x" ▹ "y" ▹ "z" ▹ "a" ▹ "b" ▹ "c"
   }
 
-open import Formalize.Syntax.Grin name globals
+-- Grin syntax before the Perceus algorithm (no dup/drop).
+open import Formalize.Syntax.Grin name globals  
+
+-- Grin syntax with dup and drop.
 import Formalize.Syntax.RcGrin name globals as R
+
+-- The rules and the algorithm.
 open import Formalize.MiniGrin name globals 
 
 -- The first example is a function call that binds two variables, y and z,
@@ -36,7 +44,9 @@ open import Formalize.MiniGrin name globals
 -- reference counted. Hence, we want the Perceus algorithm to drop the z variable 
 -- a soon as possible.
 
--- f0 x = f x ; λ y z → return y
+-- f0 x = 
+--   f x ; λ y z → 
+--   return y
 f0 : Definition
 f0 = record
   { vars = rezz (∅ ▹ "x")
@@ -52,7 +62,10 @@ f0 = record
 -- Following is the expected result f0′ and a test that the algorithm produces the 
 -- expected result.
 
--- f0′ x = f x ; λ y z → drop z; return y
+-- f0′ x = 
+--   f x ; λ y z → 
+--   drop z ; 
+--   return y
 f0′ : R.Definition
 f0′ = record
   { vars = rezz (∅ ▹ "x")
@@ -69,9 +82,14 @@ f0′ = record
 -- We only care about the existence of a proof (and not its structure), so we project the value 
 -- part of the output, and compare it to our expected result. 
 
--- f0 x = f x ; λ y z → return y
+-- f0 x = 
+--   f x ; λ y z → 
+--   return y
 -- >>>
--- f0 x = f x ; λ y z → drop z; return y
+-- f0′ x = 
+--   f x ; λ y z → 
+--   drop z ; 
+--   return y
 _ : value (perceus f0) ≡ f0′
 _ = refl
 
@@ -105,7 +123,7 @@ f1′ : R.Definition
 f1′ = record 
   { vars = rezz (∅ ▹ "x" ▹ "y")
   ; term = 
-    R.Bind (Rezzed ∅ refl)
+    R.Bind (rezz ∅)
       (MkPair (CExtendL CEmptyL "y")
        (R.Drop
         (R.Only "y"))
@@ -135,8 +153,17 @@ f1′ = record
                     (R.NCons
                      (MkPair CEmptyR (R.Only "x")
                       (R.NNil None)))))))))))))))))
-
   }
 
+-- f1 x y = 
+--   f x ; λ z a b → 
+--   g a x
+-- >>>
+-- f1′ x y = 
+--   drop y ;
+--   f (dup x) ; λ z a b → 
+--   drop b ;
+--   drop z ;
+--   g a x
 _ : value (perceus f1) ≡ f1′
 _ = refl
