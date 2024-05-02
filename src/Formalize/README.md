@@ -12,3 +12,26 @@ Start by taking a look at [Test.agda](Test.agda) for a short introduction.
 `make gen` will generate the corresponding Haskell code to the [gen](../../gen) directory.
 
 You can also run `cabal repl gen` to interpret the generated code.
+
+### Status
+
+We have rules and an implementation for term constructors `Return`, `AppDef`, `Bind`, and the only values we support are variables `Var`. Some other constructors such as `Store` and `Fetch` are straight forward to implementation. `Case`, `Update`, and literals `Lit` will require a bit more work. Our current goal is to hold off on implementing all the rules, and instead focus on proving propertis about the rules. Following are some of the properties we are intrested in.
+
+- Reachability. All heap nodes are reachable from the pointers at the stack. 
+  For any heap H : Loc → HeapNode and stack S : Abs → Val, the domain dom(H) ∈ image(S).
+
+- Inverse Reachability. All pointers points to a location that is part of the heap. 
+  Thereby, we have no "use after free".
+  
+- No garbage. Given reachability, we can prove that there is no garbage left behind, i.e. 
+  all the memory is deallocated when the program finishes (empty heap). 
+  TODO: make local, doesn't touch the initial heap.
+
+- Number of reference counts equal to number of actual references. 
+  TODO: define "actual references"
+
+- Precision. Nodes are deallocated as soon as the node is no longer need. 
+  (Reiking et al. proves this by proving soundness from the syntax-directed 
+  linear rules to declaraitve linear syntax rules.)
+
+Another future goal is to connect the generated code to the compiler pipeline. 
