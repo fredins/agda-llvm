@@ -1,4 +1,4 @@
-An Agda backend that compiles to LLVM via the intermidate representation GRIN (Boquist 1999, Johnsson 1991).
+An Agda backend that compiles to LLVM via the intermidate representation Grin (Boquist 1999, Johnsson 1991).
 Memory is managed by Perceus-style (Reiking et al. 2021) reference counting.
 
 - [Installation](INSTALL.md) 
