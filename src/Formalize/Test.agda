@@ -36,7 +36,7 @@ open import Formalize.Syntax.Grin name globals
 -- Grin syntax with dup and drop.
 import Formalize.Syntax.RcGrin name globals as R
 
--- The rules and the algorithm.
+-- The syntax-directed rules and implementation. 
 open import Formalize.MiniGrin name globals 
 
 -- The first example is a function call that binds two variables, y and z,
