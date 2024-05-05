@@ -1,15 +1,21 @@
 
 --------------------------------------------------------------------------
 -- Scoping. Heavily inspired by github.com/jespercockx/scope, but it uses
--- co-de-Bruijn indices (McBride 2018), backwards lists, and it doesn't use 
+-- co-de-Bruijn indices (McBride 2018), backwards lists, and it doesn't use
 -- opaque definitions.
 
 module Formalize.Scope where
 
-open import Haskell.Prelude using (Semigroup; _<>_; Monoid;  mempty; super; mappend; mconcat; _∷_; []; _≡_; refl; _×_; _,_; fst; snd)
+open import Haskell.Prelude using
+  ( Semigroup; _<>_;
+    Monoid;  mempty; super; mappend; mconcat;
+    _∷_; [];
+    _≡_; refl;
+    _×_; _,_; fst; snd
+  )
 open import Haskell.Extra.Erase
-open import Formalize.Utils.Erase 
-open import Haskell.Law.Equality 
+open import Formalize.Utils.Erase
+open import Haskell.Law.Equality
 open import Haskell.Law.Semigroup.Def
 open import Haskell.Law.Monoid.Def
 
@@ -29,25 +35,25 @@ pattern _▹_ α x = SExtend α (Erased x)
 
 infixl 5 _▹_
 
-instance 
+instance
   iSemigroupScope : Semigroup (Scope name)
   iSemigroupScope ._<>_ xs ∅ = xs
   iSemigroupScope ._<>_ xs (ys ▹ y) = (xs <> ys) ▹ y
 
   {-# COMPILE AGDA2HS iSemigroupScope #-}
-  
+
   iLawfulSemigroupScope : IsLawfulSemigroup (Scope name)
   iLawfulSemigroupScope .associativity xs ys ∅ = refl
-  iLawfulSemigroupScope .associativity xs ys (zs ▹ x) 
-    rewrite sym (associativity xs ys zs) 
-    = refl 
+  iLawfulSemigroupScope .associativity xs ys (zs ▹ x)
+    rewrite sym (associativity xs ys zs)
+    = refl
 
   iMonoidScope : Monoid (Scope name)
   iMonoidScope .mempty  = ∅
   iMonoidScope .super   = iSemigroupScope
   iMonoidScope .mappend = _<>_
   iMonoidScope .mconcat [] = mempty
-  iMonoidScope .mconcat (x ∷ xs) = x <> mconcat xs 
+  iMonoidScope .mconcat (x ∷ xs) = x <> mconcat xs
 
   {-# COMPILE AGDA2HS iMonoidScope #-}
 
@@ -68,8 +74,8 @@ infixr 5 cons
 
 syntax cons x α = x ◃ α
 
-private variable 
-  @0 α β γ δ ε ζ : Scope name 
+private variable
+  @0 α β γ δ ε ζ : Scope name
 
 rezzExtend : Rezz (Scope name) α → Rezz (Scope name) (α ▹ x)
 rezzExtend = rezzCong (_▹ _)
@@ -85,25 +91,25 @@ scopeInit (SExtend xs x) = xs
 {-# COMPILE AGDA2HS scopeInit #-}
 
 rezzInit : Rezz (Scope name) (α ▹ x) → Rezz (Scope name) α
-rezzInit {α = α} (Rezzed xs p) = 
-  Rezzed (scopeInit xs) 
+rezzInit {α = α} (Rezzed xs p) =
+  Rezzed (scopeInit xs)
     (subst (λ xs → ⦃ @0 _ : NonEmpty xs ⦄ → scopeInit xs ≡ α) (sym p) refl)
-  where instance 
+  where instance
   @0 _ : NonEmpty xs
   _ = subst0 NonEmpty (sym p) itsNonEmpty
 
 {-# COMPILE AGDA2HS rezzInit #-}
 
-<>-▹-assoc : (α β : Scope name) (x : name) → α <> (β ▹ x) ≡ (α <> β) ▹ x 
+<>-▹-assoc : (α β : Scope name) (x : name) → α <> (β ▹ x) ≡ (α <> β) ▹ x
 <>-▹-assoc α ∅ x = refl
 <>-▹-assoc α (β ▹ y) x rewrite <>-▹-assoc α β x = refl
 
-▹-<>≡<>-◃ : (α : Scope name) (x : name) (β : Scope name) → (α ▹ x) <> β ≡ α <> (x ◃ β) 
-▹-<>≡<>-◃ α x β = begin 
-  (α ▹ x) <> β 
-  ≡⟨ sym (associativity α (∅ ▹ x) β) ⟩ 
+▹-<>≡<>-◃ : (α : Scope name) (x : name) (β : Scope name) → (α ▹ x) <> β ≡ α <> (x ◃ β)
+▹-<>≡<>-◃ α x β = begin
+  (α ▹ x) <> β
+  ≡⟨ sym (associativity α (∅ ▹ x) β) ⟩
   α <> (x ◃ β)
-  ∎ 
+  ∎
 
 -- Cover is a disjoint union.
 data Cover {@0 name : Set} : (@0 α β γ : Scope name) → Set where
@@ -147,10 +153,10 @@ splitAssoc
 splitAssoc SEmptyL q = < SEmptyL , q >
 splitAssoc SEmptyR q = < q , SEmptyL >
 splitAssoc p SEmptyR = < p , SEmptyR >
-splitAssoc (SExtendL p x) (SExtendL q x) = 
+splitAssoc (SExtendL p x) (SExtendL q x) =
   let < r , s > = splitAssoc p q
   in  < SExtendL r x , s >
-splitAssoc (SExtendR p x) (SExtendL q x) = 
+splitAssoc (SExtendR p x) (SExtendL q x) =
   let < r , s > = splitAssoc p q
   in  < SExtendR r x , SExtendL s x >
 splitAssoc p (SExtendR q x) =
@@ -174,22 +180,22 @@ splitJoinLeft (rezz (xs ▹ x)) s = SExtendL (splitJoinLeft (rezz xs) s) x
 rezzSplit : α ⋈ β ≡ γ → Rezz _ γ → Rezz _ α × Rezz _ β
 rezzSplit SEmptyL r = rezz ∅ , r
 rezzSplit SEmptyR r = r , rezz ∅
-rezzSplit (SExtendL s x) r = 
-  let r1 , r2 = rezzSplit s (rezzInit r) in  
+rezzSplit (SExtendL s x) r =
+  let r1 , r2 = rezzSplit s (rezzInit r) in
   rezzExtend r1 , r2
-rezzSplit (SExtendR s x) r = 
-  let r1 , r2 = rezzSplit s (rezzInit r) in  
+rezzSplit (SExtendR s x) r =
+  let r1 , r2 = rezzSplit s (rezzInit r) in
   r1 , rezzExtend r2
 
 {-# COMPILE AGDA2HS rezzSplit #-}
 
-rezzSplitLeft : α ⋈ β ≡ γ → Rezz _ γ → Rezz _ α 
-rezzSplitLeft s r = fst (rezzSplit s r) 
+rezzSplitLeft : α ⋈ β ≡ γ → Rezz _ γ → Rezz _ α
+rezzSplitLeft s r = fst (rezzSplit s r)
 
 {-# COMPILE AGDA2HS rezzSplitLeft #-}
 
 rezzSplitRight : α ⋈ β ≡ γ → Rezz _ γ → Rezz _ β
-rezzSplitRight s r = snd (rezzSplit s r) 
+rezzSplitRight s r = snd (rezzSplit s r)
 
 {-# COMPILE AGDA2HS rezzSplitRight #-}
 
@@ -211,14 +217,14 @@ Sub α β = Σ0[ δ ∈ Scope _ ] α ⋈ δ ≡ β
 
 {-# COMPILE AGDA2HS Sub #-}
 
-syntax Sub α β = α ⊆ β
+syntax Sub α β = α ⊆ β  -- Do you need to use "syntax" here? Or would _⊆_ = Sub work. If so, please change.
 
 In : @0 name → @0 Scope name → Set
 In x α = (∅ ▹ x) ⊆ α
 
 {-# COMPILE AGDA2HS In #-}
 
-syntax In x α = x ∈ α
+syntax In x α = x ∈ α   -- Same question about syntax as above. I would prefer _∈_ = In
 
 inHere : x ∈ (α ▹ x)
 inHere = < SExtendL SEmptyL _ >
@@ -233,7 +239,7 @@ inThere < s > = < SExtendR s _ >
 @0 diff : {α β : Scope name} → α ⊆ β → Scope name
 diff = proj₁
 
--- Bind β variables to the orignal scope α where the body (e.g. a term) may use a subset 
+-- Bind β variables to the orignal scope α where the body (e.g. a term) may use a subset
 -- of the variables.
 record Binder (@0 β : Scope name) (f : @0 Scope name → Set) (@0 α : Scope name) : Set where
   constructor  MkBinder
@@ -246,11 +252,11 @@ record Binder (@0 β : Scope name) (f : @0 Scope name → Set) (@0 α : Scope na
 
 open Binder public
 
--- Relevant pair. Combine two constructs (f and g). A cover tells 
--- which variables goes where. 
+-- Relevant pair. Combine two constructs (f and g). A cover tells
+-- which variables goes where.
 record Pair (f g : @0 Scope name → Set) (@0 α : Scope name) : Set where
-  constructor MkPair 
-  field 
+  constructor MkPair
+  field
     @0 {fvₗ} : Scope name
     @0 {fvᵣ} : Scope name
     cover    : Cover fvₗ fvᵣ α

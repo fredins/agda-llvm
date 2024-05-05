@@ -10,11 +10,14 @@ module Formalize.Syntax.Grin
 private open module @0 G = Globals globals
 
 open import Haskell.Prelude using (_<>_) 
-open import Haskell.Extra.Erase 
-open import Agda.Primitive
+open import Haskell.Extra.Erase using (Rezz)
+open import Agda.Primitive using ()
 
-open import Formalize.Scope
-open import Formalize.Syntax.Common
+open import Formalize.Scope using
+  ( Scope; ∅; _▹_; Atom; Pair; In; -- _∈_
+    Binder; Sub -- _⊆_
+  ) 
+open import Formalize.Syntax.Common using ()
 
 private variable
   @0 α β γ : Scope name
