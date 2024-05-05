@@ -217,14 +217,22 @@ Sub α β = Σ0[ δ ∈ Scope _ ] α ⋈ δ ≡ β
 
 {-# COMPILE AGDA2HS Sub #-}
 
-syntax Sub α β = α ⊆ β  -- Do you need to use "syntax" here? Or would _⊆_ = Sub work. If so, please change.
+infix 5 _⊆_
+
+_⊆_ = Sub
+
+{-# COMPILE AGDA2HS _⊆_ inline #-}
 
 In : @0 name → @0 Scope name → Set
 In x α = (∅ ▹ x) ⊆ α
 
 {-# COMPILE AGDA2HS In #-}
 
-syntax In x α = x ∈ α   -- Same question about syntax as above. I would prefer _∈_ = In
+infix 5 _∈_
+
+_∈_ = In   
+
+{-# COMPILE AGDA2HS _∈_ inline #-}
 
 inHere : x ∈ (α ▹ x)
 inHere = < SExtendL SEmptyL _ >

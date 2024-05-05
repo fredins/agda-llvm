@@ -14,8 +14,8 @@ open import Haskell.Extra.Erase using (Rezz)
 open import Agda.Primitive using ()
 
 open import Formalize.Scope using
-  ( Scope; ∅; _▹_; Atom; Pair; In; -- _∈_
-    Binder; Sub -- _⊆_
+  ( Scope; ∅; _▹_; Atom; Pair; In; _∈_;
+    Binder; Sub; _⊆_
   ) 
 open import Formalize.Syntax.Common using ()
 
