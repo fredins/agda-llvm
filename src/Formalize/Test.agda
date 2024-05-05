@@ -21,7 +21,7 @@ open import Formalize.Scope
 name = String
 
 -- We define the global function names and variable names.
--- GRIN's interproderal heap point analysis determines the tags
+-- GRIN's interprocedural heap point analysis determines the tags
 -- every variable can be assigned to, so all the variables are
 -- globally known.
 
