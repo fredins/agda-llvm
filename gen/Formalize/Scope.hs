@@ -14,9 +14,8 @@ instance Monoid Scope where
     mconcat [] = mempty
     mconcat (x : xs) = x <> mconcat xs
 
-infixr 5 `cons`
 cons :: Scope -> Scope
-cons α = SExtend SEmpty () <> α
+cons xs = SExtend SEmpty () <> xs
 
 rezzExtend :: Scope -> Scope
 rezzExtend = \ x -> SExtend x ()

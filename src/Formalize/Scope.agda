@@ -66,13 +66,15 @@ instance
   iLawfulMonoidScope .concatenation (x ∷ xs) rewrite concatenation xs = refl
 
 cons : @0 name → Scope name → Scope name
-cons x α = (∅ ▹ x) <> α
+cons x xs = (∅ ▹ x) <> xs
 
 {-# COMPILE AGDA2HS cons #-}
 
-infixr 5 cons
+infixr 5 _◃_
 
-syntax cons x α = x ◃ α
+_◃_ = cons 
+
+{-# COMPILE AGDA2HS _◃_ inline #-}
 
 private variable
   @0 α β γ δ ε ζ : Scope name
@@ -136,7 +138,11 @@ data Split {@0 name : Set} : (@0 α β γ : Scope name) → Set where
 
 {-# COMPILE AGDA2HS Split deriving Show #-}
 
-syntax Split α β γ = α ⋈ β ≡ γ
+infix 5 _⋈_≡_
+
+_⋈_≡_ = Split
+
+{-# COMPILE AGDA2HS _⋈_≡_ inline #-}
 
 splitComm : α ⋈ β ≡ γ → β ⋈ α ≡ γ
 splitComm SEmptyL = SEmptyR
@@ -210,7 +216,11 @@ Split3 {name} α β γ δ = Σ0[ ζ ∈ Scope name ] (α ⋈ ζ ≡ δ) × (β �
 
 {-# COMPILE AGDA2HS Split3 #-}
 
-syntax Split3 α β γ δ = α ⋈ β ⋈ γ ≡ δ
+infix 5 _⋈_⋈_≡_
+
+_⋈_⋈_≡_ = Split3 
+
+{-# COMPILE AGDA2HS _⋈_⋈_≡_ inline #-}
 
 Sub : {@0 name : Set} (@0 α β : Scope name) → Set
 Sub α β = Σ0[ δ ∈ Scope _ ] α ⋈ δ ≡ β
