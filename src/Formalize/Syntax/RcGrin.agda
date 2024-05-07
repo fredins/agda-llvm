@@ -24,6 +24,25 @@ private variable
   @0 α β γ δ : Scope name
   @0 x y     : name
 
+-- TODO: 
+--   Maybe remove Dup from Name and place it under Term instead. 
+--   This will change the type of the rules name, names, and value 
+--   to returning a Rezz (Scope name) β (or something else). Hence, 
+--   the rules will resemble the Reiking et al. (2021) paper less. 
+--   On the other hand, both the Koka implementation and our current 
+--   implementation (src/Compiler/Grin/Perceus.hs) uses this algorithm.
+--
+--   Perhaps also change dup x ; λ () → ... to dup x ; λ x′ x″ → ... so the 
+--   language will actually be linear (for heap allocated variables). However, 
+--   this require us to implement subsitution... Another benefit is we get 
+--   more control over sharing; dup doesn't always have to be a reference 
+--   count increment. It could instead be a clone (with a reference count of 1). 
+--
+--   Before making this change, we need to think through some of the consequences: 
+--     - We need to update the TagInfo in the compiler with the new variables x′ and x″.
+--     - How will this affect the dup implementation? 
+--     - How will this affect drop specialization and the future reuse analysis?
+--     - It seems that we lose information that x, x′, and x″ are mostly equal.
 data Name : @0 name → @0 Scope name → Set where
   Only : (@0 x : name) → Name x (∅ ▹ x)
   Dup  : (@0 x : name) → Name x (∅ ▹ x)
