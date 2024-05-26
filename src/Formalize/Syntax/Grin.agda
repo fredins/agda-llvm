@@ -11,13 +11,8 @@ private open module @0 G = Globals globals
 
 open import Haskell.Prelude using (_<>_) 
 open import Haskell.Extra.Erase using (Rezz)
-open import Agda.Primitive using ()
 
-open import Formalize.Scope using
-  ( Scope; ∅; _▹_; Atom; Pair; In; _∈_;
-    Binder; Sub; _⊆_
-  ) 
-open import Formalize.Syntax.Common using ()
+open import Formalize.Scope
 
 private variable
   @0 α β γ : Scope name
@@ -33,11 +28,16 @@ data Names (@0 α : Scope name) : Set where
   NCons : Pair (Name x) Names α → Names α
 
 {-# COMPILE AGDA2HS Names deriving Show #-}
+
+pattern cons cover x xs = NCons (MkPair cover x xs)
+pattern nil = NNil None
   
 data Val (@0 α : Scope name) : Set where
   Var : Name x α → Val α
 
 {-# COMPILE AGDA2HS Val deriving Show #-}
+
+pattern var x = Var (Only x)
 
 data Term (@0 α : Scope name) : Set where
   Return : Val α → Term α
@@ -45,6 +45,8 @@ data Term (@0 α : Scope name) : Set where
   Bind   : Rezz _ β → Pair Term (Binder β Term) α → Term α
 
 {-# COMPILE AGDA2HS Term deriving Show #-}
+
+pattern bind cover tl r usage tr = Bind r (MkPair cover tl (MkBinder usage tr))
 
 record Definition : Set where
   constructor MkDef 

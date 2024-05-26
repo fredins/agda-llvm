@@ -24,7 +24,6 @@ private variable
   @0 α β γ δ : Scope name
   @0 x y     : name
 
-
 -- Note: 
 --   It is perhaps better to have Dup as a Term constructor instead, 
 --   in the form: "dup x ; λ x′ → ‥". However, at the moment I am 
@@ -42,10 +41,15 @@ data Names (@0 α : Scope name) : Set where
 
 {-# COMPILE AGDA2HS Names deriving Show #-}
 
+pattern cons cover x xs = NCons (MkPair cover x xs)
+pattern nil = NNil None
+
 data Val (@0 α : Scope name) : Set where
   Var : Name x α → Val α
 
 {-# COMPILE AGDA2HS Val deriving Show #-}
+
+pattern var x = Var (Only x)
 
 data Term (@0 α : Scope name) : Set where
   Return : Val α → Term α
@@ -54,6 +58,9 @@ data Term (@0 α : Scope name) : Set where
   Drop   : Name x α → Term α
 
 {-# COMPILE AGDA2HS Term deriving Show #-}
+
+pattern bind cover tl r usage tr = Bind r (MkPair cover tl (MkBinder usage tr))
+pattern drop x = Drop (Only x) 
 
 -- TODO: add varsUsage once primitives are added.
 record Definition : Set where
@@ -73,10 +80,6 @@ bindEmpty c tl tr = Bind (rezz ∅) (MkPair c tl (MkBinder < SEmptyR > (subst0 T
 
 {-# COMPILE AGDA2HS bindEmpty #-}
 
-drop : (@0 x : name) → Term (∅ ▹ x)
-drop x = Drop (Only x) 
-
-{-# COMPILE AGDA2HS drop #-}
 
 dropsAux : Rezz (Scope name) δ → α ⋈ δ ≡ β → Term (γ <> α) → Term (γ <> β)
 dropsAux {γ = _} (rezz ∅)       SEmptyL        t = t

@@ -65,14 +65,14 @@ instance
   iLawfulMonoidScope .concatenation [] = refl
   iLawfulMonoidScope .concatenation (x ∷ xs) rewrite concatenation xs = refl
 
-cons : @0 name → Scope name → Scope name
-cons x xs = (∅ ▹ x) <> xs
+prepend : @0 name → Scope name → Scope name
+prepend x xs = (∅ ▹ x) <> xs
 
-{-# COMPILE AGDA2HS cons #-}
+{-# COMPILE AGDA2HS prepend #-}
 
 infixr 5 _◃_
 
-_◃_ = cons 
+_◃_ = prepend 
 
 {-# COMPILE AGDA2HS _◃_ inline #-}
 

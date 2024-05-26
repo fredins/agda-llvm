@@ -52,9 +52,12 @@ f0 = record
   { vars = rezz (∅ ▹ "x")
   ; varsUsage = < SEmptyR >
   ; term =
-    Bind (rezz (∅ ▹ "y" ▹ "z")) (MkPair CEmptyR
-     (AppDef "f" (inThere inHere) (NCons (MkPair CEmptyR (Only "x") (NNil None))))
-     (MkBinder < SExtendR SEmptyR "z" > (Return (Var (Only "y")))))
+    bind 
+      CEmptyR
+      (AppDef "f" (inThere inHere) (cons CEmptyR (Only "x") nil))
+      (rezz (∅ ▹ "y" ▹ "z"))
+      < SExtendR SEmptyR "z" >
+      (Return (var "y"))
   }
 
 {-# COMPILE AGDA2HS f0 #-}
@@ -70,12 +73,17 @@ f0′ : R.Definition
 f0′ = record
   { vars = rezz (∅ ▹ "x")
   ; term =
-    R.Bind (rezz (∅ ▹ "y" ▹ "z")) (MkPair CEmptyR
-     (R.AppDef "f" (inThere inHere) (R.NCons (MkPair CEmptyR (R.Only "x") (R.NNil None))))
-     (MkBinder < SEmptyR > (R.Bind (rezz ∅) (MkPair (CExtendL CEmptyL "z")
-       (R.Drop (R.Only "z"))
-        (MkBinder < SEmptyR >
-         (R.Return (R.Var (R.Only "y"))))))))
+    R.bind  
+     CEmptyR
+     (R.AppDef "f" (inThere inHere) (R.cons CEmptyR (R.Only "x") R.nil))
+     (rezz (∅ ▹ "y" ▹ "z"))
+     < SEmptyR > 
+     (R.bind 
+       (CExtendL CEmptyL "z") 
+       (R.drop "z") 
+       (rezz ∅) 
+       < SEmptyR > 
+       (R.Return (R.var "y")))
   }
 
 
@@ -103,9 +111,12 @@ f1 = record
   { vars = rezz (∅ ▹ "x" ▹ "y")
   ; varsUsage = < SExtendR SEmptyR "y" >
   ; term =
-    Bind (rezz (∅ ▹ "z" ▹ "a" ▹ "b")) (MkPair (CExtendB CEmptyL "x")
-      (AppDef "f" (inThere inHere) (NCons (MkPair CEmptyR (Only "x") (NNil None)))) (MkBinder < SExtendR (SExtendL SEmptyL "a") "b" >
-      (AppDef "g" inHere (NCons (MkPair (CExtendL CEmptyL "a") (Only "a") (NCons (MkPair CEmptyR (Only "x") (NNil None))))))))
+    bind 
+      (CExtendB CEmptyL "x")
+      (AppDef "f" (inThere inHere) (cons CEmptyR (Only "x") nil))
+      (rezz (∅ ▹ "z" ▹ "a" ▹ "b"))
+      < SExtendR (SExtendL SEmptyL "a") "b" >
+      (AppDef "g" inHere (cons (CExtendL CEmptyL "a") (Only "a") (cons CEmptyR (Only "x") nil)))
   }
 
 {-# COMPILE AGDA2HS f1 #-}
@@ -123,36 +134,27 @@ f1′ : R.Definition
 f1′ = record
   { vars = rezz (∅ ▹ "x" ▹ "y")
   ; term =
-    R.Bind (rezz ∅)
-      (MkPair (CExtendL CEmptyL "y")
-       (R.Drop
-        (R.Only "y"))
-       (MkBinder < SEmptyR >
-        (R.Bind
+    R.bind 
+      (CExtendL CEmptyL "y")
+      (R.drop "y") 
+      (rezz ∅)
+      < SEmptyR >
+       (R.bind 
+         (CExtendB CEmptyL "x")
+         (R.AppDef "f" (inThere inHere) (R.cons CEmptyR (R.Dup "x") R.nil))
          (rezz (∅ ▹ "z" ▹ "a" ▹ "b"))
-         (MkPair (CExtendB CEmptyL "x")
-          (R.AppDef "f" (inThere inHere)
-           (R.NCons
-            (MkPair CEmptyR (R.Dup "x")
-             (R.NNil None))))
-          (MkBinder < SEmptyR >
-           (R.Bind (rezz ∅)
-            (MkPair (CExtendL CEmptyL "b")
-             (R.Drop
-              (R.Only "b"))
-             (MkBinder < SEmptyR >
-              (R.Bind (rezz ∅)
-               (MkPair (CExtendR (CExtendL CEmptyL "z") "a")
-                (R.Drop
-                 (R.Only "z"))
-                (MkBinder < SEmptyR >
-                 (R.AppDef "g" inHere
-                  (R.NCons
-                   (MkPair (CExtendL CEmptyL "a")
-                    (R.Only "a")
-                    (R.NCons
-                     (MkPair CEmptyR (R.Only "x")
-                      (R.NNil None)))))))))))))))))
+         < SEmptyR >
+           (R.bind 
+             (CExtendL CEmptyL "b")
+             (R.drop "b")
+             (rezz ∅)
+             < SEmptyR >
+             (R.bind 
+               (CExtendR (CExtendL CEmptyL "z") "a") 
+               (R.drop "z") 
+               (rezz ∅) 
+               < SEmptyR >
+               (R.AppDef "g" inHere (R.cons (CExtendL CEmptyL "a") (R.Only "a") (R.cons CEmptyR (R.Only "x") R.nil))))))
   }
 
 -- f1 x y =
