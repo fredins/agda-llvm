@@ -5,7 +5,6 @@ open import Formalize.Scope
 
 record Globals : Set where
   field
-    varScope   : Scope name
     defScope   : Scope name
     -- tagScope   : Scope name
     -- fieldScope : All (λ _ → Scope name) tagScope

@@ -257,12 +257,23 @@ inThere < s > = < SExtendR s _ >
 @0 diff : {α β : Scope name} → α ⊆ β → Scope name
 diff = proj₁
 
+data All (p : @0 name → Set) : @0 Scope name → Set where
+  AEmpty  : All p ∅
+  AExtend : All p α → p x → All p (α ▹ x)
+
+-- TODO Move TagInfo, Binder, Pair, Atom, and Singleton to new module.
+
+-- TODO add constructors.
+data TagInfo : Set where
+
 -- Bind β variables to the orignal scope α where the body (e.g. a term) may use a subset
 -- of the variables.
 record Binder (@0 β : Scope name) (f : @0 Scope name → Set) (@0 α : Scope name) : Set where
   constructor  MkBinder
   field
     @0 {usedScope} : Scope name
+    -- TODO: maybe add a tagInfo field.
+    -- tagInfo : All (λ _ → TagInfo) β
     usage          : usedScope ⊆ β
     body           : f (α <> usedScope)
 

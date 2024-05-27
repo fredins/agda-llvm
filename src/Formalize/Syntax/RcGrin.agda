@@ -53,9 +53,13 @@ pattern var x = Var (Only x)
 
 data Term (@0 α : Scope name) : Set where
   Return : Val α → Term α
+  -- TODO replace Names with Vals for easier substitution.
   AppDef : (@0 f : name) → f ∈ defScope → Names α → Term α
   Bind   : Rezz (Scope name) β → Pair Term (Binder β Term) α → Term α
   Drop   : Name x α → Term α
+
+  -- An alternative is to have Subst constructor:
+  -- Subst  : Term α → (name → Val α) → Term α
 
 {-# COMPILE AGDA2HS Term deriving Show #-}
 

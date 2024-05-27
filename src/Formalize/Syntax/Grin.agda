@@ -53,6 +53,7 @@ record Definition : Set where
   field
     @0 {varsScope} : Scope name
     @0 {freeScope} : Scope name
+    -- TODO use Binder
     vars           : Rezz (Scope name) varsScope
     varsUsage      : freeScope ⊆ varsScope
     term           : Term freeScope

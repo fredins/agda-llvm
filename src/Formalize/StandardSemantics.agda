@@ -18,6 +18,11 @@ private variable
   @0 x       : name
   @0 α β γ δ : Scope name
 
+-- Note: 
+-- We can implement the interpreter as 'usual' 
+-- via recursion and substitution. So, we don't 
+-- need a data type for E[e] as in Reiking et al.
+
 eval : Term α → Value
 eval (Return (Var n)) = {! !}
 eval (AppDef f p ns) = {! !}
