@@ -27,7 +27,6 @@ name = String
 
 globals = record
   { defScope = ∅ ▹ "f" ▹ "g"
-  ; varScope = ∅ ▹ "x" ▹ "y" ▹ "z" ▹ "a" ▹ "b" ▹ "c"
   }
 
 -- Grin syntax before the Perceus algorithm (no dup/drop).
