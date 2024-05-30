@@ -53,7 +53,9 @@ record Definition : Set where
   field
     @0 {varsScope} : Scope name
     @0 {freeScope} : Scope name
-    -- TODO use Binder
+    -- TODO use Binder. However, to do this, vars cannot be Rezzed. One solution 
+    -- is to redefine Cover like Connor McBride. That is, base Cover on thinnings (⊆) 
+    -- which are defined using Keep/Discard instead of Extend/EmptyL/EmptyR.
     vars           : Rezz (Scope name) varsScope
     varsUsage      : freeScope ⊆ varsScope
     term           : Term freeScope
