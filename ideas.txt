@@ -1,0 +1,67 @@
+
+Bad for performance: 
+  * Boxing
+  * Allocations
+  * Pointers
+  * Unknown calls
+  * Branching
+  * Operating on data not in cache.
+
+Key transformations:
+
+  * Defunctionalization 
+     + Elimnates unknown calls.
+     - Unknown calls are replaced by branching.
+     - Interprocedural analysis.
+ 
+  * Specialization 
+     + Enables unboxing 
+     + Reduces branching.
+     - Increases code size
+
+  * Fusion/Deforestation
+     + Removes allocations.
+     + Removes sequential traversals.
+     - Requires lazinesss or inconsistent rewrite rules.
+
+  * In-place updates
+     + Removes allocations and deallocations.
+     + Data is in cache.
+
+  * Tall call elimination
+     + Prevents stack overflow.
+     + Programmer have control over whether to tail call.
+     - Producer/Consumer relationships are hard for the programmer.
+     - Strictness (prevents fusion).
+
+   
+Question: What is the optimal memory layout?
+
+Following properties we'd like to have:
+
+  * Good cache locality and unboxed data. Serialized 
+    representations is...
+
+  * High reuse potential for the Perceus reuse-analysis.
+    A uniform memory layout is optimal for this property. 
+    This is in Lam and Parreaux (2024) lazy reference counting 
+    scheme. They also enables bounded memory operations. The 
+    drawback of uniform memory layout is pointer-heavy data 
+    (fragementation) and a higher memory usage.
+   
+  * Bounded memory operations. 
+   
+    Parallellism. Pointer-based and serialized layout have 
+    different pros and cons when it comes to parallellism. 
+    See Koparkar et al. (2021). Pointer-based layout 
+    enable more 'forks' in dynamically sized data for example a 
+    where don't know how big each subtree is. However, when we 
+    statically know the size of each item, serialized memory can 
+    spawn all forks at once. 
+   
+  * Efficient forcing of thunks.
+   
+  * How is sharing implemented?
+   
+  * Can we control sharing, and do we get any guarantees related to space 
+    leaks (due to excess sharing)?
