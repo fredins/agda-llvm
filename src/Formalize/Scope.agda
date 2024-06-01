@@ -65,14 +65,10 @@ instance
   iLawfulMonoidScope .concatenation [] = refl
   iLawfulMonoidScope .concatenation (x ∷ xs) rewrite concatenation xs = refl
 
-prepend : @0 name → Scope name → Scope name
-prepend x xs = (∅ ▹ x) <> xs
-
-{-# COMPILE AGDA2HS prepend #-}
-
 infixr 5 _◃_
 
-_◃_ = prepend 
+_◃_ : @0 name → Scope name → Scope name
+x ◃ xs = (∅ ▹ x) <> xs
 
 {-# COMPILE AGDA2HS _◃_ inline #-}
 
@@ -102,6 +98,7 @@ rezzInit {α = α} (Rezzed xs p) =
 
 {-# COMPILE AGDA2HS rezzInit #-}
 
+
 <>-▹-assoc : (α β : Scope name) (x : name) → α <> (β ▹ x) ≡ (α <> β) ▹ x
 <>-▹-assoc α ∅ x = refl
 <>-▹-assoc α (β ▹ y) x rewrite <>-▹-assoc α β x = refl
@@ -112,6 +109,33 @@ rezzInit {α = α} (Rezzed xs p) =
   ≡⟨ sym (associativity α (∅ ▹ x) β) ⟩
   α <> (x ◃ β)
   ∎
+
+-- FIXME better name
+rezzAppendLeft : Rezz (Scope name) (α <> β) → Rezz (Scope name) β  → Rezz (Scope name) α
+rezzAppendLeft {α = α} {β = β}  r (Rezzed ∅ p) = 
+  let 
+    @0 proof : α <> β ≡ α
+    proof = begin 
+      α <> β 
+      ≡⟨ cong (α <>_) (sym p) ⟩ 
+      α <> ∅
+      ≡⟨ rightIdentity α ⟩
+      α
+      ∎
+  in
+  subst0 (Rezz (Scope _)) proof r
+rezzAppendLeft {α = α} {β = β} r (Rezzed (xs ▹ x) p) = 
+  let 
+    @0 proof : α <> β ≡ (α <> xs) ▹ x
+    proof = begin 
+      α <> β
+      ≡⟨ cong (α <>_) (sym p) ⟩
+      α <> (xs ▹ x)
+      ≡⟨ <>-▹-assoc α xs x ⟩
+      (α <> xs) ▹ x
+      ∎
+  in
+  rezzAppendLeft (rezzInit (subst0 (Rezz (Scope _)) proof r)) (rezz xs)
 
 -- Cover is a disjoint union.
 data Cover {@0 name : Set} : (@0 α β γ : Scope name) → Set where

@@ -11,6 +11,7 @@ private open module @0 G = Globals globals
 
 open import Haskell.Prelude using (_<>_) 
 open import Haskell.Extra.Erase 
+open import Haskell.Extra.Sigma
 open import Haskell.Law.Equality 
 open import Haskell.Law.Monoid.Def using (leftIdentity; rightIdentity)
 open import Agda.Primitive
@@ -100,7 +101,23 @@ bindEmpty cover tl tr = bind cover tl (rezz ∅) empty (subst0 Term (sym (rightI
 
 {-# COMPILE AGDA2HS bindEmpty #-}
 
--- dropsAux : Rezz (Scope name) δ → α ⋈ δ ≡ β → Term (γ <> α) → Term (γ <> β)
--- dropsAux (rezz xs) s t = ?
+dropsAux : {@0 Φ : α ⊆ γ} {@0 Θ : β ⊆ γ} → Rezz (Scope name) δ → Split Φ Θ → Term (α <> δ) → Term (γ <> δ)
+dropsAux r empty t = t
+dropsAux {α = α ▹ x} {γ = γ ▹ x} {δ = δ} r (s left x) t = 
+  subst0 Term (sym (▹-<>≡<>-◃ γ x δ)) 
+    (dropsAux (rezzCong (x ◃_) r) s (subst0 Term (▹-<>≡<>-◃ α x δ) t))
+dropsAux {α = α} {γ = γ ▹ x} {β = β ▹ x} {δ = δ} r (s right x) t = 
+  bindEmpty (coverEmptyLeft (rezzSplit s) left x rights r) (drop x) 
+    (dropsAux r s t)
 
+{-# COMPILE AGDA2HS dropsAux #-}
 
+drops : α ⊆ β → Term (γ <> α) → Term (γ <> β)
+drops {α = α} {β = β} {γ = γ} p t = 
+  let 
+   r = rezzAppendLeft (rezzTerm t) (rezzSubLeft p)
+   < q , s > = subToSplit p
+  in
+  dropsAux (rezz ∅) (splitAppend (splitEmptyRight r) s) t
+
+{-# COMPILE AGDA2HS drops #-}
