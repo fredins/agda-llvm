@@ -71,18 +71,26 @@ rezzName : Name x α → Rezz (Scope name) α
 rezzName (Only x) = rezz (∅ ▹ x)
 rezzName (Dup x) = rezz (∅ ▹ x)
 
+{-# COMPILE AGDA2HS rezzName #-}
+
 rezzNames : Names α → Rezz (Scope name) α
 rezzNames nil = rezz ∅
 rezzNames (cons cover n ns) = rezzCover cover
 
+{-# COMPILE AGDA2HS rezzNames #-}
+
 rezzVal : Val α → Rezz (Scope name) α
 rezzVal (Var n) = rezzName n
+
+{-# COMPILE AGDA2HS rezzVal #-}
 
 rezzTerm : Term α → Rezz (Scope name) α
 rezzTerm (Return v) = rezzVal v
 rezzTerm (AppDef f p ns) = rezzNames ns
 rezzTerm (bind cover tl r usage tr) = rezzCover cover
 rezzTerm (Drop n) = rezzName n
+
+{-# COMPILE AGDA2HS rezzTerm #-}
 
 -- TODO: add varsUsage once primitives are added.
 record Definition : Set where

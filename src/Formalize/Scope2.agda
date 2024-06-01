@@ -9,6 +9,7 @@ open import Haskell.Prelude using
     _×_; _,_; fst; snd; 
     ⊥
   )
+open import Haskell.Prim.Tuple using (first; second; _***_)
 open import Haskell.Extra.Erase
 open import Haskell.Extra.Sigma
 open import Formalize.Utils.Erase
@@ -120,6 +121,10 @@ rezzSubRight (p discard x) = rezzCong (_▹ x) (rezzSubRight p)
 
 {-# COMPILE AGDA2HS rezzSubRight #-}
 
+@0 diff : {α β : Scope name} → α ⊆ β → Scope name
+diff empty = ∅
+diff (p keep x) = diff p
+diff (p discard x) = diff p ▹ x
 
 In : @0 name → @0 Scope name → Set
 In x α = (∅ ▹ x) ⊆ α
@@ -304,3 +309,69 @@ data Atom {@0 name : Set} : @0 Scope name → Set where
   None : Atom ∅
 
 {-# COMPILE AGDA2HS Atom deriving Show #-}
+
+
+
+
+  
+
+
+    -- splitlDelta     : Δₗᵣ ⋈ Δₗ ⋈ Γₗᵣ ≡ Δₗᵣ,Δₗ,Γₗᵣ
+    -- splitrDelta     : Δₗᵣ ⋈ Δᵣ       ≡ Δₗᵣ,Δᵣ
+    -- splitrGamma     : Γₗᵣ ⋈ Γᵣ       ≡ Γₗᵣ,Γᵣ
+    --
+    -- splitDelta      : Δₗᵣ ⋈ Δₗ ⋈ Δᵣ ≡ Δ
+    -- splitGamma      : Γₗᵣ ⋈ Γₗ ⋈ Γᵣ ≡ Γ
+    --
+    -- splitl          : Δₗᵣ,Δₗ,Γₗᵣ ⋈ Γₗ     ≡ α
+    -- splitr          : Δₗᵣ,Δᵣ     ⋈ Γₗᵣ,Γᵣ ≡ β
+
+
+
+
+
+
+  -- record Temp {name : Set} : Set where 
+  --   field
+  --     @0 {Δₗᵣ Δₗ Δᵣ}  : Scope name
+  --     @0 {Γₗᵣ Γₗ Γᵣ}  : Scope name
+  --
+  --     -- Composite scopes. Note funny names.
+  --     @0 {Δₗᵣ,Δₗ,Γₗᵣ} : Scope name
+  --     @0 {Δₗᵣ,Δᵣ}     : Scope name
+  --     @0 {Γₗᵣ,Γᵣ}     : Scope name
+
+
+
+-- splitAndCover : Δ ⋈ Γ ≡ γ → Cover α β γ → SplitCover Δ Γ α β
+-- splitAndCover = ? 
+
+
+{-
+record SplitCover (@0 Δ Γ α β  : Scope name) : Set where
+  field
+    -- The subsripts l, r, and lr indicate subscopeness of 
+    -- only α, only β, or both α and β.
+    @0 {Δₗᵣ Δₗ Δᵣ}  : Scope name
+    @0 {Γₗᵣ Γₗ Γᵣ}  : Scope name
+
+    -- Composite scopes. Note funny names.
+    @0 {Δₗᵣ,Δₗ,Γₗᵣ} : Scope name
+    @0 {Δₗᵣ,Δᵣ}     : Scope name
+    @0 {Γₗᵣ,Γᵣ}     : Scope name
+
+    -- Auxiliary splits.
+    splitlDelta     : Δₗᵣ ⋈ Δₗ ⋈ Γₗᵣ ≡ Δₗᵣ,Δₗ,Γₗᵣ
+    splitrDelta     : Δₗᵣ ⋈ Δᵣ       ≡ Δₗᵣ,Δᵣ
+    splitrGamma     : Γₗᵣ ⋈ Γᵣ       ≡ Γₗᵣ,Γᵣ
+
+    splitDelta      : Δₗᵣ ⋈ Δₗ ⋈ Δᵣ ≡ Δ
+    splitGamma      : Γₗᵣ ⋈ Γₗ ⋈ Γᵣ ≡ Γ
+
+    splitl          : Δₗᵣ,Δₗ,Γₗᵣ ⋈ Γₗ     ≡ α
+    splitr          : Δₗᵣ,Δᵣ     ⋈ Γₗᵣ,Γᵣ ≡ β
+-}
+
+-- splitAndCover : Δ ⋈ Γ ≡ γ → Cover α β γ → SplitCover Δ Γ α β
+-- splitAndCover = ? 
+
