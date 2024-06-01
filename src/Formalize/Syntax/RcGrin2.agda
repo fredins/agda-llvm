@@ -115,9 +115,9 @@ dropsAux {α = α} {γ = γ ▹ x} {β = β ▹ x} {δ = δ} r (s right x) t =
 drops : α ⊆ β → Term (γ <> α) → Term (γ <> β)
 drops {α = α} {β = β} {γ = γ} p t = 
   let 
-   r = rezzAppendLeft (rezzTerm t) (rezzSubLeft p)
-   < q , s > = subToSplit p
-  in
-  dropsAux (rezz ∅) (splitAppend (splitEmptyRight r) s) t
+    r = rezzAppendLeft (rezzTerm t) (rezzSubLeft p)
+    < q , s > = subToSplit p
+  in 
+    dropsAux (rezz ∅) (splitAppend (splitEmptyRight r) s) t
 
 {-# COMPILE AGDA2HS drops #-}

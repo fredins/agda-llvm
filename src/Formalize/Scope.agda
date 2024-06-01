@@ -123,7 +123,7 @@ rezzAppendLeft {α = α} {β = β}  r (Rezzed ∅ p) =
       α
       ∎
   in
-  subst0 (Rezz (Scope _)) proof r
+    subst0 (Rezz (Scope _)) proof r
 rezzAppendLeft {α = α} {β = β} r (Rezzed (xs ▹ x) p) = 
   let 
     @0 proof : α <> β ≡ (α <> xs) ▹ x
@@ -135,7 +135,7 @@ rezzAppendLeft {α = α} {β = β} r (Rezzed (xs ▹ x) p) =
       (α <> xs) ▹ x
       ∎
   in
-  rezzAppendLeft (rezzInit (subst0 (Rezz (Scope _)) proof r)) (rezz xs)
+    rezzAppendLeft (rezzInit (subst0 (Rezz (Scope _)) proof r)) (rezz xs)
 
 -- Cover is a disjoint union.
 data Cover {@0 name : Set} : (@0 α β γ : Scope name) → Set where
@@ -184,14 +184,14 @@ splitAssoc SEmptyL q = < SEmptyL , q >
 splitAssoc SEmptyR q = < q , SEmptyL >
 splitAssoc p SEmptyR = < p , SEmptyR >
 splitAssoc (SExtendL p x) (SExtendL q x) =
-  let < r , s > = splitAssoc p q
-  in  < SExtendL r x , s >
+  let < r , s > = splitAssoc p q in  
+  < SExtendL r x , s >
 splitAssoc (SExtendR p x) (SExtendL q x) =
-  let < r , s > = splitAssoc p q
-  in  < SExtendR r x , SExtendL s x >
+  let < r , s > = splitAssoc p q in  
+  < SExtendR r x , SExtendL s x >
 splitAssoc p (SExtendR q x) =
-  let < r , s > = splitAssoc p q
-  in  < SExtendR r x , SExtendR s x >
+  let < r , s > = splitAssoc p q in  
+  < SExtendR r x , SExtendR s x >
 
 {-# COMPILE AGDA2HS splitAssoc #-}
 
